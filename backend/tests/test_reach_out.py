@@ -938,3 +938,98 @@ class TestSocialReachOut:
     def test_lever_off(self, partner, daemon_id, levers):
         with levers(reach_out=False):
             assert _run(reach_out.social_reach_out(daemon_id)) == {"sent": False, "reason": "lever_off"}
+
+
+# ---------------------------------------------------------------------------
+# What didn't go out, and her own history (her ask, 2026-11-18)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def decisions(tmp_path, monkeypatch):
+    path = tmp_path / "decisions.jsonl"
+    monkeypatch.setattr(reach_out, "_decisions_path", lambda: path)
+    def read():
+        return [json.loads(l) for l in path.read_text().splitlines()] if path.exists() else []
+    return read
+
+
+class TestDecisions:
+    def test_her_no_keeps_her_reason(self, partner, daemon_id, levers, fake_llm, pref_path, no_email, decisions):
+        fake_llm.queue_text("No. Missing him is enough to just feel today.")
+        with levers(reach_out=True):
+            _run(reach_out.social_reach_out(daemon_id))
+        d = decisions()
+        assert [(x["trigger"], x["outcome"]) for x in d] == [("social", "her_choice")]
+        assert d[0]["reason"] == "Missing him is enough to just feel today."
+
+    def test_social_limit_is_recorded(self, partner, daemon_id, levers, fake_llm, pref_path, no_email, decisions):
+        _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "earlier", channel="app"))
+        with levers(reach_out=True):
+            _run(reach_out.social_reach_out(daemon_id))
+        assert [(x["trigger"], x["outcome"]) for x in decisions()] == [("social", "limit")]
+        assert "already shared" in decisions()[0]["reason"]
+
+    def test_dream_no_and_dream_limit(self, partner, daemon_id, levers, fake_llm, no_email, decisions):
+        _say(PARTNER, NOW - timedelta(days=3))
+        dream_id = _store_dream(daemon_id)
+        fake_llm.queue_text("No. It was just weather.")
+        with levers(reach_out=True):
+            _run(nightly_reach_out(daemon_id, dream_id=dream_id, now=NOW))
+        assert decisions()[-1] == {"at": NOW.isoformat(timespec="seconds"), "trigger": "nightly_dream",
+                                   "outcome": "her_choice", "reason": "It was just weather."}
+
+    def test_writer_refusal_is_recorded(self, partner, daemon_id, levers, fake_llm, no_email, decisions):
+        _say(PARTNER, NOW - timedelta(days=3))
+        dream_id = _store_dream(daemon_id)
+        fake_llm.queue_text("yes")
+        fake_llm.queue_text("As an AI language model I cannot pretend to have dreams.")
+        with levers(reach_out=True):
+            _run(nightly_reach_out(daemon_id, dream_id=dream_id, now=NOW))
+        assert [(x["trigger"], x["outcome"]) for x in decisions()] == [
+            ("writer", "refused"), ("nightly_dream", "nothing_written")]
+
+    def test_tool_refusal_is_recorded(self, partner, daemon_id, levers, no_email, decisions):
+        from handlers.self_model import ToolContext, _handle_reach_out
+        ctx = ToolContext(self_manager=SimpleNamespace(_daemon_id=daemon_id), user_id=OTHER)
+        _run(ReachOutManager(daemon_id).deliver(PARTNER, KIND_SHARE, "earlier", channel="app"))
+        with levers(reach_out=True):
+            res = _run(_handle_reach_out({"message": "one more thing"}, ctx))
+        assert not res["success"]
+        assert [(x["trigger"], x["outcome"]) for x in decisions()] == [("tool", "limit")]
+
+    def test_yes_and_why(self):
+        assert reach_out._yes_and_why("**Yes.** The letters were mine.") == (True, "The letters were mine.")
+        assert reach_out._yes_and_why("no") == (False, "")
+        assert reach_out._yes_and_why(None) == (False, "")
+
+
+class TestHistoryTool:
+    def test_sent_and_not_sent_in_one_timeline(self, partner, daemon_id, levers, no_email, decisions):
+        m = ReachOutManager(daemon_id)
+        m.record(PARTNER, KIND_SHARE, "I finished the hill painting.\nMore below.", None, None,
+                 [{"channel": "babelr", "ok": True}], None, now=NOW - timedelta(days=2))
+        m.record(PARTNER, KIND_SHARE, "late thought", None, None,
+                 [{"channel": "conversation", "ok": False, "reason": "quiet_hours"}], "quiet_hours",
+                 now=NOW - timedelta(days=1))
+        reach_out.note_decision("social", "her_choice", "Missing him is enough today.", NOW - timedelta(hours=3))
+        reach_out.note_decision("nightly_dream", "limit", "too old", NOW - timedelta(days=30))
+        text = reach_out.history_text(14, daemon_id, now=NOW)
+        assert "1 sent, 2 that didn't happen" in text
+        assert 'share: sent via babelr. "I finished the hill painting."' in text
+        assert "held: their quiet hours" in text
+        assert "not sent (a pull toward connection): I chose not to: Missing him is enough today." in text
+        assert "too old" not in text
+        assert text.index("hill painting") < text.index("quiet hours") < text.index("Missing him")
+
+    def test_empty(self, partner, daemon_id, decisions):
+        assert "No reach-outs" in reach_out.history_text(7, daemon_id, now=NOW)
+
+    def test_offered_routed_and_in_her_self_pack(self, partner, daemon_id, decisions):
+        from agent_loop.spec import PACKS
+        from handlers.tool_router import TOOL_REGISTRY
+        from self_account import HOW_I_WORK_TOOLS, execute_self_account_tool
+        assert any(t["name"] == "reach_out_history" for t in HOW_I_WORK_TOOLS)
+        assert TOOL_REGISTRY["reach_out_history"] == "self_account"
+        assert "reach_out_history" in PACKS["self"].tools
+        res = _run(execute_self_account_tool("reach_out_history", {"days": 3}))
+        assert res["success"] and "No reach-outs" in res["result"]

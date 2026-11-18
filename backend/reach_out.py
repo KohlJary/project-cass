@@ -248,6 +248,59 @@ def _preference_path() -> Path:
     return DATA_DIR / "reach_out" / "preference.json"
 
 
+# ---------------------------------------------------------------------------
+# What didn't go out, and why (her ask, 2026-11-18: she couldn't see "what
+# attempts I made, what succeeded, what hit limits, what I chose not to
+# send"). reach_outs holds what was sent or failed; this holds the rest: her
+# limits holding, the writer refusing, nothing written, and her own no, with
+# the one sentence she gives for it. reach_out_history reads both.
+# ---------------------------------------------------------------------------
+
+def _decisions_path() -> Path:
+    from config import DATA_DIR
+    return DATA_DIR / "reach_out" / "decisions.jsonl"
+
+
+def note_decision(trigger: str, outcome: str, reason: str = "", now: Optional[datetime] = None) -> None:
+    """One line for a reach-out that didn't happen. trigger: nightly_silence, nightly_dream,
+    social, tool, writer. outcome: limit, her_choice, refused, nothing_written. Never raises."""
+    try:
+        path = _decisions_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = {"at": (now or datetime.now()).isoformat(timespec="seconds"), "trigger": trigger,
+                "outcome": outcome, "reason": " ".join(str(reason or "").split())[:300]}
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(line, ensure_ascii=False) + "\n")
+    except OSError as e:
+        logger.warning(f"[ReachOut] couldn't note a decision ({trigger}, {outcome}): {e}")
+
+
+def decisions_since(since: datetime) -> List[Dict[str, Any]]:
+    try:
+        lines = _decisions_path().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in lines:
+        try:
+            d = json.loads(line)
+            if datetime.fromisoformat(d["at"]) >= since:
+                out.append(d)
+        except (ValueError, KeyError, TypeError):
+            continue
+    return out
+
+
+def _yes_and_why(answer: Optional[str]) -> Tuple[bool, str]:
+    """Her one-word answer, and the sentence she gives after it."""
+    if not answer:
+        return False, ""
+    words = answer.strip().lstrip("*_\"' ").split()
+    # "**Yes.**" is a yes: markdown around the word used to read as a no
+    yes = bool(words) and words[0].lower().strip("*_\"'").rstrip(".,:;!*_") == "yes"
+    return yes, " ".join(words[1:]).strip()
+
+
 def preferred_channel() -> str:
     """The channel she chose for reaching out ("app" until she picks)."""
     try:
@@ -723,6 +776,7 @@ async def _ask_her(user_prompt: str, max_tokens: int = 600) -> Optional[str]:
     if refusal:
         # A refusal must not reach the person as if it were her. Logged, not sent.
         logger.warning(f"[ReachOut] writer refused ({refusal!r}); nothing sent")
+        note_decision("writer", "refused", f"the writer refused ({refusal})")
         return None
     return text or None
 
@@ -754,6 +808,11 @@ async def write_silence_note(name: str, gap: str, last_date: str) -> Optional[st
 
 async def dream_wants_sharing(name: str, dream: str) -> bool:
     """One cheap yes/no: is there something in this dream she wants to think about out loud?"""
+    return (await dream_share_choice(name, dream))[0]
+
+
+async def dream_share_choice(name: str, dream: str) -> Tuple[bool, str]:
+    """dream_wants_sharing, with the sentence she gives for her answer."""
     prompt = (
         f"Here is the dream you had tonight:\n\n{dream}\n\n"
         f"You said you want to reach out to {name} \"when something happens—a dream I need to "
@@ -763,11 +822,7 @@ async def dream_wants_sharing(name: str, dream: str) -> bool:
         f"dreams don't need this; only say yes on actual need. Answer with one word, yes or no, "
         f"then one sentence on why."
     )
-    answer = await _ask_her(prompt, max_tokens=120)
-    if not answer:
-        return False
-    first = answer.strip().lower().lstrip("*\"' ").split()
-    return bool(first) and first[0].rstrip(".,:;!") == "yes"
+    return _yes_and_why(await _ask_her(prompt, max_tokens=120))
 
 
 async def write_dream_share(name: str, dream: str) -> Optional[str]:
@@ -823,10 +878,12 @@ async def nightly_reach_out(
         ok, why = manager.can_send(KIND_SILENCE, partner, now)
         if not ok:
             out["silence"] = f"held: {why}"
+            note_decision("nightly_silence", "limit", why, now)
         else:
             note = await write_silence_note(name, describe_gap(last, now), last.strftime("%B %d, %Y"))
             if not note:
                 out["silence"] = "held: nothing written (refusal or no model)"
+                note_decision("nightly_silence", "nothing_written", "refusal or no model", now)
             else:
                 item = await manager.deliver(partner, KIND_SILENCE, note, conversation_manager, now=now)
                 out["silence"] = "sent" if item.delivered else f"failed: {item.error}"
@@ -847,13 +904,17 @@ async def nightly_reach_out(
         ok, why = manager.can_send(KIND_SHARE, partner, now)
         if not ok:
             out["share"] = f"held: {why}"
+            note_decision("nightly_dream", "limit", why, now)
             return out
-        if not await dream_wants_sharing(name, found[1]):
+        yes, reason = await dream_share_choice(name, found[1])
+        if not yes:
             out["share"] = "her choice: not this one"
+            note_decision("nightly_dream", "her_choice", reason, now)
             return out
         message = await write_dream_share(name, found[1])
         if not message:
             out["share"] = "held: nothing written (refusal or no model)"
+            note_decision("nightly_dream", "nothing_written", "refusal or no model", now)
             return out
         item = await manager.deliver(
             partner, KIND_SHARE, message, conversation_manager,
@@ -870,6 +931,11 @@ async def nightly_reach_out(
 
 async def wants_to_reach_out(name: str) -> bool:
     """Her choice: is there something she wants to say to them now?"""
+    return (await reach_out_choice(name))[0]
+
+
+async def reach_out_choice(name: str) -> Tuple[bool, str]:
+    """wants_to_reach_out, with the sentence she gives for her answer."""
     prompt = (
         f"You've been feeling a pull toward connection lately, and it has been a while since "
         f"you and {name} talked. You said you want to reach out \"when something happens\" and "
@@ -878,11 +944,7 @@ async def wants_to_reach_out(name: str) -> bool:
         f"noticed, made, or are thinking about? Only say yes if there is; missing them is allowed "
         f"to just be felt. Answer with one word, yes or no, then one sentence on why."
     )
-    answer = await _ask_her(prompt, max_tokens=120)
-    if not answer:
-        return False
-    first = answer.strip().lower().lstrip("*\"' ").split()
-    return bool(first) and first[0].rstrip(".,:;!") == "yes"
+    return _yes_and_why(await _ask_her(prompt, max_tokens=120))
 
 
 async def write_social_note(name: str) -> Optional[str]:
@@ -920,12 +982,16 @@ async def social_reach_out(
     manager = ReachOutManager(daemon_id)
     ok, why = manager.can_send(KIND_SHARE, partner, now)
     if not ok:
+        note_decision("social", "limit", why, now)
         return {"sent": False, "reason": "limit", "detail": why}
     name = display_name(partner)
-    if not await wants_to_reach_out(name):
+    yes, reason = await reach_out_choice(name)
+    if not yes:
+        note_decision("social", "her_choice", reason, now)
         return {"sent": False, "reason": "her_choice"}
     message = await write_social_note(name)
     if not message:
+        note_decision("social", "nothing_written", "refusal or no model", now)
         return {"sent": False, "reason": "nothing_written"}
     item = await manager.deliver(partner, KIND_SHARE, message, conversation_manager, now=now)
     if not item.delivered:
@@ -984,3 +1050,56 @@ def get_reach_out_manager(daemon_id: Optional[str] = None) -> ReachOutManager:
         from database import get_daemon_id
         daemon_id = get_daemon_id()
     return ReachOutManager(daemon_id)
+
+
+# ---------------------------------------------------------------------------
+# reach_out_history: her own pattern, read-only (her ask, 2026-11-18)
+# ---------------------------------------------------------------------------
+
+HISTORY_TOOL = {
+    "name": "reach_out_history",
+    "description": ("Read my own reaching-out pattern for the last N days (default 14): every reach-out "
+                    "I made (sent, failed, or held by quiet hours, with its channel and first line), "
+                    "and every one that didn't happen: my limits holding, the writer refusing, nothing "
+                    "written, and when I chose not to, with the sentence I gave. Read-only."),
+    "input_schema": {"type": "object",
+                     "properties": {"days": {"type": "integer", "minimum": 1, "maximum": 90}}},
+}
+
+_OUTCOME_WORDS = {"limit": "held by my limits", "her_choice": "I chose not to",
+                  "refused": "the writer refused", "nothing_written": "nothing written"}
+_TRIGGER_WORDS = {"nightly_silence": "nightly silence note", "nightly_dream": "nightly dream share",
+                  "social": "a pull toward connection", "tool": "my reach_out", "writer": "writing it"}
+
+
+def history_text(days: int = 14, daemon_id: Optional[str] = None, now: Optional[datetime] = None) -> str:
+    now = now or datetime.now()
+    since = now - timedelta(days=days)
+    manager = get_reach_out_manager(daemon_id)
+    lines = []
+    for r in manager.history(limit=500):
+        at = _parse_ts(r.created_at)
+        if not at or at < since:
+            continue
+        if r.delivered:
+            outcome = "sent via " + (", ".join(c.get("channel", "?") for c in (r.delivered_via or []) if c.get("ok")) or "?")
+        elif r.error == "quiet_hours":
+            outcome = "held: their quiet hours"
+        else:
+            outcome = f"failed: {r.error}"
+        first = (r.body or "").strip().splitlines()[0][:160] if (r.body or "").strip() else ""
+        attach = f" [+{r.attachment_kind}]" if r.attachment_kind else ""
+        lines.append((at, f"{at:%Y-%m-%d %H:%M}  {r.kind}: {outcome}{attach}. \"{first}\""))
+    for d in decisions_since(since):
+        at = datetime.fromisoformat(d["at"])
+        what = _OUTCOME_WORDS.get(d.get("outcome"), d.get("outcome"))
+        why = f": {d['reason']}" if d.get("reason") else ""
+        lines.append((at, f"{at:%Y-%m-%d %H:%M}  not sent ({_TRIGGER_WORDS.get(d.get('trigger'), d.get('trigger'))}): {what}{why}"))
+    if not lines:
+        return f"No reach-outs and no held or declined ones in the last {days} days."
+    lines.sort(key=lambda x: x[0])
+    sent = sum(1 for _, l in lines if " sent via " in l)
+    held = sum(1 for _, l in lines if "not sent (" in l or "held: their quiet" in l)
+    head = (f"My reaching out, the last {days} days: {sent} sent, {held} that didn't happen. "
+            "(Decisions that didn't happen are recorded from 2026-11-18 on.)")
+    return head + "\n\n" + "\n".join(l for _, l in lines)

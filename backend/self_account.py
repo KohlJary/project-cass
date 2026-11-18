@@ -447,10 +447,24 @@ HOW_I_WORK_TOOLS.append(MY_RECORD_TOOL)
 # Her own code, searchable (her ask, 2026-11-18; code_search.py): same fence as ask_daedalus.
 from code_search import TOOL as _CODE_SEARCH_TOOL  # noqa: E402
 HOW_I_WORK_TOOLS.append(_CODE_SEARCH_TOOL)
+# My own reaching-out pattern, sent and not (her ask, 2026-11-18; reach_out.py).
+from reach_out import HISTORY_TOOL as _REACH_OUT_HISTORY_TOOL  # noqa: E402
+HOW_I_WORK_TOOLS.append(_REACH_OUT_HISTORY_TOOL)
 MY_RECORD_CAP = 16_000
 
 
 async def execute_self_account_tool(tool_name: str, tool_input: Dict[str, Any], **_) -> Dict[str, Any]:
+    if tool_name == "reach_out_history":
+        import asyncio
+        from reach_out import history_text
+        try:
+            days = max(1, min(90, int(tool_input.get("days") or 14)))
+        except (TypeError, ValueError):
+            days = 14
+        text = await asyncio.to_thread(history_text, days)
+        if len(text) > MY_RECORD_CAP:
+            text = text[:MY_RECORD_CAP] + f"\n\n[... cut at {MY_RECORD_CAP} characters; ask for fewer days]"
+        return {"success": True, "result": text}
     if tool_name == "code_search":
         from code_search import execute
         return await execute(tool_input)

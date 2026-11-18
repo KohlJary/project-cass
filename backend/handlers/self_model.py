@@ -2281,6 +2281,8 @@ async def _handle_reach_out(tool_input: Dict, ctx: ToolContext) -> Dict:
     manager = ReachOutManager(daemon_id)
     ok, why = manager.can_send(KIND_SHARE, partner)
     if not ok:
+        from reach_out import note_decision
+        note_decision("tool", "limit", why)
         return {"success": False, "error": f"Not now: {why}. This is reaching-out, not requiring; it can wait for their reply."}
 
     channel = (tool_input.get("channel") or "").strip().lower() or None

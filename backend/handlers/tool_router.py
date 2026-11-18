@@ -416,6 +416,7 @@ TOOL_REGISTRY = {
     # How I work, generated from the code (self_account.py)
     "how_i_work": "self_account",
     "my_record": "self_account",
+    "reach_out_history": "self_account",   # her reaching-out pattern, read-only (reach_out.py)
     "commitment": "commitments",
     "code_search": "self_account",   # her own code, read-only (code_search.py)
     "listen": "listening",           # her ears (listening.py, Acousmatic)

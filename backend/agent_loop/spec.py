@@ -125,9 +125,10 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     # How I work, generated from the code (self_account.py; her shape, 2026-11-17).
     ToolPack("self", "read how I work: my tools, my systems on and off, my reach, my memory, "
                      "Thymos, my limits, what changed lately; review my observations and choose "
-                     "what to integrate; read Kohl's record of what I've done; search my own code",
+                     "what to integrate; read Kohl's record of what I've done; search my own code; "
+                     "see my own reaching-out pattern, sent and not",
              ("how_i_work", "review_my_observations", "integrate_observations", "my_record",
-              "code_search")),
+              "code_search", "reach_out_history")),
     # Talking with Daedalus about my code (plan "Cass talks with Daedalus",
     # 2026-11-17): answered by daedalus_bridge, behind the lever ask_daedalus.
     ToolPack("daedalus", "ask Daedalus about my code: how something in me works, what a change "
