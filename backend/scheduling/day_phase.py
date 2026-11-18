@@ -114,6 +114,7 @@ class DayPhaseTracker:
 
         # Callbacks for phase changes (in addition to state bus)
         self._on_phase_change_callbacks: List[callable] = []
+        self._on_tick_callbacks: List[callable] = []
 
     @property
     def current_phase(self) -> Optional[DayPhase]:
@@ -228,6 +229,11 @@ class DayPhaseTracker:
         new_phase = self.get_phase_for_time()
         if new_phase != self._current_phase:
             await self._handle_phase_transition(new_phase)
+        for callback in self._on_tick_callbacks:
+            try:
+                await callback()
+            except Exception as e:  # one tick's failure never stops the tracker
+                logger.error(f"Phase tick callback failed: {e}", exc_info=True)
 
     async def stop(self) -> None:
         """Stop the phase tracking loop."""
@@ -239,6 +245,10 @@ class DayPhaseTracker:
             except asyncio.CancelledError:
                 pass
         logger.info("DayPhaseTracker stopped")
+
+    def on_tick(self, callback: callable) -> None:
+        """Register an async callback run on every check (about once a minute)."""
+        self._on_tick_callbacks.append(callback)
 
     def on_phase_change(self, callback: callable) -> None:
         """

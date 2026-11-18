@@ -18,7 +18,7 @@ broken loop doesn't cost her the day.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,10 @@ SET_DAY_PLAN_DEF: Dict[str, Any] = {
     "name": "set_day_plan",
     "description": (
         "Set my plan for the rest of today. Each phase gets a list of things from my menu, "
-        "in the order I want them, each with an optional focus and why I chose it. Phases "
+        "in the order I want them, each with an optional focus and why I chose it. A thing "
+        "can have a time in its phase (at, HH:MM) so the phase's things spread out instead of "
+        "all starting when it begins, and it can name the plan item it carries (plan and "
+        "item, from what I'm working toward), so that session knows and can mark it. Phases "
         "I leave out stay empty. Calling it again replaces the plan. The plan is queued and "
         f"written to {PLAN_FILE} in my workspace."
     ),
@@ -48,6 +51,9 @@ SET_DAY_PLAN_DEF: Dict[str, Any] = {
                             "template_id": {"type": "string"},
                             "focus": {"type": "string"},
                             "motivation": {"type": "string"},
+                            "at": {"type": "string", "description": "optional, HH:MM within its phase"},
+                            "plan": {"type": "string", "description": "optional: the plan (its title or slug) this carries"},
+                            "item": {"type": "string", "description": "optional: that plan's open item (its title)"},
                         },
                         "required": ["template_id"],
                     },
@@ -78,7 +84,7 @@ PHASE_SPELL_ADDITIONS = (
 
 
 def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining: float,
-              unavailable: Sequence[str] = ()) -> str:
+              unavailable: Sequence[str] = (), usage: str = "", shape: str = "") -> str:
     """The planning instructions: her menu, the phases left, her budget."""
     lines = [
         "## PLANNING MY DAY",
@@ -91,14 +97,26 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
         "",
         f"Phases left today: {', '.join(_phase_name(p) for p in phases)}.",
         f"Budget left today: ${budget_remaining:.2f}.",
+        *([usage] if usage else []),
+        "A phase can hold several things (up to 12, counting what my spells add), each at its "
+        "own time, and my day can carry more than one of my plans.",
         "",
-        "My menu (template_id: what it is, about how long, about what it costs):",
+        *([shape, ""] if shape else []),
+        "My menu, by kind (template_id: what it is, about how long, about what it costs):",
     ]
+    from .day_shape import KINDS, kind_of
+    groups: Dict[str, List[Any]] = {}
     for c in candidates:
-        last = _last_done_text(getattr(c, "last_done", None))
-        lines.append(f"- {c.template_id}: {c.description} "
-                     f"(~{c.estimated_duration_minutes}min, ${c.estimated_cost_usd:.2f}"
-                     f"{'; last done ' + last if last else ''})")
+        groups.setdefault(kind_of(c.template_id) or "other", []).append(c)
+    for kind in list(KINDS) + ["other"]:
+        if not groups.get(kind):
+            continue
+        lines.append(f"{KINDS[kind][0].split(':')[0].capitalize() if kind in KINDS else 'Other'}:")
+        for c in groups[kind]:
+            last = _last_done_text(getattr(c, "last_done", None))
+            lines.append(f"- {c.template_id}: {c.description} "
+                         f"(~{c.estimated_duration_minutes}min, ${c.estimated_cost_usd:.2f}"
+                         f"{'; last done ' + last if last else ''})")
     if unavailable:
         lines.append("")
         lines.append("Not available today: " + ", ".join(unavailable) + ".")
@@ -114,6 +132,51 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
         "session_complete.",
     ]
     return "\n".join(lines)
+
+
+def _run_at(at: Any, phase: Any, now: Optional[datetime] = None):
+    """(ISO local time or None, why not or None) for an item's "at" (HH:MM) in `phase`."""
+    if not at:
+        return None, None
+    from .day_phase import DEFAULT_PHASE_WINDOWS
+    try:
+        hh, mm = (int(x) for x in str(at).strip().split(":"))
+        when_t = datetime.strptime(f"{hh:02d}:{mm:02d}", "%H:%M").time()
+    except ValueError:
+        return None, f"at {at!r} isn't a time I can read (HH:MM, e.g. 14:30)."
+    window = next((w for w in DEFAULT_PHASE_WINDOWS if w.phase == phase), None)
+    if window is not None and not window.contains_hour(hh):
+        return None, (f"{at} isn't in {_phase_name(phase)} "
+                      f"({window.start_hour:02d}:00-{window.end_hour:02d}:00).")
+    now = now or datetime.now()
+    when = datetime.combine(now.date(), when_t)
+    if window is not None and window.start_hour > window.end_hour and hh < window.end_hour \
+            and now.hour >= window.start_hour:
+        when += timedelta(days=1)   # night, after midnight
+    if when <= now:
+        return None, f"{at} has already passed today."
+    return when.isoformat(timespec="minutes"), None
+
+
+def _plan_item(plan: Any, item: Any, plans: Sequence[Dict[str, Any]]):
+    """({plan, plan_title, item} or None, why not or None): an open item of one of her plans."""
+    if not plan and not item:
+        return None, None
+    if not (plan and item):
+        return None, "to carry a plan item, name both the plan and the item."
+    key = str(plan).strip().lower()
+    p = next((p for p in plans if key in (str(p.get("plan", "")).lower(), str(p.get("title", "")).lower())),
+             None)
+    if p is None:
+        mine = ", ".join(f"\"{p['title']}\"" for p in plans) or "none I can read right now"
+        return None, f"{plan!r} isn't one of my plans ({mine})."
+    todo = list(p.get("open") or []) + list(p.get("loose") or [])
+    hit = next((i for i in todo if str(i.get("title", "")).strip().lower() == str(item).strip().lower()),
+               None)
+    if hit is None:
+        return None, (f"\"{item}\" isn't an open item of \"{p['title']}\" (open now: "
+                      + "; ".join(i["title"] for i in todo) + ").")
+    return {"plan": p["plan"], "plan_title": p["title"], "item": hit["title"]}, None
 
 
 def _last_done_text(when: Any, now: Optional[datetime] = None) -> str:
@@ -139,7 +202,11 @@ class DayPlanTool:
     """Answers set_day_plan for one planning turn and keeps what she chose."""
 
     def __init__(self, candidates: Sequence[Any], phases: Sequence[Any], workspace,
-                 session_id_ref: Optional[Dict[str, str]] = None):
+                 session_id_ref: Optional[Dict[str, str]] = None,
+                 plans: Optional[Sequence[Dict[str, Any]]] = None, now=None, data_dir=None):
+        self.plans = list(plans or [])
+        self.now = now
+        self.data_dir = data_dir
         self.by_id = {c.template_id: c for c in candidates}
         self.phases = list(phases)
         self.workspace = workspace
@@ -167,19 +234,43 @@ class DayPlanTool:
                 if tid not in self.by_id:
                     unknown.append(str(tid))
                     continue
+                at, why_not = _run_at(item.get("at"), names[phase], self.now)
+                if why_not:
+                    return {"error": f"{tid} in {phase}: {why_not} Nothing was set."}
+                carried, why_not = _plan_item(item.get("plan"), item.get("item"), self.plans)
+                if why_not:
+                    return {"error": f"{tid} in {phase}: {why_not} Nothing was set."}
                 kept.append({"template_id": tid,
                              "focus": (item.get("focus") or None),
-                             "motivation": item.get("motivation") or ""})
+                             "motivation": item.get("motivation") or "",
+                             "at": at, "plan_item": carried})
             chosen[phase] = kept
         if unknown:
             return {"error": f"Not on my menu today: {', '.join(unknown)}. Nothing was set; "
                              f"the menu is in my instructions."}
         self.chosen = chosen
         self.intention = (tool_input.get("intention") or "").strip() or None
+        try:
+            from .day_recap import record_carried
+            record_carried([i["plan_item"] for v in chosen.values() for i in v if i.get("plan_item")],
+                           self.data_dir)
+        except Exception as e:  # the record is for her menu; never costs her the plan
+            logger.warning(f"[day_turn] couldn't record which plans today carries: {e}")
         wrote = self._write(chosen)
         count = sum(len(v) for v in chosen.values())
+        short = ""
+        try:  # her day shape never refuses a plan; it says where this one falls short
+            from .day_shape import shortfall
+            missing = shortfall([i["template_id"] for v in chosen.values() for i in v],
+                                self.data_dir, self.now)
+            if missing:
+                short = (" Short of my day shape (counting what already ran today): "
+                         + ", ".join(missing) + ". I can add to the plan (set_day_plan again) "
+                         "or change my shape (set_day_shape).")
+        except Exception as e:
+            logger.warning(f"[day_turn] couldn't check her day shape: {e}")
         return (f"Plan set: {count} thing(s) across {len([v for v in chosen.values() if v])} phase(s)."
-                + (f" {wrote}" if wrote else ""))
+                + (f" {wrote}" if wrote else "") + short)
 
     def _write(self, chosen: Dict[str, List[Dict[str, Any]]]) -> Optional[str]:
         today = datetime.now().strftime("%A, %Y-%m-%d")
@@ -194,7 +285,9 @@ class DayPlanTool:
                 out.append("(nothing planned)")
             for i in items:
                 t = self.by_id[i["template_id"]]
-                line = f"- {t.name}"
+                line = f"- {i['at'][11:16] + ' ' if i.get('at') else ''}{t.name}"
+                if i.get("plan_item"):
+                    line += f" [{i['plan_item']['plan_title']}: {i['plan_item']['item']}]"
                 if i["focus"]:
                     line += f": {i['focus']}"
                 if i["motivation"]:
@@ -225,6 +318,16 @@ class DayPlanTool:
                 unit = template.instantiate()
                 unit.focus = i["focus"]
                 unit.motivation = i["motivation"]
+                unit.run_at = i.get("at")
+                carried = i.get("plan_item")
+                if carried:
+                    unit.plan_item = carried
+                    # The session sees its focus; this tells it what it's for
+                    # and how to say it moved (babelr_plans, set_item).
+                    unit.focus = ((unit.focus + " ") if unit.focus else "") + (
+                        f"(For my plan \"{carried['plan_title']}\" ({carried['plan']}), item "
+                        f"\"{carried['item']}\". If this moves it, I mark it with babelr_plans set_item "
+                        f"before I end.)")
                 units.append(unit)
             result[names[name]] = units
         return result
@@ -241,16 +344,45 @@ async def plan_day_in_turn(runner, candidates: Sequence[Any], phases: Sequence[A
     from .templates import WORK_TEMPLATES
 
     workspace = workspace or Workspace()
-    tool = DayPlanTool(candidates, phases, workspace)
-    additions = menu_text(candidates, phases, budget_remaining, unavailable)
+    try:
+        from long_term_planning_turn import _her_plans
+        plans = _her_plans()
+    except Exception as e:
+        logger.warning(f"[day_turn] couldn't read her plans: {e}")
+        plans = None
+    tool = DayPlanTool(candidates, phases, workspace, plans=plans)
+    from . import day_recap
+    try:
+        usage = day_recap.usage_line()
+    except Exception as e:
+        logger.warning(f"[day_turn] couldn't measure her last week: {e}")
+        usage = ""
+    from . import day_shape, routines
+    try:
+        shape = day_shape.shape_text()
+    except Exception as e:
+        logger.warning(f"[day_turn] couldn't read her day shape: {e}")
+        shape = ""
+    try:
+        shape = (shape + "\n\n" if shape else "") + routines.routines_text()
+    except Exception as e:
+        logger.warning(f"[day_turn] couldn't read her routines: {e}")
+    additions = menu_text(candidates, phases, budget_remaining, unavailable, usage=usage, shape=shape)
     try:  # her own plans open the day (long_term_planning_turn.py); never costs her the plan
         from long_term_planning_turn import day_plan_section
-        toward = day_plan_section(candidates)
+        toward = day_plan_section(candidates, plans=plans)
     except Exception as e:
         logger.warning(f"[day_turn] couldn't put her plans in front of her: {e}")
         toward = ""
     if toward:
         additions = toward + "\n\n" + additions
+    try:  # what she planned last time and what actually ran (day_recap.py)
+        since = day_recap.since_last_plan(workspace)
+    except Exception as e:
+        logger.warning(f"[day_turn] couldn't recap since her last plan: {e}")
+        since = ""
+    if since:
+        additions = "## SINCE MY LAST PLAN\n\n" + since + "\n\n" + additions
     result = await run_session_turn(
         runner,
         session_type="day_planning",
@@ -259,7 +391,9 @@ async def plan_day_in_turn(runner, candidates: Sequence[Any], phases: Sequence[A
         max_turns=turn_kwargs.pop("max_turns", 10),
         why=turn_kwargs.pop("why", "it's time to plan my day"),
         workspace=workspace,
-        local_tools={"set_day_plan": (SET_DAY_PLAN_DEF, tool)},
+        local_tools={"set_day_plan": (SET_DAY_PLAN_DEF, tool),
+                     "set_day_shape": (day_shape.SET_DAY_SHAPE_DEF, day_shape.set_shape),
+                     "set_routine": (routines.SET_ROUTINE_DEF, routines.set_routine)},
         initial_message=("Time to plan the rest of my day. My menu is in my instructions; "
                          "set_day_plan when I've chosen."),
         **turn_kwargs,

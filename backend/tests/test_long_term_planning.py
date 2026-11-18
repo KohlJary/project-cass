@@ -62,14 +62,16 @@ def test_the_day_plan_opens_with_her_plans(monkeypatch):
     menu = [SimpleNamespace(template_id="long_term_planning", description="d", last_done=None,
                             estimated_duration_minutes=30, estimated_cost_usd=0.2)]
     asyncio.run(day_turn.plan_day_in_turn(object(), menu, [], 3.0, workspace=object()))
-    assert seen["additions"].startswith("## WHAT I'M WORKING TOWARD")
-    assert "## PLANNING MY DAY" in seen["additions"]
+    # Since 2026-11-17 the recap of what ran comes first (day_recap.py), then her plans.
+    assert seen["additions"].startswith("## SINCE MY LAST PLAN")
+    assert seen["additions"].index("## WHAT I'M WORKING TOWARD") < seen["additions"].index("## PLANNING MY DAY")
 
     def broken(*a, **k):
         raise RuntimeError("x")
     monkeypatch.setattr(L, "day_plan_section", broken)
     asyncio.run(day_turn.plan_day_in_turn(object(), menu, [], 3.0, workspace=object()))
-    assert seen["additions"].startswith("## PLANNING MY DAY"), "a broken section never costs her the plan"
+    assert "## WHAT I'M WORKING TOWARD" not in seen["additions"], "a broken section never costs her the plan"
+    assert "## PLANNING MY DAY" in seen["additions"]
 
 
 def test_wired_as_a_loop_session_with_her_plans_tool():

@@ -2395,6 +2395,9 @@ async def startup_event():
                     # Subscribe phase queue to day phase transitions
                     # When phase changes, queued work for that phase gets dispatched
                     day_phase_tracker.on_phase_change(phase_queue_manager.on_phase_changed)
+                    # Work she gave a time to waits in its phase's queue until then (2026-11-17).
+                    day_phase_tracker.on_tick(
+                        lambda: phase_queue_manager.dispatch_due(day_phase_tracker.current_phase))
 
                     # Subscribe autonomous scheduler to phase changes
                     # Morning phase triggers daily planning

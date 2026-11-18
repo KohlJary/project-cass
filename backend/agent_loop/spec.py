@@ -98,8 +98,9 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     # Planning my day (plan "Cass plans her own day", phase 3): my menu is in
     # the instructions; set_day_plan queues what I choose and writes it to my
     # workspace. Answered by the entry point that opens the turn.
-    ToolPack("day_plan", "set my plan for the rest of today from my menu",
-             ("set_day_plan",)),
+    ToolPack("day_plan", "set my plan for the rest of today from my menu, the shape of my days "
+                         "(how many of each kind I want), and my routines (what runs on a schedule)",
+             ("set_day_plan", "set_day_shape", "set_routine")),
     # Working on my GeoCass homepage, in my own turn (same plan).
     ToolPack("homepage", "read and edit my GeoCass homepage: its pages, its stylesheet, "
                          "which of my pieces it features, my paintings and songs on its pages",
@@ -147,24 +148,27 @@ OTHERS_NOT_YET = ("speaking to anyone else", "say reaches my partner; posting or
 
 # Session activity -> the activity's own packs (on top of core + memory).
 ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
-    "reflection": (),
-    "meta_reflection": (),
-    # plans: her growth sessions work on her own plans (2026-11-17: the first
-    # one acted on a plan and had no way to mark it in Plans)
+    # plans in every session she plans for (2026-11-17): a day plan item can
+    # carry a plan item, and the session it starts can mark it. Until then only
+    # growth and long-term planning had the tools, and nothing was ever marked
+    # done, so each morning she saw the same open items and planned the same
+    # things. Day planning has them too, to close what's already happened.
+    "reflection": ("plans",),
+    "meta_reflection": ("plans",),
     "growth_edge": ("plans",),
     "user_synthesis": (),
-    "synthesis": ("notes",),
+    "synthesis": ("notes", "plans"),
     "consolidation": ("notes",),
-    "research": ("world", "notes"),
-    "knowledge_building": ("world", "notes"),
-    "curiosity": ("world", "notes"),
-    "world_state": ("world",),
-    "creative": ("creative",),
-    "writing": ("creative", "notes"),
-    "day_planning": ("day_plan",),
-    "homepage": ("homepage",),
-    "social": ("social",),
-    "wonderland": ("wonderland",),
+    "research": ("world", "notes", "plans"),
+    "knowledge_building": ("world", "notes", "plans"),
+    "curiosity": ("world", "notes", "plans"),
+    "world_state": ("world", "plans"),
+    "creative": ("creative", "plans"),
+    "writing": ("creative", "notes", "plans"),
+    "day_planning": ("day_plan", "plans"),
+    "homepage": ("homepage", "plans"),
+    "social": ("social", "plans"),
+    "wonderland": ("wonderland", "plans"),
     "long_term_planning": ("plans", "self"),
 }
 
@@ -321,7 +325,9 @@ LOOP_MIN_STEPS = 24
 def session_spec(activity: str, max_iterations: int = 10, *, chapter_house: bool = True,
                  promoted: Tuple[str, ...] = (), can_say: bool = True,
                  can_wake: bool = True) -> TurnSpec:
-    packs = (("core", "memory") + ACTIVITY_PACKS.get(activity, ()) + ("chat_core", "work")
+    # Plans lives in Babelr like Chapter House: without Babelr, neither is offered.
+    own = tuple(p for p in ACTIVITY_PACKS.get(activity, ()) if chapter_house or p != "plans")
+    packs = (("core", "memory") + own + ("chat_core", "work")
              + (("chapter_house",) if chapter_house else ()) + ("workspace",)
              + (("say",) if can_say else ()) + (("wake",) if can_wake else ())
              + ("find", "session"))

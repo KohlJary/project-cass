@@ -132,6 +132,11 @@ class WorkUnit:
     action_results: List[Dict[str, Any]] = field(default_factory=list)
     # When she last did this kind of work (ISO time), shown on her day-plan menu
     last_done: Optional[str] = None
+    # A time she picked for it (ISO, local), 2026-11-17: held in its phase's
+    # queue until then (PhaseQueueManager.dispatch_due). None: at phase start.
+    run_at: Optional[str] = None
+    # The plan item it carries, {"plan": slug, "plan_title", "item": title}, if she named one.
+    plan_item: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         if self.created_at is None:
@@ -253,6 +258,8 @@ class WorkUnit:
             "result": self.result,
             "artifacts": self.artifacts,
             "action_results": self.action_results,
+            "run_at": self.run_at,
+            "plan_item": self.plan_item,
         }
 
     @classmethod
@@ -282,6 +289,8 @@ class WorkUnit:
             result=data.get("result"),
             artifacts=data.get("artifacts", []),
             action_results=data.get("action_results", []),
+            run_at=data.get("run_at"),
+            plan_item=data.get("plan_item"),
         )
 
 

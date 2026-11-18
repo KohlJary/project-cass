@@ -34,6 +34,9 @@ from .work_summary_store import WorkSummary, ActionSummary, generate_slug
 logger = logging.getLogger(__name__)
 
 
+MAX_PER_PHASE = 12
+
+
 @dataclass
 class QueuedWorkUnit:
     """A work unit queued for a specific phase."""
@@ -76,7 +79,10 @@ class PhaseQueueManager:
         self,
         synkratos: Optional["Synkratos"] = None,
         state_bus: Optional["GlobalStateBus"] = None,
-        max_per_phase: int = 5,  # Max work units queued per phase
+        # Max work units queued per phase. 5 until 2026-11-17, counting what
+        # spells add, which capped her day well below her budget; her menu
+        # names this number (day_turn.menu_text).
+        max_per_phase: int = MAX_PER_PHASE,
         summary_store: Optional["WorkSummaryStore"] = None,
         daemon_id: str = "cass",
         action_registry: Optional[Any] = None,
@@ -527,16 +533,60 @@ class PhaseQueueManager:
                 self._save_queues()
         return dispatched
 
+    @staticmethod
+    def _not_yet(queued: "QueuedWorkUnit", now: Optional[datetime] = None) -> bool:
+        """A unit she gave a time to that hasn't come yet."""
+        at = getattr(queued.work_unit, "run_at", None)
+        if not at:
+            return False
+        try:
+            when = datetime.fromisoformat(at)
+        except ValueError:
+            return False
+        return when > (now or datetime.now(when.tzinfo))
+
+    async def dispatch_due(self, phase: Optional[DayPhase]) -> int:
+        """Dispatch `phase`'s timed units whose time has come (called on every
+        day-phase tick, about once a minute, with the current phase). Untimed
+        units go at phase start as before."""
+        if phase is None:
+            return 0
+        try:  # her routines for this phase, once a day each (scheduling/routines.py)
+            from . import routines
+            routines.queue_due_phase(phase, self)
+        except Exception as e:
+            logger.warning(f"[routines] couldn't queue today's routines: {e}")
+        queue = self._phase_queues.get(phase) or []
+        due = [q for q in queue if getattr(q.work_unit, "run_at", None) and not self._not_yet(q)]
+        n = 0
+        for queued in due:
+            if queued not in queue:
+                continue  # another dispatcher took it
+            queue.remove(queued)
+            self._save_queues()
+            if await self._dispatch_work(queued):
+                n += 1
+                logger.info(f"Dispatched '{queued.work_unit.name}' at its time ({queued.work_unit.run_at})")
+            else:
+                self._failed_held[phase].append(queued)
+        return n
+
     async def _take_loop(self, phase, queue, dispatched, failed, stagger_seconds) -> None:
         first = True
-        while queue:
+        while True:
+            # Units with a time of their own wait in the queue for dispatch_due.
+            ready = [q for q in queue if not self._not_yet(q)]
+            if not ready:
+                break
             if not first and stagger_seconds:
                 logger.info(f"Staggered dispatch: waiting {stagger_seconds}s before next work unit")
                 await asyncio.sleep(stagger_seconds)
-                if not queue:
+                ready = [q for q in queue if not self._not_yet(q)]
+                if not ready:
                     break
             first = False
-            queued = queue.pop(0)
+            queued = ready[0]
+            queue.remove(queued)
             self._save_queues()
             if await self._dispatch_work(queued):
                 dispatched.append(queued)

@@ -59,7 +59,8 @@ def _days_since(when: Any, now: datetime) -> Optional[int]:
 
 def working_toward_text(plans: Optional[Sequence[Dict[str, Any]]] = None, *,
                         last_planned: Any = None, offered: bool = True,
-                        now: Optional[datetime] = None, lead: Optional[str] = None) -> str:
+                        now: Optional[datetime] = None, lead: Optional[str] = None,
+                        carried: Optional[Dict[str, str]] = None) -> str:
     """The "What I'm working toward" section of her day plan; "" when there's nothing
     to say. `last_planned` is when she last did a long-term planning session (ISO, or
     None for never); the nudge is shown only when the session is on her menu
@@ -81,6 +82,11 @@ def working_toward_text(plans: Optional[Sequence[Dict[str, Any]]] = None, *,
         ph = p.get("phase")
         if ph:
             lines.append(f"  Phase {ph['number']} of {ph['of']}: {ph['title']}")
+        if carried is not None:   # day plans only (2026-11-17): which plans my days have carried
+            d = _days_since(carried.get(p["plan"]), now)
+            lines.append("  Not yet carried by a day plan item." if d is None else
+                         "  Last carried by a day plan: " +
+                         ("today." if d <= 0 else "yesterday." if d == 1 else f"{d} days ago."))
         todo = list(p.get("open") or []) + list(p.get("loose") or [])
         for i in todo[:MAX_ITEMS]:
             lines.append(f"  - ({i.get('kind')}) {i.get('title')}")
@@ -96,8 +102,9 @@ def working_toward_text(plans: Optional[Sequence[Dict[str, Any]]] = None, *,
         return ""
     out = ["## WHAT I'M WORKING TOWARD", ""]
     if lines:
-        out += [lead or ("My own plans, where each stands. A thing on my menu can carry one forward "
-                         "(its focus can name the item):"), *lines]
+        out += [lead or ("My own plans, where each stands. A thing on my menu can carry an item "
+                         "forward: set_day_plan's plan and item name it, and that session can "
+                         "mark it done when it's done:"), *lines]
     elif unreadable:
         out.append("I couldn't read my plans in Plans just now.")
     else:
@@ -107,12 +114,19 @@ def working_toward_text(plans: Optional[Sequence[Dict[str, Any]]] = None, *,
     return "\n".join(out)
 
 
-def day_plan_section(candidates: Sequence[Any], now: Optional[datetime] = None) -> str:
+def day_plan_section(candidates: Sequence[Any], now: Optional[datetime] = None,
+                     plans: Optional[Sequence[Dict[str, Any]]] = None) -> str:
     """working_toward_text for her day plan, from her menu: whether the session is on
-    it, and when she last did one."""
+    it, and when she last did one; and for each plan, when a day plan last carried it."""
     mine = next((c for c in candidates if getattr(c, "template_id", None) == TEMPLATE_ID), None)
-    return working_toward_text(last_planned=getattr(mine, "last_done", None),
-                               offered=mine is not None, now=now)
+    try:
+        from scheduling.day_recap import last_carried
+        carried = last_carried()
+    except Exception as e:
+        logger.warning(f"[long_term_planning] couldn't read which plans my days carried: {e}")
+        carried = None
+    return working_toward_text(plans, last_planned=getattr(mine, "last_done", None),
+                               offered=mine is not None, now=now, carried=carried)
 
 
 def _working_with() -> str:

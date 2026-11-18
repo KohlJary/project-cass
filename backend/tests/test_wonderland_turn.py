@@ -88,7 +88,8 @@ def test_the_session_offers_her_the_wonderland_tools(monkeypatch, visit):
     assert set(seen["local_tools"]) == {"wonderland_look", "wonderland_act", "wonderland_talk"}
     assert "REFLECTION POOL" in seen["additions"] and "to see the gardens" in seen["additions"]
     from agent_loop.spec import ACTIVITY_PACKS, PACKS, LOOP_PACKS
-    assert ACTIVITY_PACKS["wonderland"] == ("wonderland",) and "wonderland" in LOOP_PACKS
+    # plans too since 2026-11-17: a visit can carry one of her plan items
+    assert ACTIVITY_PACKS["wonderland"] == ("wonderland", "plans") and "wonderland" in LOOP_PACKS
     assert set(PACKS["wonderland"].tools) == set(seen["local_tools"])
 
 
