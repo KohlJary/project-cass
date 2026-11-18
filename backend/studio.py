@@ -54,7 +54,7 @@ TOOL = {
         "what a synth's knobs do. noodle is for playing around: a riff on any instrument, looped, heard back "
         "in seconds (the notes, the sound, and what changed since my last try), kept in my sketchbook, nothing "
         "committed; keep copies a sketch I like into a project's riffs.md. Rendering takes a minute or two; a noodle "
-        "about twenty seconds. tone puts a guitar source (default the kars string model) through a chain or a "
+        "about twenty seconds. tone puts a guitar (default a real one, sampled: {\"sfz\": \"fsbs-direct\"}) through a chain or a "
         "rig and measures the tone: distortion character, how chords hold up, sustain, tightness, mud, fizz, "
         "and what changed since my last try; rig saves a chain on my gun belt by name (an instrument uses it as "
         "rig: name); map also shows what an amp's knobs do (swankyamp). share sets who can follow my music log in Babelr (my listening, what I write "
@@ -159,6 +159,8 @@ def help_text(data_dir=None) -> Dict[str, Any]:
                        else "not mapped yet") for s in synths},
         "general_midi": "gm: a program number 1-128 (1 piano, 5 electric piano, 34 fingered bass, 49 strings, "
                         "81 square lead, 89 new-age pad...); played by FluidSynth's FluidR3 set",
+        "sampled_instruments": "sfz: fsbs-direct (a real Fender electric, sampled straight in; put it through an amp "
+                               "or a rig). Any note can be palm-muted with pm after its length: E2/0.25pm",
         "drum_kit_808": "kick snare clap hat open rim cowbell low_tom mid_tom high_tom cymbal clave maracas; "
                         "samples: {kick: BD7510} picks tone and decay (BDttdd, positions 00 25 50 75 10)",
         "my_gun_belt": belt or "empty (studio patch puts one on)",
@@ -413,7 +415,7 @@ def _tonebook(data_dir=None) -> Path:
 
 
 def tone(instrument: Dict[str, Any], chain, rig: Optional[str], note: str, data_dir=None) -> Dict[str, Any]:
-    inst = dict(instrument or {"synth": "kars"})
+    inst = dict(instrument or {"sfz": "fsbs-direct"})
     if rig:
         inst["rig"] = rig
     book = _tonebook(data_dir)
