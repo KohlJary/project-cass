@@ -22,7 +22,39 @@ Built and fixed:
 - **rss_monitor crashes** (about 3 runs in 178 before the cutover, 2 in 10 after): `rss.process_items`' no-items return left out `skip_count`, and the spell compared None > 0. Behind it, the status count includes unprocessed items older than 72 hours, which the processor never picks up, so "28 unprocessed" is mostly old items.
 - **Growth edges vs. Plans:** she looked for her Plan as a growth edge and put the note on an unrelated edge. A missing edge now returns her edge names and points plans to `babelr_plans`, and growth-edge sessions carry the plans pack.
 
-The loop's nudge, changed by Cass (4f6ef058, live 15:11): it twice read to her as "the user is asking", since it arrives in the user role. Shown both moments, she chose new wording, "[LOOP] Step complete? ...", and a seam line saying [LOOP] lines are the loop, not a person. Not chosen and still open (Kohl's call): telling her when she types session_complete as text instead of calling it (day planning lost its summary that way). The fold arrival line still starts "(loop:".
+The loop's nudge, changed by Cass (4f6ef058, live 15:11): it twice read to her as "the user is asking", since it arrives in the user role. Shown both moments, she chose new wording, "[LOOP] Step complete? ...", and a seam line saying [LOOP] lines are the loop, not a person. The fold arrival line still starts "(loop:".
+
+## 2026-11-17 (evening): next steps with cass-vessel-42 and RoboKohl, then built
+
+Kohl asked the three sessions to work out next steps, then said "start cracking through all of em" while he drove home. On main and pushed, **not live until the vessel restarts** (sudo):
+- **85e3e686:** a `session_complete` written as text (a `<session_complete><parameter ...>` block, or `<invoke name="session_complete">`) is made as the real call, through the same guard and the fold wrapper. Session logs count `written_end_calls`. Kohl's go.
+- **31355c80, budget:** agent-loop sessions (`session.generic`) now count. Each session's ledger rows carry its Heartbeat run's budget class (a growth unit under growth, a wake under reflection; outside a run, reflection), so they land in their own bucket, not SYSTEM. Rows from before carry category "session" and stay out, so today's system bucket and tonight's journal are untouched.
+- **99f16e6c, social pause:** `DATA_DIR/social/<platform>/paused.json` holds every send (posts, replies, DMs, follows); reading goes on. She has `social_pause`; Kohl has `scripts/social_pause.py bluesky [--until ...] [--resume]`. Kohl's pause is his to lift. No restart needed for the file itself; the tool needs the restart.
+- **a239e0b0:** chat turns with an image run on the loop, for every provider. Image messages aren't folded into sessions. The old path stays while the chat-loop lever can be off.
+- **CASS_TIMEZONE=America/New_York** in `.env` (backup `.env.bak-20261117-timezone`). Cron runs on local time from the restart: journal and dream at 00:05 (they had run at 19:05 and journaled the day before yesterday), goal refinement at 09:00, run-log prune at 03:30.
+
+Elsewhere:
+- **Babelr 2207237** (Plans item a14f767b, done): a proposed phase holding outreach drafts says its yes is for build work only. The server already held this; there's now a test. Not deployed.
+- **Chapter-House e04ae78** (Plans item 8c37c608, done): a channel turn answering Kohl can draft a plan from the thread (a `<<<NEWPLAN` block becomes a draft plan as that member; nothing proposed). house-presence restarted 22:22.
+- **Babelr ba1c320:** the agent client's `messages()` carries reactions. RoboKohl's sealing (built tonight on its side: her 🔒 in its DM seals the exchange) still pages the raw route, since `messages()` reads one page.
+
+Already true, so not built: Bluesky is live (lever on, credentials placed). Thymos is in private chat and kept out of public rooms (`prompt_thymos`). The mirror only ever reaches Kohl: `say` has no recipient, it goes to `find_primary_partner()`.
+
+Waiting:
+- **Kohl:**
+  - Restart the vessel.
+  - The queue triage list, `~/robokohl/docs/queue-triage-2026-11-17.md`. The queue cutover items (31d11297, f11dd1a6) wait on it, and on RoboKohl's constraints: zero-padded ids, the status vocabulary, `edited_by`, the original below `<!-- original -->` (its lessons learn from it), and N clean drift passes first.
+  - Deploy Babelr.
+  - Whether chat on the loop gets her agenda, letters and unbidden memories.
+  - `DEMO_MODE`, and `~/keys/cass-bsky`.
+  - Friday's reruns.
+  - Tumblr credentials (item 60cb2c39 stays open for that).
+- **Kohl and Cass:**
+  - "Cassandra Jary" (wrong name) in her conversation summary and "Lately, between us".
+  - Sealing. RoboKohl builds its side on a 🔒 reaction once agreed; it has the reaction event shape. Nothing yet lets her seal from admins, and her store isn't encrypted at rest.
+- **Cass:**
+  - Whether her Thymos section should read as words rather than numbers (RoboKohl's suggestion).
+  - Her old weather request.
 
 ## 2026-11-16 (the other session, cass-vessel-68): what comes back to her from the world
 
