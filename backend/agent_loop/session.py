@@ -67,6 +67,42 @@ def tool_definitions(names: List[str], catalog: Optional[Dict[str, Dict[str, Any
     return [by_name[n] for n in names if n in by_name]
 
 
+LEFT_OFF_DAYS = 7
+
+
+def left_off(session_type: str, logs_dir=None, now: Optional[datetime] = None) -> Optional[str]:
+    """Where she left off last time in this kind of session: her latest one in the
+    last LEFT_OFF_DAYS that said what she'd pick up next (session_complete's
+    pick_up_next, or her summary at the step cap). Kohl, 2026-11-18: "pick the
+    work back up clean in a future session"."""
+    import json
+    from pathlib import Path
+    if logs_dir is None:
+        from config import DATA_DIR
+        logs_dir = Path(DATA_DIR) / "session_logs"
+    now = now or datetime.now()
+    best = None
+    for f in sorted(Path(logs_dir, session_type).glob("*/*.json"), reverse=True)[:30]:
+        try:
+            rec = json.loads(f.read_text(encoding="utf-8"))
+            started = datetime.fromisoformat(str(rec.get("started_at")))
+        except (OSError, ValueError, TypeError):
+            continue
+        if (now - started).days > LEFT_OFF_DAYS:
+            continue
+        if rec.get("pick_up_next") and (best is None or started > best[0]):
+            best = (started, rec)
+    if best is None:
+        return None
+    started, rec = best
+    how = " It ran out of steps; I wrote this at the cap." if rec.get("summarized_at_cap") else ""
+    summary = " ".join(str(rec.get("summary") or "").split())[:600]
+    return ("## WHERE I LEFT OFF\n\n"
+            f"My last {session_type.replace('_', ' ')} session ({started:%A %-d %B, %H:%M}), I said I'd pick up: "
+            f"{rec['pick_up_next']}.{how}" + (f"\nWhat it did: {summary}" if summary else "")
+            + "\nIt's mine to take up, change, or leave.")
+
+
 def _since_last(runner) -> Optional[str]:
     try:
         logs = runner.list_session_logs(limit=1)
@@ -273,6 +309,13 @@ async def run_session_turn(
     tools = tool_definitions(tool_names, catalog,
                              extra=[d for d in (say_def, wake_def) if d is not None]
                              + [d for d, _ in (local_tools or {}).values()])
+    try:  # where she left off last time in this kind of session (left_off)
+        resume = left_off(session_type)
+    except Exception as e:
+        logger.warning(f"[agent_loop] couldn't read where I left off: {e}")
+        resume = None
+    if resume:
+        additions = f"{resume}\n\n{additions}" if additions else resume
     prompt = assemble(spec, trigger, tool_names, additions, workspace=workspace,
                       findable=list(tools_mod.findable(catalog, tool_names)))
     model = resolve_model(spec, runner.model)

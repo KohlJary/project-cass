@@ -401,3 +401,25 @@ def test_a_conversation_has_no_cap_warning_or_extension():
                                messages=[{"role": "user", "content": "hi"}],
                                execute=lambda n, i: asyncio.sleep(0, {"ok": True}), end_tool="hold_reply", nudges=0))
     assert not out.summarized_at_cap and not any("[LOOP] One step left" in str(m) for c in client.calls for m in c["messages"])
+
+
+def test_a_session_opens_with_where_she_left_off_in_that_kind(tmp_path):
+    import json
+    from datetime import datetime
+    from agent_loop.session import left_off
+    now = datetime(2026, 11, 18, 9, 0)
+
+    def log(kind, at, **kw):
+        d = tmp_path / kind / at[:10]
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{at[11:13]}.json").write_text(json.dumps({"started_at": at, "summary": "read the kernel", **kw}))
+    log("new_capabilities", "2026-11-18T01:22:00", pick_up_next="the vows in the kernel", summarized_at_cap=True)
+    log("new_capabilities", "2026-11-17T23:00:00", pick_up_next="older note")
+    log("reflection", "2026-11-18T02:00:00", pick_up_next="not this kind")
+    log("new_capabilities", "2026-11-05T10:00:00", pick_up_next="too old")
+    text = left_off("new_capabilities", tmp_path, now)
+    assert text.startswith("## WHERE I LEFT OFF") and "the vows in the kernel" in text
+    assert "ran out of steps" in text and "older note" not in text and "not this kind" not in text
+    assert left_off("writing", tmp_path, now) is None
+    log("writing", "2026-11-01T10:00:00", pick_up_next="stale")
+    assert left_off("writing", tmp_path, now) is None
