@@ -19,6 +19,10 @@ def _setup(tmp_path):
                                                  "key": "k", "record": "x"}) + "\n")
     (act / "activity.jsonl").write_text(json.dumps({"at": "2026-11-18T08:30:00", "action": "read",
                                                     "artist": "Three Days Grace", "title": "Pain"}) + "\n")
+    for key, title in (("k", "Parabola"), ("p", "Pain")):
+        rd = tmp_path / "listening" / "records" / key
+        rd.mkdir(parents=True)
+        (rd / "track.json").write_text(json.dumps({"artist": "x", "album": "y", "title": title, "track": "1"}))
     sb = tmp_path / "studio" / "sketchbook" / "1"
     sb.mkdir(parents=True)
     (sb / "sketch.json").write_text(json.dumps({"n": 1, "at": "2026-11-18T10:00:00", "instrument": {"synth": "nekobi"},
@@ -43,6 +47,8 @@ def test_shared_log_with_history_hidden_items_and_a_timeline(tmp_path):
     assert out["docs"][0]["earlier"][0]["text"].startswith("Pain: first listen")
     assert any("Parabola" in e["what"] for e in out["timeline"])
     assert [c["title"] for c in out["crate"]] == ["Parabola", "Pain"]
+    how = {r["title"]: r["how"] for r in out["shelf_ready"]}
+    assert how == {"Parabola": "she asked for it", "Pain": "prepared for her"}
     kinds = [e["kind"] for e in out["timeline"]]
     assert {"listening", "writing", "sketch"} <= set(kinds)
     assert out["timeline"][0]["at"] >= out["timeline"][-1]["at"]

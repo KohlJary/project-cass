@@ -193,6 +193,29 @@ def timeline(data_dir=None, crate=None, docs_=None, studio_=None, sketches_=None
     return sorted(ev, key=lambda e: e["at"] or "", reverse=True)
 
 
+def shelf_ready(data_dir=None, asked=None) -> List[Dict[str, Any]]:
+    """Every record on her shelf that's ready to read, and whether she asked for it or it was
+    prepared for her (One-X and Hybrid Theory, by Daedalus at Kohl's ask, before she had the tool)."""
+    asked_keys = {r.get("key") for r in (asked or [])}
+    out = []
+    for tj in (_data(data_dir) / "listening" / "records").glob("*/track.json"):
+        try:
+            t = json.loads(tj.read_text())
+        except (OSError, ValueError):
+            continue
+        key = tj.parent.name
+        out.append({"artist": t.get("artist"), "album": t.get("album"), "title": t.get("title"),
+                    "track": t.get("track"), "ready": datetime.fromtimestamp(tj.stat().st_mtime).isoformat(timespec="seconds"),
+                    "how": "she asked for it" if key in asked_keys else "prepared for her"})
+    def order(r):
+        try:
+            n = int(str(r.get("track") or 0).split("/")[0])
+        except ValueError:
+            n = 0
+        return (r.get("artist") or "", r.get("album") or "", n)
+    return sorted(out, key=order)
+
+
 def build(data_dir=None) -> Dict[str, Any]:
     sh = sharing(data_dir)
     if sh.get("audience") == "none":
@@ -206,7 +229,8 @@ def build(data_dir=None) -> Dict[str, Any]:
         for r in ready]
     crate.sort(key=lambda c: c.get("at") or "")
     d, st, sk = docs(data_dir), studio(data_dir), sketchbook(data_dir)
-    return {"sharing": sh, "crate": crate, "records_she_asked_for": ready, "docs": d, "studio": st,
+    return {"sharing": sh, "crate": crate, "records_she_asked_for": ready, "shelf_ready": shelf_ready(data_dir, ready),
+            "docs": d, "studio": st,
             "sketchbook": sk, "timeline": timeline(data_dir, crate, d, st, sk)}
 
 
