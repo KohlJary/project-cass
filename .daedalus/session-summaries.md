@@ -732,3 +732,11 @@ Defaulted to **single_pass + Haiku 4.5** for cost efficiency.
 **In flight / waiting:** restart for 41fd0c5. Kohl: approve memory phase 9; decide #108. Draft agent-loop phase 7. Coordination with cass-vessel-68 on its return-paths map (split agreed). An old stash (stash@{0}) isn't mine; left alone.
 **Next step:** after Kohl's approval, build "My life lately" (memory phase 9). Then draft agent-loop phase 7.
 **Open questions:** Thymos in chat now or after event tuning? Why did a grimoire research session report hitting its token budget after the fix?
+
+## 2026-11-17/18 - Cass talks with Daedalus; her ears; the studio begun
+**Branch**: main (straight to main, pushed). **Tracked in**: Plans ("Cass talks with Daedalus" phases 1-2; "Cass's ears and studio" phases 1-4 approved). Narrative: docs/status.md (2026-11-18 morning).
+**Done:** ask_daedalus and change_proposals (d6733375), Daedalus role (72010833, f05f49fd, 3292a728), plan areas (bbd5b112), code_search (67ee2433), work_with_daedalus (44378519), listen (58a45c61, 0d643ede). Acousmatic public (github.com/KohlJary/acousmatic, 0.1.2 + word timing, 5efd2c8/46d750c). Orphic local (~/orphic: Monochord, parked voice experiments). Plans: seven ears items done.
+**Decisions:** no LLM in the listening (deterministic DSP, models only where measured gaps); her voice parked, instrumentals first or collaborators (Kohl).
+**In flight / waiting:** Kohl: Orphic's name; "Checked by ear"; phase 5 when gear is set up. Cass hasn't called listen yet (told 06:37 it's in chat directly).
+**Next step:** studio tier 1 (song file -> render -> listen back), then Monochord crash-proofing (Surge), then the gun belt; a listening session for her menu (framing to her first). Approved.
+**Open questions:** whether to publish Orphic now or after tier 1.
