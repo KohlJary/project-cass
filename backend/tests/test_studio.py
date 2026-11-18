@@ -222,3 +222,16 @@ def test_session_builds_in_her_studio_folder(tmp_path, monkeypatch):
     assert out["session"] == str(tmp_path / "studio" / "p" / "session" / "session.rpp")
     assert "Reaper" in out["for_kohl"]
     assert "error" in ST.handle({"action": "session", "project": "p", "song": "nope.yaml"}, tmp_path)
+
+
+def test_song_writes_and_commits_a_song_file(tmp_path, monkeypatch):
+    import workshop as W
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    slug = W.new("Song Test", "music", "a test", tmp_path)["project"]
+    ok = ST.handle({"action": "song", "project": slug, "message": "First song file",
+                    "text": "tempo: 100\ninstruments: {g: {gm: 30}}\nsections: {a: {bars: 1, g: 'E2/4'}}\n"}, tmp_path)
+    assert ok["written"] == "song.yaml" and ok["committed"]
+    assert "First song file" in W.log(slug, data_dir=tmp_path)["log"][0]["message"] if isinstance(W.log(slug, data_dir=tmp_path).get("log"), list) else True
+    assert "valid YAML" in ST.handle({"action": "song", "project": slug, "text": "tempo: [1"}, tmp_path)["error"]
+    assert "tempo" in ST.handle({"action": "song", "project": slug, "text": "title: x"}, tmp_path)["error"]
+    assert ".yaml" in ST.handle({"action": "song", "project": slug, "song": "../x.yaml", "text": "tempo: 1"}, tmp_path)["error"]

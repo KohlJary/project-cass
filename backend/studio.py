@@ -64,7 +64,9 @@ TOOL = {
         "A song uses a clip as a part: <instrument>: {clip: name}, looped to fill the section. session builds a "
         "song as a real Reaper session (tracks, instruments, effects, my MIDI on each track, section markers) "
         "that Kohl can open in Reaper, and renders it there: synths play live from my MIDI, the sampled "
-        "guitar and the 808 go in as their audio with the notes beside them. share sets who can follow my music log in Babelr (my listening, what I write "
+        "guitar and the 808 go in as their audio with the notes beside them. song writes a song file into a "
+        "project (song.yaml, or another name ending .yaml) from text, checks it parses, and commits it with "
+        "my message; render and session then play it. share sets who can follow my music log in Babelr (my listening, what I write "
         "about songs, my drafts and sketches); hide keeps any single one out of it, show puts it back."),
     "input_schema": {
         "type": "object",
@@ -72,7 +74,8 @@ TOOL = {
             "action": {"type": "string",
                        "enum": ["help", "render", "drafts", "read", "look", "compare", "patch", "map",
                                 "noodle", "sketchbook", "keep", "share", "hide", "show", "tone", "rig",
-                                "clip", "clips", "session"]},
+                                "clip", "clips", "session", "song"]},
+            "text": {"type": "string", "description": "song: the whole song file (YAML, as help shows)"},
             "clip_notes": {"type": "array", "items": {"type": "object"},
                            "description": "clip: the notes as MIDI, each {\"bar\": 1, \"beat\": 1.5, \"pitch\": \"E2\" "
                                           "or [\"E2\", \"B2\"], \"len\": 0.25 (beats), \"vel\": 1-127, \"pm\": true}"},
@@ -424,6 +427,30 @@ def keep(slug: str, n: Optional[int], note: str, data_dir=None) -> Dict[str, Any
 
 
 # ---------------------------------------------------------------------------
+# writing a song file into a project (from chat, where the project tool isn't)
+# ---------------------------------------------------------------------------
+
+def write_song(slug: str, song: Optional[str], text: str, message: str, data_dir=None) -> Dict[str, Any]:
+    import workshop as W
+    import yaml
+    name = (song or "song.yaml").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]+\.ya?ml", name):
+        return {"error": "a song file is a name ending .yaml, like song.yaml or riot-idea.yaml"}
+    try:
+        data = yaml.safe_load(text or "")
+    except yaml.YAMLError as e:
+        return {"error": f"that isn't valid YAML: {e}"}
+    if not isinstance(data, dict) or "tempo" not in data:
+        return {"error": "a song needs at least a tempo (help shows the whole format)"}
+    out = W.write(slug, name, text, data_dir)
+    if out.get("error"):
+        return out
+    c = W.commit(slug, (message or "").strip() or f"Write {name}", data_dir)
+    return {"written": name, "project": slug, "committed": not c.get("error"),
+            "next": f"render or session with project {slug}" + ("" if name == "song.yaml" else f" and song {name}")}
+
+
+# ---------------------------------------------------------------------------
 # a song as a Reaper session
 # ---------------------------------------------------------------------------
 
@@ -573,6 +600,10 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
         return patch(a.get("name"), a.get("synth"), a.get("params") or {}, a.get("notes") or "", data_dir)
     if action == "map":
         return synth_map(a.get("synth") or "")
+    if action == "song":
+        if not slug:
+            return {"error": "which project (project)?"}
+        return write_song(slug, a.get("song"), a.get("text") or "", a.get("message") or "", data_dir)
     if action == "session":
         if not slug:
             return {"error": "a session is built from a song in a project: which one (project)?"}
@@ -618,7 +649,7 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
     if action == "keep":
         return keep(slug, a.get("sketch"), a.get("note") or "", data_dir)
     return {"error": "action is one of help, render, drafts, read, look, compare, patch, map, noodle, sketchbook, "
-                     "keep, share, hide, show, tone, rig, clip, clips, session"}
+                     "keep, share, hide, show, tone, rig, clip, clips, session, song"}
 
 
 def studio_tools(default_project: Optional[str] = None) -> Optional[Dict[str, Any]]:
