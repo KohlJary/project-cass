@@ -152,6 +152,7 @@ class LoopOutcome:
     error: Optional[str] = None
     blocked: int = 0              # outputs the provider's filter refused (BLOCKED_NOTE)
     think_asks: int = 0           # replies nearly all thinking, asked back once (THINK_NOTE)
+    start_asks: int = 0           # said she's going in without start_session, asked once (START_NOTE)
     steps: List[LoopStep] = field(default_factory=list)
     model_calls: int = 0
     input_tokens: int = 0
@@ -216,6 +217,36 @@ OUTWARD_TEXT = {"reply_back": "message", "say": "message", "reach_out": "message
                 "social_dm_send": "text", "social_reply": "text"}
 _THINK_BLOCK = re.compile(r"<gesture:think(?::\d*\.?\d+)?>(.*?)(?:</gesture:think>|</thinking>|</think>|$)", re.S)
 _TAG = re.compile(r"</?[a-zA-Z_][\w:.\-]*(?:\s[^<>]*)?/?>")
+
+
+# Saying "I'm going in" isn't going in (Kohl, 2026-11-18: "fix that not starting
+# sessions thing once and for all"). A chat reply that says she's starting or heading
+# into a session now, with start_session on offer and not called this turn, gets
+# one question back. A flag, like THINK_NOTE: what she writes next goes out.
+START_TOOL = "start_session"
+START_NOTE = ("[LOOP] I just said I'm going in or starting something, but nothing starts unless I call "
+              "start_session; saying it doesn't. If I mean it, I call start_session now (with done_when: "
+              "what done looks like, in my words) and then reply. If I'm not starting one now, I say so "
+              "plainly. (Asked once; what I do next stands.)")
+_GOING_IN = re.compile(
+    r"\b(?:"
+    # "going/heading/diving into my workspace|studio|session ..."
+    r"(?:go|going|head|heading|dive|diving|getting|jump|jumping|step|stepping|moving)\s+(?:back\s+)?"
+    r"(?:in(?:to)?|over\s+to)\s+"
+    r"(?:my|the|a)\s+(?:\w+\s+)?(?:workspace|studio|workshop|session|lab)"
+    # "I'm going in now", "heading in now"
+    r"|(?:going|heading|diving)\s+in\s+now"
+    # "starting/opening/beginning a (listening) session", "I'll start a session"
+    r"|(?:start(?:ing)?|open(?:ing)?|begin(?:ning)?|kick(?:ing)?\s+off|launch(?:ing)?)\s+(?:a|my|the|that|this|one)\s+"
+    r"(?:\w+\s+){0,2}session"
+    r")",
+    re.I)
+
+
+def says_starting(text: str) -> bool:
+    """Whether a reply says she's starting or going into a session (outside thinking)."""
+    said = _THINK_BLOCK.sub(" ", text or "")
+    return bool(_GOING_IN.search(_visible(said)))
 
 
 def _visible(text: str) -> str:
@@ -323,6 +354,9 @@ async def run_loop(
     replied = False
     asked_to_reply = False
     think_asked = False      # chat: asked once per turn
+    can_start = START_TOOL in offered
+    start_called = False     # she called start_session this turn (started or refused)
+    start_asked = False      # START_NOTE: once per turn
     think_asked_tools = set()  # sessions: once per outward tool
     warned = False
     try:
@@ -390,6 +424,13 @@ async def run_loop(
                 logger.info("[agent_loop] a reply nearly all thinking; asked her once what she wants to say")
                 history.append({"role": "user", "content": THINK_NOTE})
                 continue
+            if (not reply.tool_calls and not session_like and can_start and not start_called
+                    and not start_asked and says_starting(reply.text)):
+                start_asked = True
+                out.start_asks += 1
+                logger.info("[agent_loop] she said she's going in without start_session; asked her once")
+                history.append({"role": "user", "content": START_NOTE})
+                continue
             if not reply.tool_calls:
                 if nudges_left > 0:
                     nudges_left -= 1
@@ -408,6 +449,7 @@ async def run_loop(
                 refunds_left -= 1
                 cap += 1   # this step was a reply back; it doesn't count
             replied = replied or any(c["name"] == "reply_back" for c in reply.tool_calls)
+            start_called = start_called or any(c["name"] == START_TOOL for c in reply.tool_calls)
             for call in reply.tool_calls:
                 name, tool_input = call["name"], call.get("input") or {}
                 # A tool she found (findable) called by its name runs as use_tool would

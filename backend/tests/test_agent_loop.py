@@ -959,3 +959,70 @@ def test_session_message_all_thinking_is_held_once_then_sent():
     assert out.think_asks == 1
     assert out.steps[0].tool_results[0]["result"]["not_sent"]
     assert ("reply_back", THINKING) in executed   # the second try goes out as written
+
+
+# ---------------------------------------------------------------------------
+# Saying "I'm going in" without start_session is asked back once (Kohl, 2026-11-18)
+# ---------------------------------------------------------------------------
+
+GOING_IN = "Thank you. I'm going into my workspace now to write the notation and the done guide."
+
+
+def test_says_starting():
+    from agent_loop.loop import says_starting
+    assert says_starting(GOING_IN)
+    assert says_starting("Okay, starting a listening session on Violator.")
+    assert says_starting("I'll start a workshop session for the bridge.")
+    assert says_starting("Heading in now.")
+    assert not says_starting("Let me start by saying the chorus is too loud.")
+    assert not says_starting("That session went well; I ended it after the second draft.")
+    assert not says_starting("<gesture:think>maybe I'm going into my workspace later</gesture:think> Sounds good.")
+
+
+def _starter_run(replies, executed):
+    spec = conversation_spec()
+    client = StubClient(replies)
+
+    async def execute(name, tool_input):
+        executed.append(name)
+        return {"started": True}
+    out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="sys",
+                               tools=[{"name": "hold_reply"}, {"name": "start_session"}],
+                               messages=[{"role": "user", "content": "x"}],
+                               execute=execute, end_tool="hold_reply", nudges=0))
+    return out, client
+
+
+def test_going_in_without_start_session_is_asked_once():
+    from agent_loop.loop import START_NOTE
+    executed = []
+    out, client = _starter_run([_text_reply(GOING_IN),
+                                _tool_reply("start_session", {"activity": "workshop", "done_when": "notation written"}),
+                                _text_reply("Started. I'm going into my workspace now.")], executed)
+    assert out.start_asks == 1 and executed == ["start_session"]
+    assert {"role": "user", "content": START_NOTE} in client.calls[1]["messages"]
+    assert out.status == "completed"
+
+
+def test_going_in_asked_only_once():
+    executed = []
+    out, _ = _starter_run([_text_reply(GOING_IN), _text_reply(GOING_IN)], executed)
+    assert out.start_asks == 1 and out.model_calls == 2 and executed == []
+
+
+def test_going_in_after_calling_start_session_is_not_asked():
+    executed = []
+    out, _ = _starter_run([_tool_reply("start_session", {"activity": "workshop"}), _text_reply(GOING_IN)], executed)
+    assert out.start_asks == 0 and out.model_calls == 2
+
+
+def test_going_in_without_start_session_offered_is_not_asked():
+    spec = conversation_spec()
+    client = StubClient([_text_reply(GOING_IN)])
+
+    async def execute(name, tool_input):
+        return {"success": True}
+    out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="sys", tools=[{"name": "hold_reply"}],
+                               messages=[{"role": "user", "content": "x"}],
+                               execute=execute, end_tool="hold_reply", nudges=0))
+    assert out.start_asks == 0 and out.model_calls == 1
