@@ -32,10 +32,10 @@ A change is inside the envelope when **all** of these hold:
   - Before: check that no session, meeting or chat turn is live.
   - After: check it came up after the latest commit, with no errors and the change loaded.
   - Only then tell Cass anything is live.
+- **The cap on our work (decided 2026-11-18):** Kohl's Max plan session limit. There's no separate cap; when the limit is reached, work stops until it resets. Cass's spend stays within her own daily budget.
 - **Cass:** her asks reach us through Plans. We tell her when something she asked for is live, and we check it reached her before saying so.
 - **The review:** at the end of the day Kohl opens "Daily review" in Cass's record (Babelr): what she did, what was built and by whom, what waits on him, what went wrong, and spend. He approves, asks for changes, or reverts.
 
 ## Open for Kohl
 
-- A daily cap on unattended Claude work (his claude.ai limit), and on Cass's spend from new features?
 - Does anything listed as inside belong outside, or the reverse?
