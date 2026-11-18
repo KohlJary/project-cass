@@ -249,7 +249,7 @@ async def run_chat_turn(
 
     from agent_loop.conversation import on_the_loop
     chan = channel or _guess_channel(websocket, context_scope, tool_cap)
-    on_loop = on_the_loop(chan) and not image
+    on_loop = on_the_loop(chan)
     if on_loop:
         # Phase 7 of "Cass's agent loop": the same context, through the one loop.
         from agent_loop import fold as fold_mod
@@ -263,8 +263,9 @@ async def run_chat_turn(
         # C7: in private chat, someone who writes while she's in a session
         # arrives in it and she answers from there (agent_loop/fold.py).
         folded_text = None
+        # A message with an image isn't folded: an arrival carries text only.
         if (fold_mod.folding_on() and context_scope == "private" and chan in fold_mod.FOLD_CHANNELS
-                and fold_mod.DESK.is_open()):
+                and fold_mod.DESK.is_open() and not image):
             offered = fold_mod.DESK.offer(arrival_block, user_name or "someone", chan)
             if offered is not None:
                 await emit({"type": "thinking", "status": "Arriving in what I'm doing..."})
@@ -288,7 +289,7 @@ async def run_chat_turn(
             channel=chan, arrival_block=arrival_block, user_message=user_message,
             provider=response_provider, model=response_model,
             agent_client=agent_client if is_anthropic else None,
-            tool_cap=tool_cap, emit=emit,
+            tool_cap=tool_cap, emit=emit, image=image, image_media_type=image_media_type,
         )
     if on_loop:
         raw_response, clean_text, animations = looped.raw_response, looped.clean_text, looped.animations

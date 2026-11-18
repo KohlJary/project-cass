@@ -108,3 +108,47 @@ def test_a_conversation_carries_what_shes_working_toward():
         client=Client(), catalog={}, workspace=Space(),
         run_router=lambda *a: None, working_toward="## WHAT I'M WORKING TOWARD\n\n- **Paint**"))
     assert "## WHAT I'M WORKING TOWARD" in seen["system"], "everywhere, public rooms included"
+
+
+# Image turns on the loop (2026-11-17): the picture reaches the model.
+
+def test_an_image_reaches_the_model_on_the_loop():
+    from agent_loop.conversation import run_conversation
+    from agent_loop.models import ModelReply, anthropic_messages, ollama_messages, openai_messages
+    seen = {}
+
+    class Client:
+        ledger = None
+
+        async def create(self, *, model, system, tools, messages, max_tokens):
+            seen["messages"] = list(messages)   # the loop appends to its history after
+            return ModelReply("a tide pool", [], "end_turn", 1, 1)
+
+    class Space:
+        def run(self, *a):
+            return ""
+
+    asyncio.run(run_conversation(
+        system_prompt="KERNEL", continuous_messages=[], model_message="what's this?",
+        person={"user_name": "Kohl"}, channel="discord", provider="anthropic", model="m",
+        client=Client(), catalog={}, workspace=Space(), run_router=lambda *a: None,
+        working_toward="", image="QUJD", image_media_type="image/png"))
+    last = seen["messages"][-1]
+    assert last["image"] == {"data": "QUJD", "media_type": "image/png"}
+    a = anthropic_messages([last], cache=False)[0]["content"]
+    assert a[0]["type"] == "image" and a[0]["source"]["data"] == "QUJD" and a[1]["text"] == "what's this?"
+    o = openai_messages("s", [last])[1]["content"]
+    assert o[1]["image_url"]["url"] == "data:image/png;base64,QUJD"
+    assert ollama_messages("s", [last])[1]["images"] == ["QUJD"]
+    # Without an image, the shapes are as before.
+    plain = {"role": "user", "content": "hi"}
+    assert openai_messages("s", [plain])[1]["content"] == "hi"
+    assert "images" not in ollama_messages("s", [plain])[1]
+
+
+def test_image_turns_are_no_longer_kept_off_the_loop():
+    import inspect
+    import chat_turn
+    src = inspect.getsource(chat_turn)
+    assert "on_loop = on_the_loop(chan)\n" in src
+    assert "image=image, image_media_type=image_media_type," in src

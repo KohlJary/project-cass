@@ -166,6 +166,15 @@ async def working_toward_block() -> str:
     return text
 
 
+def _this_message(text: str, image: Optional[str], media_type: Optional[str]) -> Dict[str, Any]:
+    """The person's message, with the image they sent if any (2026-11-17: image
+    turns moved onto the loop; each model adapter renders it its own way)."""
+    msg: Dict[str, Any] = {"role": "user", "content": text}
+    if image and media_type:
+        msg["image"] = {"data": image, "media_type": media_type}
+    return msg
+
+
 async def run_conversation(
     *,
     system_prompt: str,
@@ -187,6 +196,8 @@ async def run_conversation(
     held_book=None,
     wakes=None,
     working_toward: Optional[str] = None,
+    image: Optional[str] = None,
+    image_media_type: Optional[str] = None,
 ) -> LoopChatResult:
     """One conversation turn through the loop. `client`, `run_router`,
     `catalog` and `workspace` default to the live ones (tests pass fakes)."""
@@ -245,7 +256,7 @@ async def run_conversation(
 
     outcome = await run_loop(
         spec=spec, client=client, model=model, system=system, tools=tools,
-        messages=history_from(continuous_messages) + [{"role": "user", "content": model_message}],
+        messages=history_from(continuous_messages) + [_this_message(model_message, image, image_media_type)],
         execute=execute, end_tool="hold_reply", nudges=0,
     )
     if outcome.status == "error":

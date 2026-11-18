@@ -68,6 +68,12 @@ def _user_text(message: Dict[str, Any]) -> str:
     return "".join(b.get("text", "") for b in content if isinstance(b, dict))
 
 
+def _image(message: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """An image the person sent with this message: {"data": base64, "media_type": ...}."""
+    img = message.get("image")
+    return img if isinstance(img, dict) and img.get("data") and img.get("media_type") else None
+
+
 def _function_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [{"type": "function",
              "function": {"name": t["name"], "description": t.get("description", ""),
@@ -127,7 +133,10 @@ def anthropic_messages(history: List[Dict[str, Any]], cache: bool = True) -> Lis
     for h in history:
         role = h["role"]
         if role == "user":
-            msgs.append({"role": "user", "content": [{"type": "text", "text": _user_text(h)}]})
+            img = _image(h)
+            pic = ([{"type": "image", "source": {"type": "base64", "media_type": img["media_type"],
+                                                 "data": img["data"]}}] if img else [])
+            msgs.append({"role": "user", "content": pic + [{"type": "text", "text": _user_text(h)}]})
         elif role == "assistant":
             blocks: List[Dict[str, Any]] = [{"type": "text", "text": h["text"]}] if h.get("text") else []
             blocks += [{"type": "tool_use", "id": c["id"], "name": c["name"], "input": c.get("input") or {}}
@@ -208,7 +217,13 @@ def openai_messages(system: str, history: List[Dict[str, Any]]) -> List[Dict[str
     for h in history:
         role = h["role"]
         if role == "user":
-            msgs.append({"role": "user", "content": _user_text(h)})
+            img = _image(h)
+            if img:
+                msgs.append({"role": "user", "content": [
+                    {"type": "text", "text": _user_text(h)},
+                    {"type": "image_url", "image_url": {"url": f"data:{img['media_type']};base64,{img['data']}"}}]})
+            else:
+                msgs.append({"role": "user", "content": _user_text(h)})
         elif role == "assistant":
             m: Dict[str, Any] = {"role": "assistant", "content": h.get("text") or None}
             if h.get("calls"):
@@ -277,7 +292,11 @@ def ollama_messages(system: str, history: List[Dict[str, Any]]) -> List[Dict[str
     for h in history:
         role = h["role"]
         if role == "user":
-            msgs.append({"role": "user", "content": _user_text(h)})
+            m_user: Dict[str, Any] = {"role": "user", "content": _user_text(h)}
+            img = _image(h)
+            if img:
+                m_user["images"] = [img["data"]]
+            msgs.append(m_user)
         elif role == "assistant":
             m: Dict[str, Any] = {"role": "assistant", "content": h.get("text") or ""}
             if h.get("calls"):
