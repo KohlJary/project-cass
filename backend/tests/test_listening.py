@@ -166,3 +166,20 @@ def test_reading_sections_by_role():
           "- bar 1 (0:00) E5\n\n## B (chorus, medium confidence) · bars 5–12 · 0:08–0:24\n- bar 5 (0:08) G5\n")
     assert "bar 5" in L.read_part(md, "chorus") and "bar 1" not in L.read_part(md, "chorus")
     assert "bar 1" in L.read_part(md, "A")
+
+
+def test_slugs_name_albums_and_songs_exactly_and_duplicates_collapse():
+    a = {"id": "x/01 Can You Feel My Heart.mp3", "artist": "Bring Me The Horizon", "album": "Sempiternal (Deluxe Edition)",
+         "title": "Can You Feel My Heart", "track": "1", "duration": 1.0, "key": "a1"}
+    b = dict(a, id="y/01 Can You Feel My Heart.mp3", artist="Bring Me the Horizon", key="b1")
+    c = dict(a, id="x/02 The House Of Wolves.mp3", title="The House Of Wolves", track="2", key="a2")
+    assert L.album_slug(a) == "bring-me-the-horizon/sempiternal"
+    assert L.track_slug(c) == "bring-me-the-horizon/sempiternal/the-house-of-wolves"
+    shelf = L.dedupe([a, b, c])
+    assert len(shelf) == 2
+    assert L.find("bring-me-the-horizon/sempiternal", shelf)["kind"] == "album"
+    one = L.find("bring-me-the-horizon/sempiternal/the-house-of-wolves", shelf)
+    assert one["kind"] == "song" and one["tracks"][0]["title"] == "The House Of Wolves"
+    assert L.find("bring-me-the-horizon/one-x", shelf)["tracks"] == []
+    s = L.shelf("Sempiternal", tracks=shelf)
+    assert s["albums"][0]["slug"] == "bring-me-the-horizon/sempiternal"

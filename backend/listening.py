@@ -70,7 +70,7 @@ TOOL = {
             "action": {"type": "string", "enum": ["shelf", "listen", "status", "read", "album", "look", "note", "my_notes"]},
             "text": {"type": "string", "description": "note: what the song (or album) is to me, in my words"},
             "add": {"type": "boolean", "description": "note: add to what I wrote before instead of rewriting it"},
-            "query": {"type": "string", "description": "shelf/listen/read/album/look: artist, album or song, in words"},
+            "query": {"type": "string", "description": "shelf/listen/read/album/look/note: a slug from the shelf (bring-me-the-horizon/sempiternal, or .../song-title for one song: exact, no mix-ups), or artist, album or song in words"},
             "part": {"type": "string", "description": "read: glance, words, a section label, or bars like 20-40; "
                                                       "look: overview, stereo, a section label, or score (score 2 for page 2)"},
         },
@@ -148,10 +148,44 @@ def _norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
 
 
+def _slug(x: str) -> str:
+    x = re.sub(r"[\(\[][^\)\]]*[\)\]]", " ", str(x or ""))   # edition notes: (Deluxe Edition), [2009]
+    return re.sub(r"[^a-z0-9]+", "-", x.lower()).strip("-") or "x"
+
+
+def album_slug(t: Dict[str, Any]) -> str:
+    """A stable short name for an album (Kohl, 2026-11-18: she mixes up names; slugs don't drift)."""
+    return f"{_slug(t['artist'])}/{_slug(t['album'])}"
+
+
+def track_slug(t: Dict[str, Any]) -> str:
+    return f"{album_slug(t)}/{_slug(t['title'])}"
+
+
+def dedupe(tracks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One of each song: the same album in two folders (Bring Me The Horizon / Bring Me the
+    Horizon) is one album; the copy with a record is kept."""
+    best: Dict[str, Dict[str, Any]] = {}
+    for t in tracks:
+        k = track_slug(t)
+        if k not in best or (_ready(t) is not None and _ready(best[k]) is None):
+            best[k] = t
+    return list(best.values())
+
+
 def find(query: str, tracks: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Tracks a query names. A query that names an album gives the album (One X is both an
     album and a song on it: the album, unless she says "song"); a title gives the song."""
     raw = (query or "").lower()
+    if "/" in raw:   # a slug: exact, no guessing
+        sl = raw.strip().strip("/")
+        song = [t for t in tracks if track_slug(t) == sl]
+        if song:
+            return {"tracks": song[:1], "kind": "song"}
+        alb = [t for t in tracks if album_slug(t) == sl]
+        if alb:
+            return {"tracks": sorted(alb, key=_order), "kind": "album"}
+        return {"tracks": [], "kind": None}
     q = _norm(re.sub(r"\b(the )?(album|record|song|track)\b|\bby\b", " ", raw))
     if not q:
         return {"tracks": [], "kind": None}
@@ -188,17 +222,19 @@ def _order(t):
 
 
 def shelf(query: str = "", tracks: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-    tracks = tracks if tracks is not None else index()
+    tracks = tracks if tracks is not None else dedupe(index())
     if query:
         tracks = find(query, tracks)["tracks"] or [t for t in tracks if _norm(query) in _norm(t["artist"])]
     albums: Dict[str, Dict[str, Any]] = {}
     for t in sorted(tracks, key=_order):
-        key = f"{t['artist']} — {t['album']}"
-        albums.setdefault(key, {"artist": t["artist"], "album": t["album"], "tracks": []})["tracks"].append(
-            {"title": t["title"], "minutes": round((t["duration"] or 0) / 60, 1), "ready": _ready(t) is not None})
+        key = album_slug(t)
+        albums.setdefault(key, {"artist": t["artist"], "album": t["album"], "slug": key, "tracks": []})["tracks"].append(
+            {"title": t["title"], "slug": track_slug(t), "minutes": round((t["duration"] or 0) / 60, 1),
+             "ready": _ready(t) is not None})
     out = list(albums.values())
     if not query and len(out) > 40:
-        return {"albums": [{"artist": a["artist"], "album": a["album"], "tracks": len(a["tracks"])} for a in out],
+        return {"albums": [{"artist": a["artist"], "album": a["album"], "slug": a["slug"], "tracks": len(a["tracks"])}
+                           for a in out],
                 "note": "query an artist or album to see its tracks"}
     return {"albums": out}
 
@@ -447,7 +483,7 @@ def handle(a: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"{action} needs a query: an artist, album or song"}
     if not Path(ACOUSMATIC).exists():
         return {"error": "Acousmatic isn't installed where the vessel expects it"}
-    found = find(query, index())
+    found = find(query, dedupe(index()))
     tracks = found["tracks"]
     if tracks:
         try:
@@ -509,7 +545,8 @@ def handle(a: Dict[str, Any]) -> Dict[str, Any]:
                     rows.append({"title": t["title"], "error": str(e)})
             else:
                 missing.append(t["title"])
-        return {"album": tracks[0]["album"], "artist": tracks[0]["artist"], "songs": rows,
+        return {"album": tracks[0]["album"], "artist": tracks[0]["artist"], "slug": album_slug(tracks[0]),
+                "song_slugs": [track_slug(t) for t in tracks], "songs": rows,
                 "not_listened_yet": missing, **_read_so_far(tracks),
                 "keys": "tempo BPM; loudness in LUFS (higher = louder master); crest = peak over average (lower = "
                         "more compressed); width 0 = mono, higher = wider; form = section letters in order"}
@@ -526,7 +563,7 @@ def handle(a: Dict[str, Any]) -> Dict[str, Any]:
         if len(text) > READ_CHARS:
             text = (text[:READ_CHARS] + "\n[the record goes on; read a part: glance, words, a section label, "
                     "or bars like 40-80]")
-        return {"song": t["title"], "artist": t["artist"], "album": t["album"], "record": text}
+        return {"song": t["title"], "artist": t["artist"], "album": t["album"], "slug": track_slug(t), "record": text}
     if action == "look":
         img = _image_path(d, a.get("part"))
         if not img or not img.exists():
