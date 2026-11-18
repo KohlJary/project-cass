@@ -69,6 +69,9 @@ def start_tool(activities) -> Dict[str, Any]:
             "activity": {"type": "string", "enum": sorted(activities), "description": "What kind of session"},
             "why": {"type": "string", "description": "Why now, in my words"},
             "focus": {"type": "string", "description": "What it's for (an album, a project, a question)"},
+            "done_when": {"type": "string", "description": "What done looks like, in my words, so I know when to "
+                                                           "stop (like: one full draft written, rendered, listened "
+                                                           "to and ready to show)"},
             "minutes": {"type": "integer", "minimum": START_MINUTES[0], "maximum": START_MINUTES[1],
                         "description": "How long (default 30)"},
         }, "required": ["activity", "why"]},
@@ -164,10 +167,12 @@ class WakeBook:
             return {"error": f"I've started {STARTS_PER_DAY} sessions from conversations today; the count starts "
                              "again tomorrow (wake_me or my day plan can still place one)"}
         focus = str(tool_input.get("focus") or "").strip()[:300] or None
+        done_when = str(tool_input.get("done_when") or "").strip()[:300] or None
         items.append({"id": uuid.uuid4().hex[:8], "at": now.isoformat(timespec="seconds"), "why": why[:500],
                       "activity": activity, "focus": focus, "minutes": minutes, "asked_in": turn_id,
                       "asked_at": now.isoformat(timespec="seconds"), "status": PENDING,
-                      "started_from": "conversation", "origin": origin or {}})
+                      "started_from": "conversation", "origin": origin or {},
+                      **({"done_when": done_when} if done_when else {})})
         self._save(items)
         left = STARTS_PER_DAY - used - (0 if activity in UNCOUNTED else 1)
         return {"started": activity, "for": focus, "minutes": minutes,
@@ -273,10 +278,18 @@ def wake_why(w: Dict[str, Any]) -> str:
     return f"I asked to be woken now: {w.get('why')}"
 
 
+# What done looks like for the session being run now (her words, from start_session);
+# the session runner reads it (a context variable, so it reaches the runner through any
+# session's handler without each one passing it on).
+import contextvars
+DONE_WHEN: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar("done_when", default=None)
+
+
 async def run_wake(w: Dict[str, Any], book: Optional[WakeBook] = None) -> Any:
     """One woken session, through the action registry like any session."""
     book = book or WakeBook()
     book.mark_running(w["id"])
+    DONE_WHEN.set(w.get("done_when"))
     from scheduler.actions import get_action_registry
     try:
         result = await get_action_registry().execute(

@@ -249,6 +249,7 @@ async def run_session_turn(
     local_tools: Optional[Dict[str, Tuple[Dict[str, Any], Callable[[Dict[str, Any]], Any]]]] = None,
     initial_message: Optional[str] = None,
     reply_to: Optional[Dict[str, Any]] = None,
+    done_when: Optional[str] = None,
 ):
     """Run one autonomous session through the Turn. Returns a SessionResult
     (subclass) so the action handler reports it the same way as before.
@@ -335,6 +336,15 @@ async def run_session_turn(
         resume = None
     if resume:
         additions = f"{resume}\n\n{additions}" if additions else resume
+    if done_when is None:
+        from .wakes import DONE_WHEN
+        done_when = DONE_WHEN.get()
+    if done_when:
+        # what done looks like, in her words (Cass and Kohl, 2026-11-18: without it she
+        # stopped when one step was done, 4 minutes into an hour)
+        additions = (additions or "") + (
+            f"\n\n## DONE WHEN\n\n{done_when}\n\nI have {duration_minutes} minutes for this. I end with "
+            "session_complete when that's met, or when I truly can't go on (and then I say why).")
     prompt = assemble(spec, trigger, tool_names, additions, workspace=workspace,
                       findable=list(tools_mod.findable(catalog, tool_names)))
     model = resolve_model(spec, runner.model)
@@ -375,12 +385,21 @@ async def run_session_turn(
     # never reached them. session_complete says so once per arrival, and the
     # turn goes on (an end tool's error doesn't end it).
     told: set = set()
+    import time as _time
+    began = _time.monotonic()
+    asked_done = [False]
     # Her gremlin as a second voice on what she sends out (gremlin_review.py;
     # lever gremlin_review): notes once per draft, then that tool's next call goes.
     from .gremlin_review import Reviewer
     reviewer = Reviewer(session_id)
 
     async def execute(name: str, tool_input: Dict[str, Any]) -> Any:
+        if done_when and name == "session_complete" and not asked_done[0]:
+            left = int(duration_minutes - (_time.monotonic() - began) / 60)
+            if left >= 3:
+                asked_done[0] = True   # once: the next session_complete ends it
+                return {"error": f"Done when: {done_when}. Met? {left} minutes left. If it's met, or I choose "
+                                 "to stop anyway, I call session_complete again."}
         if folding and name == "session_complete":
             waiting = [f for f in fold_mod.DESK.waiting() if f.id not in told]
             if waiting:

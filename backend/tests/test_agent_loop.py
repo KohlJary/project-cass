@@ -860,3 +860,33 @@ def test_making_sessions_get_a_step_per_minute(monkeypatch):
             assert e.args[0] == want, (kind, minutes, e.args[0])
         else:
             raise AssertionError("the spec wasn't built")
+
+
+def test_done_when_is_shown_and_an_early_end_is_asked_once(session_env, tmp_path):
+    """Cass and Kohl, 2026-11-18: she says what done looks like; ending early with time
+    left gets one 'met?' and then her second session_complete ends it."""
+    from agent_loop import tools as T
+    from agent_loop.session import run_session_turn
+    from agent_loop.wakes import DONE_WHEN
+    runner, managers, fake = session_env
+    runner.set_managers(managers)
+    from session import get_default_handlers
+    runner.register_tool_handlers(get_default_handlers())
+
+    async def router(name, tool_input):
+        return f"ran {name}"
+    fake.queue_tool_use("session_complete", {"summary": "Balance found."})
+    fake.queue_tool_use("session_complete", {"summary": "Stopping: the structure needs a fresh head."})
+    DONE_WHEN.set("One full draft complete: written, rendered, listened to, and ready to show.")
+    try:
+        result = asyncio.run(run_session_turn(runner, session_type="workshop", duration_minutes=60, max_turns=6,
+                                              run_router=router, catalog=T.router_catalog(),
+                                              usage_log=T.UsageLog(tmp_path / "u.jsonl")))
+    finally:
+        DONE_WHEN.set(None)
+    assert result.status == "completed", result.error
+    system = str(fake.calls[0].system)
+    assert "## DONE WHEN" in system and "ready to show" in system
+    asked = str(fake.calls[1].messages[-1]["content"])
+    assert "Met?" in asked and "minutes left" in asked
+    assert len(fake.calls) == 2

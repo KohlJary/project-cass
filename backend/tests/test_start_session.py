@@ -128,3 +128,10 @@ def test_her_chat_sees_what_her_sessions_actually_did(tmp_path):
     text = WK.sessions_block(book, now=datetime.now())
     assert "reached its step cap" in text and "of 60 min" in text
     assert "saying I'll start one doesn't" in text
+
+
+def test_start_session_keeps_her_done_when(tmp_path):
+    book = WK.WakeBook(tmp_path / "wakes.json")
+    book.start_now({"activity": "workshop", "why": "a song", "done_when": "one full draft, ready to show"},
+                   "c", ["workshop"], now=datetime(2026, 11, 18, 12, 0))
+    assert book.pending()[0]["done_when"] == "one full draft, ready to show"
