@@ -163,6 +163,15 @@ def since_last_plan(workspace=None, data_dir: Optional[Path] = None,
                 lines.append(f"- {s['at']:%a %H:%M} {s['what']}" + (f": \"{text}\"" if text else ""))
         else:
             lines.append("I sent nothing out since then (no message to Kohl, no post).")
+    try:   # what she's promised that's pressing (commitments.py)
+        from commitments import lines as commitment_lines
+        promised = commitment_lines(dd, now)
+    except Exception as e:
+        logger.warning(f"[day_recap] couldn't read her commitments: {e}")
+        promised = []
+    if promised:
+        lines.append("What I've promised that's pressing:")
+        lines += promised
     left = [s for s in ran if s.get("pick_up_next")]
     if left:   # what she left herself (session_complete pick_up_next, or written at the cap)
         lines.append("What I said I'd pick up next:")

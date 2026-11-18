@@ -1642,6 +1642,7 @@ from social.tools import SOCIAL_TOOLS
 from handlers.recall import RECALL_TOOLS
 from letters import LETTER_TOOLS
 from self_account import HOW_I_WORK_TOOLS
+from commitments import COMMITMENT_TOOLS  # noqa: F401  (router catalog: her commitments)
 
 
 _SOCIAL_WORDS = ("bluesky", "tumblr", "skeet", "my post", "mentions", "post", "social", "follower",

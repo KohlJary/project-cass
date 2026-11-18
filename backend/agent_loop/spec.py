@@ -137,6 +137,9 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     ToolPack("kohl_blog", "read Kohl's blog posts and keep what I take from them (or disagree with) in "
                           "my self-model, marked as coming from his writing",
              ("blog_list", "blog_read", "blog_keep")),
+    # Her commitments (commitments.py; Kohl, 2026-11-18): what she said she'd do, by when.
+    ToolPack("commitments", "keep what I've said I'll do, for whom and by when, and mark it done or dropped",
+             ("commitment",)),
     # Her workshop (workshop_turn.py; Kohl, 2026-11-18): her projects, each kept apart.
     ToolPack("workshop", "work on my projects: each a git history with its vision and state (software, "
                          "long writing, outreach), and run code in software ones, sandboxed",
@@ -147,7 +150,7 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
 
 # Packs whose tools run through tool_router (her chat handlers), and packs
 # the loop answers itself; the rest are session tools (session/tools.py).
-ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans", "self"})
+ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans", "self", "commitments"})
 LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage", "wonderland",
                         "daedalus", "kohl_blog", "workshop"})
 
@@ -364,7 +367,7 @@ def session_spec(activity: str, max_iterations: int = 10, *, chapter_house: bool
         can_ask_daedalus = _lever_on("ask_daedalus")
     own = tuple(p for p in ACTIVITY_PACKS.get(activity, ())
                 if (chapter_house or p != "plans") and (can_ask_daedalus or p != "daedalus"))
-    packs = (("core", "memory") + own + ("chat_core", "work")
+    packs = (("core", "memory") + own + ("chat_core", "work", "commitments")
              + (("chapter_house",) if chapter_house else ()) + ("workspace",)
              + (("say",) if can_say else ()) + (("wake",) if can_wake else ())
              + ("find", "session"))
@@ -412,7 +415,7 @@ def conversation_spec(max_iterations: int = CONVERSATION_MAX_STEPS, *,
         activity=None,
         # plans in chat too (audit Q5, 2026-11-18): "my plans" is the same tool in
         # chat and sessions; it needs Babelr, like Chapter House.
-        packs=("chat_core", "work") + (("chapter_house", "plans") if chapter_house else ())
+        packs=("chat_core", "work", "commitments") + (("chapter_house", "plans") if chapter_house else ())
               + ("workspace", "find"),
         writes=WritePolicy(kept=(
             ("exchange", "this conversation, summarized into my working memory"),

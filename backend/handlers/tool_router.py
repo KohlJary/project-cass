@@ -416,6 +416,7 @@ TOOL_REGISTRY = {
     # How I work, generated from the code (self_account.py)
     "how_i_work": "self_account",
     "my_record": "self_account",
+    "commitment": "commitments",
     "code_search": "self_account",   # her own code, read-only (code_search.py)
     "social_read": "social",
     "social_thread": "social",
@@ -966,6 +967,9 @@ async def route_tool(
         )
 
     elif executor_type == "letters":
+        return await executor(tool_name=tool_name, tool_input=tool_input)
+
+    elif executor_type == "commitments":
         return await executor(tool_name=tool_name, tool_input=tool_input)
 
     elif executor_type == "self_account":

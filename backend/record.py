@@ -160,6 +160,24 @@ def from_published(dd: Path) -> List[Dict[str, Any]]:
             for n, rec in _jsonl(dd / "workshop" / "published.jsonl")]
 
 
+def from_commitments(dd: Path) -> List[Dict[str, Any]]:
+    """What she said she'd do, and what came of it (commitments.py)."""
+    from commitments import load, state_of
+    out = []
+    for c in load(dd):
+        who = f" for {c['for_whom']}" if c.get("for_whom") else ""
+        due = f" by {str(c['due'])[:16].replace('T', ' ')}" if c.get("due") else ""
+        out.append(_entry(c["created"], "cass", "plan", f"promised{who}: {c['what']}{due}",
+                          f"commitments.json {c['id']}"))
+        if c["status"] != "open":
+            out.append(_entry(c.get("done_at"), "cass", "plan", f"commitment {c['status']}: {c['what']}",
+                              f"commitments.json {c['id']}", c.get("note")))
+        elif state_of(c) == "overdue":
+            out.append(_entry(c["due"], "cass", "plan", f"commitment overdue: {c['what']}",
+                              f"commitments.json {c['id']}"))
+    return out
+
+
 def from_room(dd: Path) -> List[Dict[str, Any]]:
     try:
         state = json.loads((dd / "room" / "shares.json").read_text(encoding="utf-8"))
@@ -290,6 +308,7 @@ def build(days: int = 30, data_dir: Optional[Path] = None, now: Optional[datetim
     take("Bluesky/Tumblr", lambda: from_social(dd))
     take("her room", lambda: from_room(dd))
     take("GitHub publishing", lambda: from_published(dd))
+    take("her commitments", lambda: from_commitments(dd))
     take("her days", lambda: from_days(dd))
     take("vessel commits", lambda: from_git(repo or Path(__file__).resolve().parent.parent, since))
 
