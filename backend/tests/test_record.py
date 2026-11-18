@@ -181,3 +181,13 @@ def test_the_review_route_needs_a_record_token(monkeypatch):
     c = TestClient(app)
     assert c.get("/record/review.md").status_code == 401
     assert c.get("/record/review.md?hours=12", headers={"Authorization": "Bearer record_ok"}).text == "# Daily review (12)"
+
+
+def test_plans_events_show_local_time_and_the_items_title():
+    from datetime import timezone
+    ev = [{"seq": 5, "planSlug": "cass-s-asks-x", "actor": {"name": "cass"}, "action": "item-status",
+           "itemId": "i1", "detail": {"status": "done"}, "at": "2026-11-18T06:24:00Z"}]
+    (e,) = R.from_plans(ev, {"cass-s-asks-x": "Cass's asks"}, items={"i1": "Code search"})
+    assert e["title"] == "item status: Code search -> done"
+    local = datetime(2026, 11, 18, 6, 24, tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+    assert e["at"] == local.isoformat(timespec="seconds")

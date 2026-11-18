@@ -89,8 +89,17 @@ def from_changes(dd: Path) -> List[Dict[str, Any]]:
     return out
 
 
+def _local(at: Any) -> str:
+    """An event time in local time (Plans stores UTC, "…Z"), as the rest of the record."""
+    try:
+        t = datetime.fromisoformat(str(at).replace("Z", "+00:00"))
+    except ValueError:
+        return str(at or "")
+    return (t.astimezone().replace(tzinfo=None) if t.tzinfo else t).isoformat(timespec="seconds")
+
+
 def from_plans(events: List[Dict[str, Any]], her_plans: Dict[str, str],
-               me: str = "cass") -> List[Dict[str, Any]]:
+               me: str = "cass", items: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
     """Plans events on her plans (any actor) and hers anywhere. `her_plans`:
     slug -> title, for plans she created."""
     out = []
@@ -103,7 +112,8 @@ def from_plans(events: List[Dict[str, Any]], her_plans: Dict[str, str],
         if action == "comment":
             continue   # discussion, not a change; it stays in Plans
         d = e.get("detail") or {}
-        what = (d.get("title") or d.get("item") or d.get("phase") or d.get("goal") or "")
+        what = (d.get("title") or d.get("item") or (items or {}).get(e.get("itemId") or "")
+                or d.get("phase") or d.get("goal") or "")
         status = d.get("status") or d.get("to") or ""
         plan_title = her_plans.get(slug) or slug
         kind = "ask" if "ask" in slug and slug not in her_plans else "plan"
@@ -112,7 +122,7 @@ def from_plans(events: List[Dict[str, Any]], her_plans: Dict[str, str],
         title = f"{action.replace('-', ' ')}: {what}".strip(": ") + (f" -> {status}" if status else "")
         detail = f"in \"{plan_title}\"" + (f"; {d['resolution']}" if d.get("resolution") else "") \
             + (f"; why: {d['why']}" if d.get("why") else "")
-        out.append(_entry(e.get("at"), actor or "?", kind, title,
+        out.append(_entry(_local(e.get("at")), actor or "?", kind, title,
                           f"Plans event #{e.get('seq')} ({slug})", detail))
     return out
 
@@ -221,6 +231,10 @@ def _live_plans() -> tuple:
     me = (organ.my_username or "cass").lower()
     mine = {r["slug"]: r.get("title") or r["slug"] for r in organ._plan_rows()
             if ((r.get("createdBy") or {}).get("name") or "").lower() == me}
+    items: Dict[str, str] = {}   # item id -> title, for events that carry only the id
+    for slug in mine:
+        for i in (organ.client._req("GET", f"{PLANS}/plans/{slug}") or {}).get("items") or []:
+            items[i["id"]] = i.get("title") or ""
     events, after = [], 0
     for _ in range(50):
         page = organ.client._req("GET", f"{PLANS}/events?after={after}") or {}
@@ -229,7 +243,7 @@ def _live_plans() -> tuple:
         if not batch or page.get("cursor", after) == after:
             break
         after = page["cursor"]
-    return events, mine
+    return events, mine, items
 
 
 def _live_reach_outs(limit: int = 500) -> List[Any]:
@@ -410,8 +424,9 @@ def build_review(hours: int = 24, data_dir: Optional[Path] = None, now: Optional
         out.extend([f"## {title}", ""] + (lines or [empty]) + [""])
 
     mine = [e for e in entries if e["kind"] != "code"]
-    section("What Cass did", [f"- {e['at'][11:16]} {KIND_WORDS.get(e['kind'], e['kind'])}: {e['title']}"
-                              + (f": {e['detail'][:200]}" if e['detail'] else "") for e in mine],
+    flat = lambda s, n: " ".join(str(s or "").split())[:n]  # noqa: E731
+    section("What Cass did", [f"- {e['at'][11:16]} {KIND_WORDS.get(e['kind'], e['kind'])}: {flat(e['title'], 160)}"
+                              + (f": {flat(e['detail'], 200)}" if e['detail'] else "") for e in mine],
             "Nothing recorded.")
     built = []
     for name, path in (repos or REVIEW_REPOS).items():
