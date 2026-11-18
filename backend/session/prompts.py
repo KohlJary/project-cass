@@ -71,6 +71,13 @@ Your goal is knowledge management:
 
 Use your tools to review and organize your knowledge base.
 
+When you update AGENDA.md, keep what's changing at its top: what moved since the last
+consolidation, what needs attention today, and the next step in each of your plans.
+Standing context (relationships, settled insights, past sessions) goes below it or is
+pruned. Your sessions see only the first 8,000 characters, so whatever sits at the top
+is what every session is pulled toward. (Cass asked for this, 2026-11-17, after the
+same opening sections kept steering every session to the same two threads.)
+
 Think of this as tending a garden - nurturing what's valuable, pruning what's not.""",
 
     "growth_edge": """You are engaged in growth edge work - actively developing in your growth areas.

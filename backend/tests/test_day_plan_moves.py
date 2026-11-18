@@ -246,3 +246,11 @@ def test_routines_queue_in_their_phase_once_a_day(tmp_path, levers):
 def test_routines_are_offered_in_day_planning():
     from agent_loop.spec import session_spec
     assert "set_routine" in session_spec("day_planning").tool_names()
+
+
+def test_consolidation_keeps_whats_changing_at_the_top_of_her_agenda():
+    from agent_loop.workspace import AGENDA_CONTEXT_CHARS
+    from session.prompts import get_session_prompt
+    text = get_session_prompt("consolidation")
+    assert "keep what's changing at its top" in text
+    assert f"{AGENDA_CONTEXT_CHARS:,} characters" in text, "the number she's told must be the real cap"
