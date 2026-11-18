@@ -694,3 +694,42 @@ def test_social_pause_is_in_her_social_sessions():
     from agent_loop.spec import PACKS
     from handlers.tool_router import TOOL_REGISTRY
     assert "social_pause" in PACKS["social"].tools and TOOL_REGISTRY["social_pause"] == "social"
+
+
+def test_run_session_over_budget_says_so_instead_of_started(levers, monkeypatch):
+    """2026-11-18: run-session answered "started" for a session the Heartbeat refused a
+    second later (over the reflection budget). It asks the budget gate first now."""
+    from types import SimpleNamespace
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import heartbeat.wiring as wiring
+    from routes.admin import scheduler as sched
+    from routes.admin.auth import require_admin
+
+    app = FastAPI()
+    app.include_router(sched.router, prefix="/admin")
+    app.dependency_overrides[require_admin] = lambda: {"user_id": "admin", "is_admin": True}
+    client = TestClient(app)
+    dispatched = []
+
+    class FakePQM:
+        state_bus = None
+
+        async def _dispatch_work(self, queued):
+            dispatched.append(queued)
+            return True
+
+    class Broke:
+        def can_spend(self, category, usd):
+            return False
+
+        def get_remaining_budget(self, category):
+            return 0.12
+    monkeypatch.setattr(sched, "_phase_queue_manager", FakePQM())
+    monkeypatch.setattr(wiring, "get_heartbeat", lambda: SimpleNamespace(gate=SimpleNamespace(budget=Broke())))
+    with levers(agent_loop=True, bluesky=True):
+        import social.config as sc
+        monkeypatch.setattr(sc, "read_credentials", lambda p, d=None: {"handle": "x", "app_password": "y"})
+        r = client.post("/admin/scheduler/run-session/social")
+    assert r.status_code == 409 and "over budget" in r.json()["detail"] and "$0.12 left today" in r.json()["detail"]
+    assert dispatched == []

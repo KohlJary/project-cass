@@ -37,6 +37,21 @@ logger = logging.getLogger(__name__)
 MAX_PER_PHASE = 12
 
 
+def budget_category(unit_category: Optional[str]):
+    """The budget a work unit of this category spends from (SYSTEM has no queue: GROWTH)."""
+    from scheduler.budget import TaskCategory
+    return {
+        "reflection": TaskCategory.REFLECTION,
+        "research": TaskCategory.RESEARCH,
+        "growth": TaskCategory.GROWTH,
+        "curiosity": TaskCategory.CURIOSITY,
+        "creative": TaskCategory.CURIOSITY,
+        "artstudy": TaskCategory.CURIOSITY,  # Art study uses curiosity budget
+        "rss": TaskCategory.RESEARCH,  # RSS monitoring uses research budget
+        "system": TaskCategory.GROWTH,  # System work uses growth queue
+    }.get(unit_category, TaskCategory.REFLECTION)
+
+
 @dataclass
 class QueuedWorkUnit:
     """A work unit queued for a specific phase."""
@@ -627,21 +642,7 @@ class PhaseQueueManager:
             target_phase = queued.target_phase
             summary_store = self._summary_store
 
-            # Map category to TaskCategory
-            # Note: SYSTEM category doesn't have a queue in Synkratos, map to GROWTH
-            category_map = {
-                "reflection": TaskCategory.REFLECTION,
-                "research": TaskCategory.RESEARCH,
-                "growth": TaskCategory.GROWTH,
-                "curiosity": TaskCategory.CURIOSITY,
-                "creative": TaskCategory.CURIOSITY,
-                "artstudy": TaskCategory.CURIOSITY,  # Art study uses curiosity budget
-                "rss": TaskCategory.RESEARCH,  # RSS monitoring uses research budget
-                "system": TaskCategory.GROWTH,  # System work uses growth queue
-            }
-            task_category = category_map.get(
-                work_unit.category, TaskCategory.REFLECTION
-            )
+            task_category = budget_category(work_unit.category)
 
             # Capture references for closure
             action_registry = self._action_registry

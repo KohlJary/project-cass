@@ -401,6 +401,18 @@ async def run_session_now(template_id: str, focus: Optional[str] = None,
     if not pqm:
         raise HTTPException(status_code=503, detail="Phase queue not available")
     unit = template.instantiate(focus=focus, motivation="started by hand, with her yes")
+    # Ask the Heartbeat's budget gate first: dispatch is fire-and-forget, so a
+    # refusal used to come back as "started" (2026-11-18: a session reported
+    # started was refused a second later, over the reflection budget).
+    from heartbeat.wiring import get_heartbeat
+    from scheduling.phase_queue import budget_category
+    hb = get_heartbeat()
+    budget = getattr(getattr(hb, "gate", None), "budget", None)
+    category = budget_category(unit.category)
+    if budget is not None and not budget.can_spend(category, unit.estimated_cost_usd):
+        raise HTTPException(status_code=409, detail=(
+            f"'{template_id}' would be refused: over budget for {category.value} "
+            f"(estimate ${unit.estimated_cost_usd:.2f}, ${budget.get_remaining_budget(category):.2f} left today)"))
     phase = DayPhase.MORNING
     try:  # label it with the phase it actually runs in
         phase = DayPhase(pqm.state_bus.read_state().day_phase.current_phase)
