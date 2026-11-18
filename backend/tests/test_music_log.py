@@ -15,6 +15,8 @@ def _setup(tmp_path):
     (h / "20261118-090000-000000.txt").write_text("Pain: first listen, mostly the chorus.")
     act = tmp_path / "listening"
     act.mkdir(parents=True)
+    (act / "ready.jsonl").write_text(json.dumps({"at": "2026-11-18T07:12:18", "artist": "Tool", "title": "Parabola",
+                                                 "key": "k", "record": "x"}) + "\n")
     (act / "activity.jsonl").write_text(json.dumps({"at": "2026-11-18T08:30:00", "action": "read",
                                                     "artist": "Three Days Grace", "title": "Pain"}) + "\n")
     sb = tmp_path / "studio" / "sketchbook" / "1"
@@ -39,6 +41,8 @@ def test_shared_log_with_history_hidden_items_and_a_timeline(tmp_path):
     paths = [d["path"] for d in out["docs"]]
     assert paths == ["listening/pain.md"]
     assert out["docs"][0]["earlier"][0]["text"].startswith("Pain: first listen")
+    assert any("Parabola" in e["what"] for e in out["timeline"])
+    assert [c["title"] for c in out["crate"]] == ["Parabola", "Pain"]
     kinds = [e["kind"] for e in out["timeline"]]
     assert {"listening", "writing", "sketch"} <= set(kinds)
     assert out["timeline"][0]["at"] >= out["timeline"][-1]["at"]

@@ -198,8 +198,13 @@ def build(data_dir=None) -> Dict[str, Any]:
     if sh.get("audience") == "none":
         return {"sharing": sh, "note": "she hasn't shared her music log", "crate": [], "docs": [], "studio": [],
                 "sketchbook": [], "timeline": []}
-    crate = _jsonl(_data(data_dir) / "listening" / "activity.jsonl")
     ready = _jsonl(_data(data_dir) / "listening" / "ready.jsonl")
+    # the crate: her listen calls (logged since 2026-11-18 07:49) and every record she asked
+    # to hear (logged when it was ready), in one list, newest last
+    crate = _jsonl(_data(data_dir) / "listening" / "activity.jsonl") + [
+        {"at": r["at"], "action": "listened", "artist": r.get("artist"), "album": r.get("album"), "title": r.get("title")}
+        for r in ready]
+    crate.sort(key=lambda c: c.get("at") or "")
     d, st, sk = docs(data_dir), studio(data_dir), sketchbook(data_dir)
     return {"sharing": sh, "crate": crate, "records_she_asked_for": ready, "docs": d, "studio": st,
             "sketchbook": sk, "timeline": timeline(data_dir, crate, d, st, sk)}
