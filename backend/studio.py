@@ -560,3 +560,26 @@ def studio_tools(default_project: Optional[str] = None) -> Optional[Dict[str, An
             logger.warning(f"[studio] {e}", exc_info=True)
             return {"error": f"studio failed: {type(e).__name__}: {e}"}
     return {"studio": (TOOL, run)}
+
+
+STUDIO_TOOLS = [TOOL]   # router catalog (agent_client): the studio in chat, lever studio
+
+
+async def execute_studio_tool(tool_name: str, tool_input: Dict[str, Any], **_: Any) -> Dict[str, Any]:
+    """The studio in chat (Kohl, 2026-11-18: walk her through it where she talks)."""
+    import asyncio
+    if not enabled():
+        return {"success": False, "error": "my studio isn't switched on right now"}
+    try:
+        out = await asyncio.to_thread(handle, dict(tool_input or {}))
+    except Exception as e:
+        logger.warning(f"[studio] {e}", exc_info=True)
+        out = {"error": f"studio failed: {type(e).__name__}: {e}"}
+    if out.get("error"):
+        return {"success": False, "error": out["error"]}
+    images = out.pop("_images", None)
+    if images:
+        return {"success": True, "result": [{"type": "text", "text": json.dumps(out, default=str)}] + [
+            {"type": "image", "source": {"type": "base64", "media_type": i["media_type"], "data": i["data"]}}
+            for i in images]}
+    return {"success": True, "result": out}

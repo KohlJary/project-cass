@@ -151,6 +151,9 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
                           "song or an album, read what was heard (form, chords, words, lines, drums, "
                           "sound), compare an album's songs, and look at spectrograms and the score",
              ("listen",)),
+    ToolPack("studio_chat", "my studio, right here: try a guitar tone through a rig and hear what each change "
+                            "did, save rigs and synth patches to my gun belt, noodle a riff, render a song",
+             ("studio",)),
     ToolPack("session", "end the session when I'm done (with what I'd pick up next), or extend it once",
              ("session_complete", "extend_session")),
 ]}
@@ -158,7 +161,7 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
 # Packs whose tools run through tool_router (her chat handlers), and packs
 # the loop answers itself; the rest are session tools (session/tools.py).
 ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans", "self", "commitments",
-                          "listening"})
+                          "listening", "studio_chat"})
 LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage", "wonderland",
                         "daedalus", "kohl_blog", "workshop", "happenings"})
 
@@ -425,6 +428,15 @@ def _listening_on() -> bool:
         return False
 
 
+def _studio_on() -> bool:
+    """Her studio in chat (Kohl, 2026-11-18), so she can be walked through it where she talks."""
+    try:
+        from features import is_enabled
+        return is_enabled("studio")
+    except Exception:
+        return False
+
+
 def conversation_spec(max_iterations: int = CONVERSATION_MAX_STEPS, *,
                       chapter_house: bool = True) -> TurnSpec:
     """A chat turn on the loop (plan "Cass's agent loop", phase 7; lever
@@ -438,6 +450,7 @@ def conversation_spec(max_iterations: int = CONVERSATION_MAX_STEPS, *,
         # chat and sessions; it needs Babelr, like Chapter House.
         packs=("chat_core", "work", "commitments") + (("chapter_house", "plans") if chapter_house else ())
               + (("listening",) if _listening_on() else ())
+              + (("studio_chat",) if _studio_on() else ())
               + ("workspace", "find"),
         writes=WritePolicy(kept=(
             ("exchange", "this conversation, summarized into my working memory"),

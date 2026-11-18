@@ -1643,6 +1643,7 @@ from handlers.recall import RECALL_TOOLS
 from letters import LETTER_TOOLS
 from self_account import HOW_I_WORK_TOOLS
 from listening import LISTENING_TOOLS  # noqa: F401  (router catalog: her ears, lever listening)
+from studio import STUDIO_TOOLS  # noqa: F401  (router catalog: her studio in chat, lever studio)
 from commitments import COMMITMENT_TOOLS  # noqa: F401  (router catalog: her commitments)
 
 

@@ -151,3 +151,23 @@ def test_tone_tries_and_rigs(tmp_path, monkeypatch):
     assert a["try"] == 1 and a["in_words"] == ["clean"] and "since_last_try" not in a
     b = ST.handle({"action": "tone", "chain": [{"plugin": "swankyamp", "params": {"preampdrive": 0.9}}]}, tmp_path)
     assert b["try"] == 2 and b["since_last_try"] == ["fizz: -18.0 -> -11.0"]
+
+
+def test_chat_offers_the_studio_while_its_lever_is_on(monkeypatch):
+    from agent_loop import spec
+    monkeypatch.setattr(spec, "_studio_on", lambda: True)
+    assert "studio_chat" in spec.conversation_spec().packs
+    monkeypatch.setattr(spec, "_studio_on", lambda: False)
+    assert "studio_chat" not in spec.conversation_spec().packs
+
+
+def test_the_router_runs_the_studio(monkeypatch, tmp_path):
+    import asyncio
+    from handlers.tool_router import TOOL_REGISTRY
+    assert TOOL_REGISTRY["studio"] == "studio"
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    monkeypatch.setattr(ST, "handle", lambda a, data_dir=None: {"help": "ok", "asked": a.get("action")})
+    out = asyncio.run(ST.execute_studio_tool("studio", {"action": "help"}))
+    assert out == {"success": True, "result": {"help": "ok", "asked": "help"}}
+    monkeypatch.setattr(ST, "enabled", lambda: False)
+    assert asyncio.run(ST.execute_studio_tool("studio", {"action": "help"}))["success"] is False

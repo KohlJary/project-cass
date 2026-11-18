@@ -419,6 +419,7 @@ TOOL_REGISTRY = {
     "commitment": "commitments",
     "code_search": "self_account",   # her own code, read-only (code_search.py)
     "listen": "listening",           # her ears (listening.py, Acousmatic)
+    "studio": "studio",              # her studio in chat (studio.py, Orphic)
     "social_read": "social",
     "social_thread": "social",
     "social_post": "social",
