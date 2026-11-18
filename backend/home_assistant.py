@@ -5,6 +5,7 @@ Enables Cass to query state and control devices in Home Assistant.
 Uses long-lived access token authentication.
 """
 
+import json
 import os
 import asyncio
 import logging
@@ -56,6 +57,11 @@ class HAEntity:
         """Human-readable summary."""
         name = self.friendly_name or self.entity_id
         return f"{name}: {self.state}"
+
+
+AREAS_TEMPLATE = ("{% set ns = namespace(a=[]) %}{% for a in areas() %}"
+                  "{% set ns.a = ns.a + [{'area_id': a, 'name': area_name(a)}] %}"
+                  "{% endfor %}{{ ns.a | tojson }}")
 
 
 class HomeAssistantClient:
@@ -168,27 +174,13 @@ class HomeAssistantClient:
 
         try:
             client = await self._get_client()
-            # Areas require WebSocket API, but we can get them via template
-            response = await client.post(
-                "/api/template",
-                json={"template": "{{ areas() | list }}"}
-            )
+            # Areas need the WebSocket API, so they come through a template. The
+            # template endpoint returns rendered text, not JSON: `areas() | list`
+            # rendered as a Python list (['kitchen', ...]) and json() failed on it
+            # every minute. tojson makes it real JSON, and one call gets the names.
+            response = await client.post("/api/template", json={"template": AREAS_TEMPLATE})
             response.raise_for_status()
-            area_ids = response.json()
-
-            # Get area names
-            areas = []
-            for area_id in area_ids:
-                name_resp = await client.post(
-                    "/api/template",
-                    json={"template": f"{{{{ area_name('{area_id}') }}}}"}
-                )
-                if name_resp.status_code == 200:
-                    areas.append({
-                        "area_id": area_id,
-                        "name": name_resp.json(),
-                    })
-            return areas
+            return [a for a in json.loads(response.text) if isinstance(a, dict) and a.get("area_id")]
         except Exception as e:
             logger.error(f"Failed to get areas: {e}")
             return []
