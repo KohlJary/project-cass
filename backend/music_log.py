@@ -129,7 +129,11 @@ def docs(data_dir=None) -> List[Dict[str, Any]]:
                 except ValueError:
                     at = None
                 versions.append({"at": at, "text": v.read_text(errors="replace")})
-            out.append({"path": rel, "title": p.stem, "updated": datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="seconds"),
+            parts = Path(rel).parts   # listening/Artist/Album/Song.md (or _album.md)
+            artist, album = (parts[1], parts[2]) if len(parts) >= 4 else (None, None)
+            song = None if p.stem == "_album" else (p.stem if artist else None)
+            out.append({"path": rel, "title": p.stem, "artist": artist, "album": album, "song": song,
+                        "album_note": p.stem == "_album", "updated": datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="seconds"),
                         "text": p.read_text(errors="replace"), "earlier": versions})
     return out
 
@@ -216,6 +220,89 @@ def shelf_ready(data_dir=None, asked=None) -> List[Dict[str, Any]]:
     return sorted(out, key=order)
 
 
+def _album_key(artist: str, album: str) -> str:
+    import hashlib
+    return hashlib.sha1(f"{artist}|{album}".lower().encode()).hexdigest()[:12]
+
+
+def _norm(x) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", " ", str(x or "").lower()).strip()
+
+
+def albums(shelf: List[Dict[str, Any]], crate: List[Dict[str, Any]], docs_: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The crate as albums: her take on each album, each track with her take and when she
+    listened. Albums she's touched (listened, read or written about) first."""
+    out: Dict[str, Dict[str, Any]] = {}
+    for r in shelf:
+        k = _album_key(r.get("artist") or "", r.get("album") or "")
+        a = out.setdefault(k, {"key": k, "artist": r.get("artist"), "album": r.get("album"), "tracks": [],
+                                "note": None, "how": r.get("how"), "touched": False})
+        a["tracks"].append({"title": r.get("title"), "track": r.get("track"), "how": r.get("how"),
+                            "listened": [], "note": None})
+    def track_of(a, title):
+        return next((t for t in a["tracks"] if _norm(t["title"]) == _norm(title)), None)
+    for c in crate:
+        for a in out.values():
+            if _norm(c.get("artist")) == _norm(a["artist"]):
+                t = track_of(a, c.get("title"))
+                if t is not None:
+                    t["listened"].append({"at": c["at"], "action": c["action"]})
+                    a["touched"] = True
+                elif c.get("title") and _norm(c["title"]).startswith(_norm(a["album"])):
+                    a["touched"] = True
+    for d in docs_:
+        if not d.get("artist"):
+            continue
+        for a in out.values():
+            from listening import _safe
+            if _safe(a["artist"] or "") == d["artist"] and _safe(a["album"] or "") == d["album"]:
+                a["touched"] = True
+                if d["album_note"]:
+                    a["note"] = d
+                else:
+                    t = next((t for t in a["tracks"] if _safe(t["title"] or "") == d["song"]), None)
+                    if t is not None:
+                        t["note"] = d
+    res = list(out.values())
+    for a in res:
+        a["tracks"].sort(key=lambda t: int(str(t.get("track") or 0).split("/")[0] or 0)
+                         if str(t.get("track") or "0").split("/")[0].isdigit() else 0)
+    return sorted(res, key=lambda a: (not a["touched"], a["artist"] or "", a["album"] or ""))
+
+
+def cover(key: str, data_dir=None) -> Optional[Path]:
+    """An album's cover: the art embedded in its first track, or a cover image in its folder."""
+    if sharing(data_dir).get("audience") == "none":
+        return None
+    cache = _settings(data_dir) / "covers" / f"{key}.jpg"
+    if cache.exists():
+        return cache
+    try:
+        from listening import MUSIC_DIR
+    except Exception:
+        return None
+    for tj in (_data(data_dir) / "listening" / "records").glob("*/track.json"):
+        try:
+            t = json.loads(tj.read_text())
+        except (OSError, ValueError):
+            continue
+        if _album_key(t.get("artist") or "", t.get("album") or "") != key:
+            continue
+        f = MUSIC_DIR / t["id"]
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        imgs = sorted([p for p in f.parent.iterdir() if p.suffix.lower() in (".jpg", ".jpeg", ".png")],
+                      key=lambda p: (not any(w in p.stem.lower() for w in ("cover", "folder", "front")), p.name))
+        if imgs:
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(imgs[0]), "-vf", "scale=300:-1",
+                            str(cache)], capture_output=True, timeout=60)
+            return cache if cache.exists() else None
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(f), "-an", "-vf", "scale=300:-1", "-frames:v", "1",
+                        str(cache)], capture_output=True, timeout=60)
+        return cache if cache.exists() else None
+    return None
+
+
 def build(data_dir=None) -> Dict[str, Any]:
     sh = sharing(data_dir)
     if sh.get("audience") == "none":
@@ -229,8 +316,9 @@ def build(data_dir=None) -> Dict[str, Any]:
         for r in ready]
     crate.sort(key=lambda c: c.get("at") or "")
     d, st, sk = docs(data_dir), studio(data_dir), sketchbook(data_dir)
-    return {"sharing": sh, "crate": crate, "records_she_asked_for": ready, "shelf_ready": shelf_ready(data_dir, ready),
-            "docs": d, "studio": st,
+    shelf = shelf_ready(data_dir, ready)
+    return {"sharing": sh, "crate": crate, "records_she_asked_for": ready, "shelf_ready": shelf,
+            "albums": albums(shelf, crate, d), "docs": d, "studio": st,
             "sketchbook": sk, "timeline": timeline(data_dir, crate, d, st, sk)}
 
 

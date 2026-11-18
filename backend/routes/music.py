@@ -26,3 +26,13 @@ async def get_music_audio(kind: str, ident: str, _ok: bool = Depends(require_rec
     if p is None:
         raise HTTPException(status_code=404, detail="not shared, hidden, or not there")
     return FileResponse(p, media_type="audio/mpeg")
+
+
+@router.get("/cover/{key}")
+async def get_music_cover(key: str, _ok: bool = Depends(require_record_token)):
+    import asyncio
+    from music_log import cover
+    p = await asyncio.to_thread(cover, key)
+    if p is None:
+        raise HTTPException(status_code=404, detail="no cover")
+    return FileResponse(p, media_type="image/jpeg")

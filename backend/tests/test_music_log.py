@@ -56,3 +56,17 @@ def test_shared_log_with_history_hidden_items_and_a_timeline(tmp_path):
     assert M.build(tmp_path)["sketchbook"] == []
     M.set_hidden("sketches", "1", False, tmp_path)
     assert len(M.build(tmp_path)["sketchbook"]) == 1
+
+
+def test_notes_by_album_and_song(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    M.set_sharing("kohl", tmp_path)
+    d = tmp_path / "workspace" / "listening" / "x" / "y"
+    d.mkdir(parents=True)
+    (d / "_album.md").write_text("The album as a whole: patient.")
+    (d / "Pain.md").write_text("Pain: the walk down.")
+    out = M.build(tmp_path)
+    a = next(a for a in out["albums"] if a["album"] == "y")
+    assert a["touched"] and a["note"]["text"].startswith("The album as a whole")
+    pain = next(t for t in a["tracks"] if t["title"] == "Pain")
+    assert pain["note"]["text"] == "Pain: the walk down."

@@ -58,12 +58,15 @@ TOOL = {
         "it sits. Whole, or one part: part = glance, words, a section label (A, B...), or bars like 20-40. "
         "album lays an album's songs side by side. look shows me a picture: overview (spectrogram with "
         "sections), stereo, a section label, or score. The record is measured, not interpreted, and its "
-        "notes and chords are transcriptions that can be wrong. What a song is to me, I write in my "
-        "workspace (listening/)."),
+        "notes and chords are transcriptions that can be wrong. note keeps what a song (or a whole album) is "
+        "to me, in my words, in my workspace (listening/Artist/Album/); rewriting it keeps the earlier "
+        "versions, so I can see how my take changed. my_notes reads back what I've written."),
     "input_schema": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["shelf", "listen", "status", "read", "album", "look"]},
+            "action": {"type": "string", "enum": ["shelf", "listen", "status", "read", "album", "look", "note", "my_notes"]},
+            "text": {"type": "string", "description": "note: what the song (or album) is to me, in my words"},
+            "add": {"type": "boolean", "description": "note: add to what I wrote before instead of rewriting it"},
             "query": {"type": "string", "description": "shelf/listen/read/album/look: artist, album or song, in words"},
             "part": {"type": "string", "description": "read: glance, words, a section label, or bars like 20-40; "
                                                       "look: overview, stereo, a section label, or score (score 2 for page 2)"},
@@ -337,6 +340,16 @@ def read_part(md: str, part: Optional[str]) -> str:
     return head + f"(no part {part!r}; try glance, words, a section label, or bars like 20-40)"
 
 
+def _safe(name: str) -> str:
+    return re.sub(r"[\\/:*?\"<>|]+", "-", (name or "unknown").strip()).strip(". ") or "unknown"
+
+
+def note_path(t: Dict[str, Any], album_level: bool) -> str:
+    """Where her take on a song (or album) lives in her workspace."""
+    base = f"listening/{_safe(t['artist'])}/{_safe(t['album'])}"
+    return f"{base}/_album.md" if album_level else f"{base}/{_safe(t['title'])}.md"
+
+
 def _glance_lines(d: Path) -> Dict[str, Any]:
     rec = json.loads((d / "record.json").read_text())
     t = json.loads((d / "track.json").read_text()) if (d / "track.json").exists() else {}
@@ -405,6 +418,27 @@ def handle(a: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning(f"[listening] activity log: {e}")
     if not tracks:
         return {"error": f"nothing on the shelf matches {query!r}; shelf with a query shows what's there"}
+    if action in ("note", "my_notes"):
+        album_level = found["kind"] == "album" or len(tracks) > 1
+        t = tracks[0]
+        rel = note_path(t, album_level)
+        from agent_loop.workspace import Workspace
+        ws = Workspace()
+        if action == "my_notes":
+            p = ws.resolve(rel)
+            folder = ws.resolve(str(Path(rel).parent))
+            others = sorted(x.name for x in folder.glob("*.md")) if folder and folder.exists() else []
+            return {"note": p.read_text() if p and p.exists() else None, "path": rel,
+                    "also_in_this_album": others}
+        text = (a.get("text") or "").strip()
+        if not text:
+            return {"error": "note needs the text: what it is to me"}
+        out = ws.run("workspace_write", {"path": rel, "content": text, "append": bool(a.get("add"))},
+                     session_id="listen-note")
+        if isinstance(out, dict) and out.get("error"):
+            return out
+        return {"kept": rel, "about": f"{t['artist']} – {t['album']}" + ("" if album_level else f" – {t['title']}"),
+                "note": "earlier versions are kept when I rewrite it"}
     if action == "listen":
         out = start(tracks)
         if out["started"] or out["already_listening"]:

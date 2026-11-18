@@ -127,3 +127,20 @@ def test_chat_offers_listen_while_the_lever_is_on(monkeypatch):
     assert "listening" in spec.conversation_spec().packs
     monkeypatch.setattr(spec, "_listening_on", lambda: False)
     assert "listening" not in spec.conversation_spec().packs
+
+
+def test_her_notes_go_in_her_workspace_by_album_and_song(shelf, monkeypatch):
+    from agent_loop import workspace as WS
+    ws_root = shelf / "workspace"
+    monkeypatch.setattr(WS, "default_root", lambda: ws_root)
+    out = L.handle({"action": "note", "query": "Pain", "text": "First listen: mostly the chorus."})
+    assert out["kept"] == "listening/Three Days Grace/One X/Pain.md"
+    L.handle({"action": "note", "query": "Pain", "text": "Now I hear the bass walking down."})
+    assert (ws_root / out["kept"]).read_text() == "Now I hear the bass walking down."
+    hist = list((shelf / "agent_loop" / "workspace_history").glob("listening__Three Days Grace__One X__Pain.md/*.txt"))
+    assert hist and hist[0].read_text() == "First listen: mostly the chorus."
+    alb = L.handle({"action": "note", "query": "One X", "text": "The album: anxious and loud."})
+    assert alb["kept"].endswith("One X/_album.md")
+    back = L.handle({"action": "my_notes", "query": "Pain"})
+    assert back["note"] == "Now I hear the bass walking down." and "_album.md" in back["also_in_this_album"]
+    assert "needs the text" in L.handle({"action": "note", "query": "Pain"})["error"]
