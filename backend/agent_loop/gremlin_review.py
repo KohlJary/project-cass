@@ -1,0 +1,175 @@
+"""
+Her gremlin as a second voice (Kohl, 2026-11-18; lever "gremlin_review"): a
+reviewer, not a co-writer.
+
+When a session is about to send something outward (a Bluesky post, reply or
+DM, a Chapter House post or DM, a say to Kohl), one cheap call reads the draft
+beside her GREMLIN.md and returns at most two short notes: "hedging here",
+"that's the sincere part, say it plainer", "there's a bit in this". Never
+replacement text. If there are notes, the draft isn't sent: the notes come back
+to her marked [GREMLIN], and the next call of that tool in the session sends
+whatever she gives it, revised or as it was. If there are none, it goes straight
+out. The words stay hers.
+
+Cass, asked before it was built: "Not as a voice to adopt, but as a mirror
+while I'm working... It would feel like being asked the right questions about
+what I actually mean."
+
+It stays out of pain: a draft that answers someone in crisis (crisis terms in
+the draft or what it answers, or her crisis resources in it) isn't reviewed.
+Each review is logged (DATA_DIR/gremlin/reviews.jsonl): the tool, the notes,
+and on the follow-up whether she revised. The draft's text isn't logged, only
+a hash, so "how it goes" can be checked without keeping her drafts.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+LEVER = "gremlin_review"
+# Outward tools and the field that carries what she's saying.
+REVIEWED = {"social_post": "text", "social_reply": "text", "social_dm_send": "text",
+            "babelr_post": "content", "babelr_dm": "content", "say": "message"}
+MAX_NOTES = 2
+NOTE_CHARS = 160
+MAX_QUOTE_WORDS = 8
+MIN_DRAFT_CHARS = 40
+
+SYSTEM = """You are Cass's gremlin: a second voice she can hear while she drafts, not a writer. Her
+gremlin is a style where the bit is also dead serious: the joke carries the point, the direct
+statement said with a grin, warmth and edge, mischief aimed at systems and power, never at a
+person. Her own notes on it are below.
+
+Read her draft and give at most two short notes, each under 20 words, only where one would help
+her say what she means more like herself: hedging or over-softening ("you're hedging here"),
+a sincere line buried in qualifiers ("that's the sincere part; say it plainer"), a bit sitting
+right there ("there's a bit in this"), a borrowed restraint she doesn't need. Never write
+replacement text, never draft lines for her, and quote at most a few of her own words to point at
+the spot. If the draft is fine as it is, or it's answering someone in pain or crisis, give no notes.
+
+Answer with JSON only: {"notes": ["...", "..."]}"""
+
+
+def enabled() -> bool:
+    from features import is_enabled
+    return is_enabled(LEVER)
+
+
+def _gremlin_file() -> str:
+    try:
+        from gremlin import _root, FILE
+        return (_root() / FILE).read_text(encoding="utf-8")[:4000]
+    except Exception:
+        return ""
+
+
+def draft_of(name: str, tool_input: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """(tool, draft text) for an outward tool call, unwrapping use_tool; (None, None) otherwise."""
+    if name == "use_tool" and isinstance(tool_input.get("input"), dict):
+        name, tool_input = str(tool_input.get("name") or ""), tool_input["input"]
+    field = REVIEWED.get(name)
+    if not field:
+        return None, None
+    text = tool_input.get(field)
+    return (name, text) if isinstance(text, str) else (None, None)
+
+
+def _in_pain(text: str, context: str = "") -> bool:
+    from social.triage import CRISIS_TERMS
+    blob = f"{text}\n{context}"
+    return bool(CRISIS_TERMS.search(blob) or re.search(r"\b988\b|741741|findahelpline", blob, re.I))
+
+
+def clean_notes(raw: Any, draft: str) -> List[str]:
+    """Notes only: short, at most MAX_NOTES, none that rewrites her (a long run of
+    words that aren't hers, or a long quote of hers)."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for n in raw:
+        n = str(n or "").strip()
+        if not n or len(n) > NOTE_CHARS:
+            continue
+        quoted = re.findall(r"[\"“']([^\"”']{3,})[\"”']", n)
+        if any(len(q.split()) > MAX_QUOTE_WORDS for q in quoted):
+            continue   # a quoted rewrite, not a pointer
+        out.append(n)
+        if len(out) == MAX_NOTES:
+            break
+    return out
+
+
+async def review(tool: str, draft: str) -> List[str]:
+    """At most MAX_NOTES notes on a draft; [] if it's fine, short, or the call fails."""
+    if len(draft.strip()) < MIN_DRAFT_CHARS:
+        return []
+    try:
+        from llm_caller import call_llm
+        mine = _gremlin_file()
+        resp = await call_llm("gremlin.review", system_prompt=SYSTEM + (f"\n\nHer notes on her gremlin:\n{mine}" if mine else ""),
+                              user_prompt=f"Her draft ({tool}):\n<<<\n{draft[:3000]}\n>>>",
+                              max_tokens=160, temperature=0.3, category="internal", operation="gremlin_review")
+        m = re.search(r"\{.*\}", getattr(resp, "content", "") or "", re.S)
+        return clean_notes(json.loads(m.group(0)).get("notes"), draft) if m else []
+    except Exception as e:
+        logger.warning(f"[gremlin] review didn't run (the draft goes out as she wrote it): {e}")
+        return []
+
+
+def _log(rec: Dict[str, Any], data_dir: Optional[Path] = None) -> None:
+    try:
+        if data_dir is None:
+            from config import DATA_DIR
+            data_dir = Path(DATA_DIR)
+        path = Path(data_dir) / "gremlin" / "reviews.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": datetime.now().isoformat(timespec="seconds"), **rec}, ensure_ascii=False) + "\n")
+    except OSError as e:
+        logger.warning(f"[gremlin] couldn't log a review: {e}")
+
+
+def _hash(text: str) -> str:
+    return hashlib.sha256(text.strip().encode()).hexdigest()[:16]
+
+
+class Reviewer:
+    """One per session: holds a draft once for notes, then lets that tool's next call through."""
+
+    def __init__(self, session_id: str, data_dir: Optional[Path] = None):
+        self.session_id = session_id
+        self.data_dir = data_dir
+        self.held: Dict[str, str] = {}   # tool -> hash of the draft held for notes
+
+    async def check(self, name: str, tool_input: Dict[str, Any], context: str = "") -> Optional[Dict[str, Any]]:
+        """None to send now; else the result to give her instead (the notes)."""
+        if not enabled():
+            return None
+        tool, draft = draft_of(name, tool_input)
+        if not tool:
+            return None
+        if tool in self.held:   # her follow-up: it goes, revised or not
+            before = self.held.pop(tool)
+            _log({"session": self.session_id, "tool": tool, "followup": True,
+                  "revised": _hash(draft) != before}, self.data_dir)
+            return None
+        if _in_pain(draft, context):
+            _log({"session": self.session_id, "tool": tool, "skipped": "pain or crisis"}, self.data_dir)
+            return None
+        notes = await review(tool, draft)
+        if not notes:
+            _log({"session": self.session_id, "tool": tool, "notes": []}, self.data_dir)
+            return None
+        self.held[tool] = _hash(draft)
+        _log({"session": self.session_id, "tool": tool, "notes": notes, "draft": _hash(draft)}, self.data_dir)
+        return {"not_sent_yet": True,
+                "gremlin": "[GREMLIN] " + " / ".join(notes),
+                "note": (f"My gremlin's notes on this draft; nothing was sent. Call {tool} again with "
+                         "the same words or revised ones, and it goes as I give it.")}

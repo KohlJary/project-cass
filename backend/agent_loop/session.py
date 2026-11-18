@@ -307,6 +307,10 @@ async def run_session_turn(
     # never reached them. session_complete says so once per arrival, and the
     # turn goes on (an end tool's error doesn't end it).
     told: set = set()
+    # Her gremlin as a second voice on what she sends out (gremlin_review.py;
+    # lever gremlin_review): notes once per draft, then that tool's next call goes.
+    from .gremlin_review import Reviewer
+    reviewer = Reviewer(session_id)
 
     async def execute(name: str, tool_input: Dict[str, Any]) -> Any:
         if folding and name == "session_complete":
@@ -314,6 +318,9 @@ async def run_session_turn(
             if waiting:
                 told.update(f.id for f in waiting)
                 return {"error": fold_mod.unanswered_note(waiting)}
+        held = await reviewer.check(name, tool_input)
+        if held is not None:
+            return held
         return await box.execute(name, tool_input)
 
     if folding:

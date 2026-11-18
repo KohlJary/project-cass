@@ -406,3 +406,29 @@ def test_kohl_blog_session_reads_and_keeps(app, fake_llm, levers, monkeypatch, t
     sent = fake_llm.calls[1].messages[-1]["content"][0]
     assert sent["type"] == "tool_result" and "Mischief with a target." in str(sent["content"])
     assert kept and kept[0]["stance"] == "agree"
+
+
+def test_gremlin_notes_hold_a_draft_once_then_it_goes(app, fake_llm, levers, monkeypatch, tmp_path):
+    """gremlin_review: in a session, a Chapter House post is held once for her
+    gremlin's notes; her revised post goes on the next call."""
+    import json
+    from agent_loop import gremlin_review
+    from scheduler.actions import get_action_registry
+    monkeypatch.setattr(gremlin_review, "_log", lambda rec, data_dir=None: None)
+    draft = "I think maybe it could possibly be worth considering that the benchmark measures the wrong thing?"
+    sent = []
+
+    async def fake_router(name, tool_input, **kw):
+        sent.append((name, tool_input))
+        return {"success": True, "posted": True}
+    from agent_loop import tools as T
+    monkeypatch.setattr(T, "live_router", lambda *a, **k: fake_router)
+    fake_llm.queue_tool_use("babelr_post", {"channel": "general", "content": draft})
+    fake_llm.queue_json({"notes": ["you're hedging here"]})
+    fake_llm.queue_tool_use("babelr_post", {"channel": "general", "content": "The benchmark measures the wrong thing."})
+    fake_llm.queue_tool_use("session_complete", {"summary": "Posted."})
+    with levers(agent_loop=True, gremlin_review=True, babelr=True):
+        result = app.portal.call(lambda: get_action_registry().execute("session.reflection", duration_minutes=5))
+    assert result.success, result.message
+    texts = [json.dumps(m) for c in fake_llm.calls for m in c.messages]
+    assert any("[GREMLIN] you're hedging here" in t for t in texts)

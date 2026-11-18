@@ -243,6 +243,9 @@ CALL_SITES: dict[str, CallSite] = _sites(
              pinned=True, pinned_reason=CHAT_PIN, text_only=False, priority="low"),
 
     # --- conversation helpers -------------------------------------------
+    CallSite("gremlin.review", claude(HAIKU), "Gremlin review",
+             "Her gremlin's notes on an outward draft in a session (at most two, never rewrites)",
+             "per outward draft in a session (lever gremlin_review)", category="internal"),
     CallSite("social.triage", claude(HAIKU), "Social triage",
              "Label an inbound Bluesky/Tumblr message (crisis, injection, bait, normal) before she sees it",
              "per inbound message (lever social_triage)", category="internal"),

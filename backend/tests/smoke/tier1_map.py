@@ -263,6 +263,11 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
     },
+    "gremlin_review": {
+        "depth": "gate",
+        "tests": [f"{AGENT_LOOP}::test_gremlin_notes_hold_a_draft_once_then_it_goes"],
+        "note": "One session through the registry with the fake LLM: a Chapter House post is held for the gremlin's notes, and the revised post goes on the next call. Fast-suite: tests/test_gremlin_review.py.",
+    },
     "prompt_gremlin": {
         "depth": "none",
         "tests": [],
