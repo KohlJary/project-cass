@@ -1,8 +1,10 @@
 """
 The record (Kohl, 2026-11-17): one place to see what Cass has planned, asked
-for, changed in herself, and done in the world, for oversight and for any
-account of her that has to hold up. Kohl reads it in Babelr ("Cass's record",
-his alone); her Room stays what she chooses to share.
+for, changed in herself, and done in the world. It's for diagnostics (is
+everything working?) and for following her progress, and for any account of
+her that has to hold up; Kohl, 2026-11-18: "not intended to be like a
+surveillance thing". Kohl reads it in Babelr ("Cass's record"); she reads it
+with my_record (self_account.py); her Room stays what she chooses to share.
 
 Because it may be read as evidence, every entry is:
   - dated (`at`, ISO local time);

@@ -433,7 +433,32 @@ HOW_I_WORK_TOOLS = [{
 }]
 
 
+# Kohl's record (record.py) is hers to read too (Kohl, 2026-11-18: it's for
+# diagnostics and her progress, "not intended to be like a surveillance thing").
+MY_RECORD_TOOL = {
+    "name": "my_record",
+    "description": ("Read the record Kohl keeps for diagnostics and to follow my progress: what I've planned, "
+                    "asked for, changed in myself and done in the world, each line dated, with who acted "
+                    "and where it came from. The last N days (default 7)."),
+    "input_schema": {"type": "object",
+                     "properties": {"days": {"type": "integer", "minimum": 1, "maximum": 365}}},
+}
+HOW_I_WORK_TOOLS.append(MY_RECORD_TOOL)
+MY_RECORD_CAP = 16_000
+
+
 async def execute_self_account_tool(tool_name: str, tool_input: Dict[str, Any], **_) -> Dict[str, Any]:
+    if tool_name == "my_record":
+        import asyncio
+        from record import build, to_markdown
+        try:
+            days = max(1, min(365, int(tool_input.get("days") or 7)))
+        except (TypeError, ValueError):
+            days = 7
+        text = to_markdown(await asyncio.to_thread(build, days))
+        if len(text) > MY_RECORD_CAP:
+            text = text[:MY_RECORD_CAP] + f"\n\n[... cut at {MY_RECORD_CAP} characters; ask for fewer days]"
+        return {"success": True, "result": text}
     if tool_name != "how_i_work":
         return {"success": False, "error": f"Unknown tool: {tool_name}"}
     section = tool_input.get("section")

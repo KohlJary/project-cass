@@ -124,3 +124,16 @@ def test_reach_outs_are_read_for_her_daemon_id(monkeypatch):
     monkeypatch.setattr(reach_out, "ReachOutManager", Manager)
     assert R._live_reach_outs() == ["one"]
     assert seen == {"partner_for": "daemon-uuid", "manager_for": "daemon-uuid", "user": "kohl-id"}
+
+
+def test_she_can_read_her_record(monkeypatch):
+    import asyncio
+    import self_account
+    from agent_loop.spec import session_spec
+    monkeypatch.setattr(R, "build", lambda days=7: {"days": days, "entries": [], "generated_at": "g",
+                                                     "digest": "d", "unavailable": [], "spend_by_day": [],
+                                                     "kinds": R.KIND_WORDS})
+    out = asyncio.run(self_account.execute_self_account_tool("my_record", {"days": 3}))
+    assert out["success"] and out["result"].startswith("# Cass: the record, last 3 days")
+    assert any(t["name"] == "my_record" for t in self_account.HOW_I_WORK_TOOLS)
+    assert "my_record" in session_spec("long_term_planning").tool_names()

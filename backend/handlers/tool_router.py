@@ -415,6 +415,7 @@ TOOL_REGISTRY = {
     "my_sealed_letters": "letters",
     # How I work, generated from the code (self_account.py)
     "how_i_work": "self_account",
+    "my_record": "self_account",
     "social_read": "social",
     "social_thread": "social",
     "social_post": "social",
