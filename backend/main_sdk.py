@@ -1423,7 +1423,7 @@ def make_discord_wake_callback(discord_bot):
                 context_scope="public",
                 provider=LLM_PROVIDER_ANTHROPIC,
                 channel="discord",
-                memory_metadata={"source": "discord", "channel": channel_name},
+                memory_metadata={"source": "discord", "channel": channel_name, "channel_id": channel_id},
                 generate_title=False,
             )
             if conversation_id:

@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 LEVER = "gremlin_review"
 # Outward tools and the field that carries what she's saying.
 REVIEWED = {"social_post": "text", "social_reply": "text", "social_dm_send": "text",
-            "babelr_post": "content", "babelr_dm": "content", "say": "message"}
+            "babelr_post": "content", "babelr_dm": "content", "say": "message", "reply_back": "message"}
 MAX_NOTES = 3
 NOTE_CHARS = 160
 MAX_QUOTE_WORDS = 8

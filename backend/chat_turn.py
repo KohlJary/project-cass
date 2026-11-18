@@ -285,7 +285,10 @@ async def run_chat_turn(
             continuous_messages=continuous_messages,
             model_message=send_kwargs["message"],
             person={"user_id": user_id, "user_name": user_name, "conversation_id": conversation_id,
-                    "project_id": project_id, "daemon_id": daemon_id},
+                    "project_id": project_id, "daemon_id": daemon_id,
+                    # Where this chat is (a Babelr place, a Discord channel), so a session she
+                    # starts from it can reply back there (agent_loop/reply_back.py).
+                    **{k: v for k, v in (memory_metadata or {}).items() if k in ("place", "channel_id") and v}},
             channel=chan, arrival_block=arrival_block, user_message=user_message,
             provider=response_provider, model=response_model,
             agent_client=agent_client if is_anthropic else None,

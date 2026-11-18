@@ -177,6 +177,11 @@ MAX_TOOL_RESULT_CHARS = 20_000
 # the cap comes anyway, one last call where she writes her summary.
 EXTEND_TOOL = "extend_session"
 EXTEND_STEPS = 12
+# Tools whose step is given back (Kohl, 2026-11-18: replying to where a session
+# came from "shouldn't count towards her turn limit"). Bounded, so a reply
+# can't keep a session going forever.
+FREE_TOOLS = frozenset({"reply_back"})
+FREE_REFUNDS = 3
 
 
 def cap_warning(end_tool: str) -> str:
@@ -259,6 +264,7 @@ async def run_loop(
     cap = spec.max_iterations
     session_like = can_end and end_tool == "session_complete"
     extensions_left = 1 if session_like and EXTEND_TOOL in offered else 0
+    refunds_left = FREE_REFUNDS if FREE_TOOLS & set(offered) else 0
     warned = False
     try:
         while True:
@@ -323,6 +329,9 @@ async def run_loop(
 
             results = []
             ended = False
+            if refunds_left and any(c["name"] in FREE_TOOLS for c in reply.tool_calls):
+                refunds_left -= 1
+                cap += 1   # this step was a reply back; it doesn't count
             for call in reply.tool_calls:
                 name, tool_input = call["name"], call.get("input") or {}
                 # A tool she found (findable) called by its name runs as use_tool would

@@ -248,12 +248,15 @@ async def run_session_turn(
     can_wake: Optional[bool] = None,
     local_tools: Optional[Dict[str, Tuple[Dict[str, Any], Callable[[Dict[str, Any]], Any]]]] = None,
     initial_message: Optional[str] = None,
+    reply_to: Optional[Dict[str, Any]] = None,
 ):
     """Run one autonomous session through the Turn. Returns a SessionResult
     (subclass) so the action handler reports it the same way as before.
     `run_router`, `catalog`, `usage_log` and `workspace` default to the live ones.
     `local_tools` (name -> (definition, handler)) are tools the entry point
-    answers itself, e.g. set_day_plan; handlers get the input and may be async."""
+    answers itself, e.g. set_day_plan; handlers get the input and may be async.
+    `reply_to` is where the session came from (agent_loop/reply_back.py): the
+    prompt names it and reply_back sends there."""
     import features
     from .spec import ACTIVITY_PACKS
     from .wakes import WakeBook, wake_tool, wakes_available
@@ -269,6 +272,15 @@ async def run_session_turn(
 
     if catalog is None:
         catalog = tools_mod.router_catalog()
+    from . import reply_back as RB
+    origin = RB.origin(reply_to)
+    if origin and RB.ROUTES[origin["channel"]][0] in catalog:
+        router = run_router or tools_mod.live_router(daemon_id)
+        run_router = router
+        local_tools = {**(local_tools or {}), RB.TOOL: (RB.tool_def(origin), RB.handler(origin, router))}
+        additions = (additions or "") + RB.prompt_line(origin)
+    elif reply_to:
+        logger.warning(f"[agent_loop] can't reply back to {reply_to!r}: no such place, or its tool is off")
     usage_log = usage_log or tools_mod.UsageLog()
     workspace = workspace or Workspace()
     wakes = wakes or WakeBook()
@@ -306,6 +318,8 @@ async def run_session_turn(
                   or n in (local_tools or {})]
     if folding:
         tool_names.append("answer_them")
+    if origin and RB.TOOL in (local_tools or {}):
+        tool_names.append(RB.TOOL)   # no pack lists it: it exists only when there's somewhere to reply
     tools = tool_definitions(tool_names, catalog,
                              extra=[d for d in (say_def, wake_def) if d is not None]
                              + [d for d, _ in (local_tools or {}).values()])

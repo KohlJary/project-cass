@@ -256,7 +256,7 @@ def test_entry_point_persists_the_same_artifacts_as_websocket(
 def test_discord_memory_write_is_tagged_as_discord(booted_app, fake_llm, spies):
     chroma, _, _ = spies
     _run(booted_app, fake_llm, spies, "discord")
-    assert chroma[0]["metadata"] == {"source": "discord", "channel": "general"}
+    assert chroma[0]["metadata"] == {"source": "discord", "channel": "general", "channel_id": 42}
 
 
 def test_discord_linked_sender_continues_the_channel_conversation(booted_app, fake_llm):
