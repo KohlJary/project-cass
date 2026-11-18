@@ -191,3 +191,14 @@ def test_plans_events_show_local_time_and_the_items_title():
     assert e["title"] == "item status: Code search -> done"
     local = datetime(2026, 11, 18, 6, 24, tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
     assert e["at"] == local.isoformat(timespec="seconds")
+
+
+def test_the_live_plans_tuple_reaches_from_plans_with_titles_and_plans_status_shape(tmp_path):
+    """Live: _live_plans returns (events, mine, items); items went in as `me`, and Plans
+    writes a status change as {"before", "after"} (2026-11-18)."""
+    ev = [{"seq": 9, "planSlug": "asks", "actor": {"name": "jaryk"}, "action": "item-status",
+           "itemId": "i9", "detail": {"before": "open", "after": "in_progress"}, "at": "2026-11-18T01:23:00"}]
+    rec = R.build(days=7, data_dir=tmp_path, now=NOW, plans=lambda: (ev, {"asks": "Cass's asks"}, {"i9": "Code search"}),
+                  reach_outs=lambda: [], repo=tmp_path / "none")
+    (e,) = [x for x in rec["entries"] if x["kind"] in ("plan", "ask")]
+    assert e["title"] == "item status: Code search -> in_progress" and e["who"] == "jaryk"

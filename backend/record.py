@@ -114,7 +114,7 @@ def from_plans(events: List[Dict[str, Any]], her_plans: Dict[str, str],
         d = e.get("detail") or {}
         what = (d.get("title") or d.get("item") or (items or {}).get(e.get("itemId") or "")
                 or d.get("phase") or d.get("goal") or "")
-        status = d.get("status") or d.get("to") or ""
+        status = d.get("status") or d.get("after") or d.get("to") or ""   # Plans: {"before", "after"}
         plan_title = her_plans.get(slug) or slug
         kind = "ask" if "ask" in slug and slug not in her_plans else "plan"
         if plan_title.lower().startswith("cass's asks"):
@@ -271,7 +271,11 @@ def build(days: int = 30, data_dir: Optional[Path] = None, now: Optional[datetim
             logger.warning(f"[record] {name} unavailable: {e}")
             unavailable.append(f"{name}: {e}")
 
-    take("Plans", lambda: from_plans(*(plans or _live_plans)()))
+    def _plans():
+        got = (plans or _live_plans)()
+        events, mine = got[0], got[1]
+        return from_plans(events, mine, items=got[2] if len(got) > 2 else None)
+    take("Plans", _plans)
     take("changes to how she works", lambda: from_changes(dd))
     take("reach-outs", lambda: from_reach_outs((reach_outs or _live_reach_outs)()))
     take("Bluesky/Tumblr", lambda: from_social(dd))
