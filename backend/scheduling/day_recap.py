@@ -79,8 +79,37 @@ def usage_line(data_dir: Optional[Path] = None, daily_budget: float = 5.0,
             f"I've been using.")
 
 
+def _refused(since: datetime) -> List[Dict[str, Any]]:
+    from heartbeat.runlog import RunLog
+    return RunLog().refused_since(since)
+
+
+def _sent(since: datetime, data_dir: Path) -> List[Dict[str, Any]]:
+    """What she sent out since `since`: reach-outs to Kohl, and her social posts and replies."""
+    out: List[Dict[str, Any]] = []
+    from reach_out import ReachOutManager, find_primary_partner
+    from database import get_daemon_id
+    daemon_id = get_daemon_id()
+    partner = find_primary_partner(daemon_id)
+    for r in (ReachOutManager(daemon_id).history(partner, limit=50) if partner else []):
+        try:
+            at = datetime.fromisoformat(str(r.created_at)).replace(tzinfo=None)
+        except ValueError:
+            continue
+        if at >= since:
+            via = ", ".join(sorted({str(v.get("channel")) for v in (r.delivered_via or []) if v.get("ok", True)}))
+            out.append({"at": at, "what": f"to Kohl ({r.kind})" + (f" via {via}" if via else "")
+                        + ("" if r.delivered else f", NOT delivered: {r.error}"), "text": r.body})
+    from social.limits import posted
+    for rec in posted("bluesky", data_dir, since=since):
+        if rec.get("kind") in ("post", "reply"):
+            out.append({"at": datetime.fromisoformat(rec["at"]), "what": f"Bluesky {rec['kind']}",
+                        "text": rec.get("text", "")})
+    return sorted(out, key=lambda r: r["at"])
+
+
 def since_last_plan(workspace=None, data_dir: Optional[Path] = None,
-                    now: Optional[datetime] = None) -> str:
+                    now: Optional[datetime] = None, refused=None, sent=None) -> str:
     """Last plan (DAY_PLAN.md as it stands, before today's overwrites it) and what ran since."""
     now = now or datetime.now()
     dd = _data_dir(data_dir)
@@ -104,6 +133,34 @@ def since_last_plan(workspace=None, data_dir: Optional[Path] = None,
         if len(summary) > SUMMARY_CHARS:
             summary = summary[:SUMMARY_CHARS].rsplit(" ", 1)[0] + "..."
         lines.append(f"- {s['at']:%a %H:%M} {s['type']}" + (f": {summary}" if summary else ""))
+    # Her ask (2026-11-18): planned work the gate refused is named, with why,
+    # not just absent; and what she actually sent, so narration and reality meet.
+    try:
+        refusals = (refused or _refused)(since)
+    except Exception as e:
+        logger.warning(f"[day_recap] couldn't read refusals: {e}")
+        refusals = []
+    if refusals:
+        lines.append("Planned but refused (not run):")
+        for r in refusals:
+            at = str(r.get("started_at") or "")[11:16]
+            name = str(r.get("work_name") or "").replace("phase.", "")
+            lines.append(f"- {at} {name}: {r.get('error') or 'refused'}")
+    try:
+        sends = (sent or (lambda s: _sent(s, dd)))(since)
+    except Exception as e:
+        logger.warning(f"[day_recap] couldn't read what she sent: {e}")
+        sends = None
+    if sends is not None:
+        if sends:
+            lines.append("What I actually sent out since then:")
+            for s in sends:
+                text = (s.get("text") or "").replace("\n", " ")
+                if len(text) > SUMMARY_CHARS:
+                    text = text[:SUMMARY_CHARS].rsplit(" ", 1)[0] + "..."
+                lines.append(f"- {s['at']:%a %H:%M} {s['what']}" + (f": \"{text}\"" if text else ""))
+        else:
+            lines.append("I sent nothing out since then (no message to Kohl, no post).")
     if ran:
         counts = Counter(s["type"] for s in ran)
         top, n = counts.most_common(1)[0]

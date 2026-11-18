@@ -70,6 +70,16 @@ class RunLog:
             )
             return cur.lastrowid
 
+    def refused_since(self, since: datetime, limit: int = 50) -> List[dict]:
+        """Work the gate refused since `since`, oldest first (her day recap, 2026-11-18)."""
+        from database import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT work_name, budget_class, started_at, error FROM heartbeat_runs "
+                "WHERE status = 'refused_budget' AND started_at >= ? ORDER BY id LIMIT ?",
+                (since.isoformat(), limit)).fetchall()
+            return [dict(r) for r in rows]
+
     def recent(self, limit: int = 50, work_name: Optional[str] = None) -> List[dict]:
         from database import get_db
         sql = "SELECT * FROM heartbeat_runs"

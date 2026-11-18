@@ -84,7 +84,8 @@ PHASE_SPELL_ADDITIONS = (
 
 
 def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining: float,
-              unavailable: Sequence[str] = (), usage: str = "", shape: str = "") -> str:
+              unavailable: Sequence[str] = (), usage: str = "", shape: str = "",
+              budget_by_category: Optional[Dict[str, float]] = None) -> str:
     """The planning instructions: her menu, the phases left, her budget."""
     lines = [
         "## PLANNING MY DAY",
@@ -96,7 +97,11 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
         PHASE_SPELL_ADDITIONS,
         "",
         f"Phases left today: {', '.join(_phase_name(p) for p in phases)}.",
-        f"Budget left today: ${budget_remaining:.2f}.",
+        f"Budget left today: ${budget_remaining:.2f}."
+        + (" By kind of work: " + ", ".join(f"{k} ${v:.2f}" for k, v in budget_by_category.items()) + "."
+           if budget_by_category else "")
+        + (" Each thing on my menu is charged to one of these; something over what its kind has "
+           "left isn't on the menu, and is named under Not available today." if budget_by_category else ""),
         *([usage] if usage else []),
         "A phase can hold several things (up to 12, counting what my spells add), each at its "
         "own time, and my day can carry more than one of my plans.",
@@ -335,7 +340,8 @@ class DayPlanTool:
 
 async def plan_day_in_turn(runner, candidates: Sequence[Any], phases: Sequence[Any],
                            budget_remaining: float, unavailable: Sequence[str] = (),
-                           *, workspace=None, **turn_kwargs) -> Dict[Any, List[Any]]:
+                           *, workspace=None, budget_by_category: Optional[Dict[str, float]] = None,
+                           **turn_kwargs) -> Dict[Any, List[Any]]:
     """Run her planning turn. Returns {DayPhase: [WorkUnit]}; {} if she set no plan.
     Raises if the turn itself fails before she set a plan (the caller falls back);
     a plan she set before an error stands."""
@@ -367,7 +373,8 @@ async def plan_day_in_turn(runner, candidates: Sequence[Any], phases: Sequence[A
         shape = (shape + "\n\n" if shape else "") + routines.routines_text()
     except Exception as e:
         logger.warning(f"[day_turn] couldn't read her routines: {e}")
-    additions = menu_text(candidates, phases, budget_remaining, unavailable, usage=usage, shape=shape)
+    additions = menu_text(candidates, phases, budget_remaining, unavailable, usage=usage, shape=shape,
+                          budget_by_category=budget_by_category)
     try:  # her own plans open the day (long_term_planning_turn.py); never costs her the plan
         from long_term_planning_turn import day_plan_section
         toward = day_plan_section(candidates, plans=plans)

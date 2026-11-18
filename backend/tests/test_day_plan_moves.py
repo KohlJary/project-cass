@@ -254,3 +254,39 @@ def test_consolidation_keeps_whats_changing_at_the_top_of_her_agenda():
     text = get_session_prompt("consolidation")
     assert "keep what's changing at its top" in text
     assert f"{AGENDA_CONTEXT_CHARS:,} characters" in text, "the number she's told must be the real cap"
+
+
+# Her asks, 2026-11-18: refusals named, budget by kind, drops with the
+# arithmetic, and what she actually sent beside what ran.
+
+def test_the_recap_names_refusals_and_what_she_actually_sent(tmp_path):
+    from scheduling.day_recap import since_last_plan
+    now = datetime(2026, 11, 18, 7, 0)
+    _log(tmp_path, "day_planning", now - timedelta(hours=20))
+    refused = lambda since: [{"work_name": "phase.knowledge_building", "started_at": "2026-11-17T14:00:00",  # noqa: E731
+                              "error": "research budget exhausted ($0.30 needed, $0.12 left)"}]
+    sent = lambda since: [{"at": datetime(2026, 11, 17, 12, 1), "what": "to Kohl (share) via app",  # noqa: E731
+                           "text": "I'm not ready to be less careful with you yet."}]
+    text = since_last_plan(SimpleNamespace(root=tmp_path), tmp_path, now=now, refused=refused, sent=sent)
+    assert "Planned but refused (not run):\n- 14:00 knowledge_building: research budget exhausted" in text
+    assert "What I actually sent out since then:\n- Tue 12:01 to Kohl (share) via app: \"I'm not ready" in text
+    nothing = since_last_plan(SimpleNamespace(root=tmp_path), tmp_path, now=now,
+                              refused=lambda s: [], sent=lambda s: [])
+    assert "I sent nothing out since then" in nothing and "refused" not in nothing
+
+
+def test_the_menu_shows_budget_by_kind_and_names_what_it_left_off():
+    text = menu_text([], [DayPhase.MORNING], 4.2, unavailable=["Knowledge Building (needs $0.30; research has $0.12 left today)"],
+                     budget_by_category={"research": 0.12, "reflection": 0.9})
+    assert "By kind of work: research $0.12, reflection $0.90." in text
+    assert "Not available today: Knowledge Building (needs $0.30; research has $0.12 left today)." in text
+
+
+def test_the_engine_names_over_budget_templates(monkeypatch):
+    from scheduling.decision_engine import DecisionContext, SchedulingDecisionEngine
+    eng = SchedulingDecisionEngine.__new__(SchedulingDecisionEngine)
+    ctx = DecisionContext.__new__(DecisionContext)
+    ctx.budget_by_category = {k: 0.0 for k in ("research", "reflection", "growth", "curiosity", "system")}
+    ctx.is_idle = True
+    eng._get_viable_candidates(ctx)
+    assert any("needs $" in u and "left today" in u for u in eng._unavailable)

@@ -301,7 +301,8 @@ class SchedulingDecisionEngine:
                 try:
                     return await plan_day_in_turn(
                         session_runner, candidates, phases, context.remaining_budget,
-                        getattr(self, "_unavailable", None) or ())
+                        getattr(self, "_unavailable", None) or (),
+                        budget_by_category=dict(getattr(context, "budget_by_category", None) or {}))
                 except Exception as e:
                     logger.error(f"Her planning turn failed, using the one-shot planner: {e}")
 
@@ -538,6 +539,11 @@ class SchedulingDecisionEngine:
             category = budget_category(template.category)
             category_budget = context.budget_by_category.get(category, 0)
             if template.estimated_cost_usd > category_budget:
+                # Named to her, with the arithmetic (her ask, 2026-11-18), not
+                # silently left off.
+                self._unavailable.append(
+                    f"{template.name} (needs ${template.estimated_cost_usd:.2f}; {category} has "
+                    f"${category_budget:.2f} left today)")
                 continue
 
             # Check idle requirement

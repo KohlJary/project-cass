@@ -84,7 +84,7 @@ def test_engine_uses_her_turn_and_falls_back_if_it_breaks(monkeypatch, levers):
         return {DayPhase.MORNING: ["one-shot"]}
     monkeypatch.setattr(engine, "_plan_day_with_llm", one_shot)
 
-    async def turn(runner, candidates, phases, budget, unavailable):
+    async def turn(runner, candidates, phases, budget, unavailable, **kw):
         return {DayPhase.MORNING: ["her turn"]}
     monkeypatch.setattr(day_turn, "plan_day_in_turn", turn)
     with levers(agent_loop=True):
