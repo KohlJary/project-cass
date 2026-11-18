@@ -814,3 +814,26 @@ def test_a_wake_spends_from_its_kinds_budget():
     assert wake_budget("growth_edge_work")[0] == TaskCategory.GROWTH
     assert wake_budget("reflection_block")[0] == TaskCategory.REFLECTION
     assert wake_budget("no_such_thing") == (TaskCategory.REFLECTION, 0.50)
+
+
+def test_ending_a_chat_started_session_without_replying_is_asked_once():
+    """Kohl, 2026-11-18: she finished sessions she started from chat and never told
+    him. Her first session_complete without a reply_back is asked once; the second ends it."""
+    spec = session_spec("reflection", max_iterations=6)
+    end = _tool_reply("session_complete", {"summary": "Read One-X."})
+    client = StubClient([end, _tool_reply("session_complete", {"summary": "Read One-X."})])
+    executed = []
+
+    async def execute(name, tool_input):
+        executed.append(name)
+        return {"success": True}
+    tools = [{"name": n} for n in spec.tool_names()] + [{"name": "reply_back"}]
+    out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="sys", tools=tools,
+                               messages=[{"role": "user", "content": "begin"}], execute=execute))
+    assert out.status == "completed" and out.model_calls == 2
+    assert out.steps[0].tool_results[0]["result"]["not_ended_yet"]
+    # replied first: ends straight away
+    client = StubClient([_tool_reply("reply_back", {"message": "Done: 8 of 12."}), end])
+    out = asyncio.run(run_loop(spec=spec, client=client, model="m", system="sys", tools=tools,
+                               messages=[{"role": "user", "content": "begin"}], execute=execute))
+    assert out.status == "completed" and out.model_calls == 2 and "reply_back" in executed

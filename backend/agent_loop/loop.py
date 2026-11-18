@@ -195,6 +195,11 @@ BLOCKED_NOTE = ("[LOOP] My last response was blocked by the model provider's con
                 "it in my own words.")
 
 
+REPLY_BEFORE_END = ("Not ended yet. This session started from a conversation, and I haven't replied there: "
+                    "reply_back tells them what I found or where I got to. Or call {end_tool} again to end "
+                    "without replying.")
+
+
 def _blocked(e: Exception) -> bool:
     return "content filtering" in str(e).lower() or "output blocked" in str(e).lower()
 
@@ -281,6 +286,11 @@ async def run_loop(
     extensions_left = 1 if session_like and EXTEND_TOOL in offered else 0
     refunds_left = FREE_REFUNDS if FREE_TOOLS & set(offered) else 0
     blocked_left = BLOCKED_RETRIES
+    # A session started from a chat (reply_back offered): ending without having
+    # replied gets asked once (Kohl, 2026-11-18). Ending again ends it.
+    can_reply = "reply_back" in offered
+    replied = False
+    asked_to_reply = False
     warned = False
     try:
         while True:
@@ -357,6 +367,7 @@ async def run_loop(
             if refunds_left and any(c["name"] in FREE_TOOLS for c in reply.tool_calls):
                 refunds_left -= 1
                 cap += 1   # this step was a reply back; it doesn't count
+            replied = replied or any(c["name"] == "reply_back" for c in reply.tool_calls)
             for call in reply.tool_calls:
                 name, tool_input = call["name"], call.get("input") or {}
                 # A tool she found (findable) called by its name runs as use_tool would
@@ -373,6 +384,13 @@ async def run_loop(
                         result = {"extended_by": EXTEND_STEPS, "steps_left": cap - out.model_calls}
                     else:
                         result = {"error": "I've already extended this session once; time to wrap up."}
+                    step.tool_results.append({"tool_name": name, "result": result})
+                    results.append({"id": call["id"], "name": name, "content": json.dumps(result)})
+                    continue
+                if can_end and name == end_tool and can_reply and not replied and not asked_to_reply:
+                    asked_to_reply = True
+                    result = {"not_ended_yet": True,
+                              "note": REPLY_BEFORE_END.format(end_tool=end_tool)}
                     step.tool_results.append({"tool_name": name, "result": result})
                     results.append({"id": call["id"], "name": name, "content": json.dumps(result)})
                     continue
