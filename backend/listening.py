@@ -63,11 +63,14 @@ TOOL = {
         "and quote at most a few words (whole lines of lyrics are someone else's writing, and reciting them "
         "gets my reply blocked). note keeps what a song (or a whole album) is "
         "to me, in my words, in my workspace (listening/Artist/Album/); rewriting it keeps the earlier "
-        "versions, so I can see how my take changed. my_notes reads back what I've written."),
+        "versions, so I can see how my take changed. my_notes reads back what I've written. along listens to what "
+        "Kohl's computer is playing, live, one song (when he's turned listening along on): no audio is kept, just "
+        "a light record of what I heard; heard lists those, and heard with a query reads one."),
     "input_schema": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["shelf", "listen", "status", "read", "album", "look", "note", "my_notes"]},
+            "action": {"type": "string", "enum": ["shelf", "listen", "status", "read", "album", "look", "note", "my_notes",
+                                                  "along", "heard"]},
             "text": {"type": "string", "description": "note: what the song (or album) is to me, in my words"},
             "add": {"type": "boolean", "description": "note: add to what I wrote before instead of rewriting it"},
             "query": {"type": "string", "description": "shelf/listen/read/album/look/note: a slug from the shelf (bring-me-the-horizon/sempiternal, or .../song-title for one song: exact, no mix-ups), or artist, album or song in words"},
@@ -470,6 +473,66 @@ def _my_album_notes(t: Dict[str, Any], ws) -> List[str]:
     return sorted(out)
 
 
+# ---------------------------------------------------------------------------
+# Listening along: what Kohl's computer is playing, live (plan "Cass's ears and studio",
+# Live ears; lever listen_along, Kohl's switch). One song at a time, titled from his media
+# player; a light record is kept, never the audio.
+# ---------------------------------------------------------------------------
+
+ALONG_MAX_S = 15 * 60
+_along = {"job": None, "dir": None}
+
+
+def _live_root() -> Path:
+    return _root() / "live"
+
+
+def along() -> Dict[str, Any]:
+    import features
+    if not features.is_enabled("listen_along"):
+        return {"error": "listening along is off; it hears Kohl's computer, so it's his switch to turn on"}
+    with _jobs_lock:
+        job = _along["job"]
+        if job is not None and not job.done():
+            return {"already_listening": True, "note": "I'm already listening along; heard shows it when the song ends"}
+        stamp = __import__("datetime").datetime.now().strftime("%Y%m%d-%H%M%S")
+        d = _live_root() / stamp
+        d.parent.mkdir(parents=True, exist_ok=True)
+
+        def run():
+            r = subprocess.run(["nice", "-n", "5", ACOUSMATIC, "live", "--follow-player", "--max", str(ALONG_MAX_S),
+                                "-o", str(d)], capture_output=True, text=True, timeout=ALONG_MAX_S + 120)
+            if not (d / "live.json").exists():
+                raise RuntimeError((r.stderr or "")[-300:] or "nothing was heard")
+            return {"heard": d.name}
+        _along["job"], _along["dir"] = _pool.submit(run), d
+    return {"listening_along": True,
+            "note": "listening to what Kohl's playing, live; it ends when the track changes or goes quiet. "
+                    "heard shows what I heard (a light record: form, key, tempo, chords, the sound; no audio kept)"}
+
+
+def heard(which: str = "") -> Dict[str, Any]:
+    root = _live_root()
+    items = sorted((p for p in root.glob("*/live.json")), reverse=True) if root.exists() else []
+    if which:
+        p = next((x for x in items if x.parent.name == which or which.lower() in x.read_text().lower()[:600]), None)
+        if not p:
+            return {"error": f"nothing heard live matches {which!r}"}
+        return {"heard": p.parent.name, "record": (p.parent / "live.md").read_text()}
+    out = []
+    for p in items[:20]:
+        try:
+            r = json.loads(p.read_text())
+        except ValueError:
+            continue
+        m = r.get("meta") or {}
+        out.append({"id": p.parent.name, "title": m.get("title"), "artist": m.get("artist"),
+                    "minutes": round((r.get("duration_s") or 0) / 60, 1), "key": (r.get("key") or {}).get("name"),
+                    "tempo": r.get("tempo")})
+    job = _along["job"]
+    return {"heard_live": out, "listening_now": bool(job is not None and not job.done())}
+
+
 def handle(a: Dict[str, Any]) -> Dict[str, Any]:
     if not enabled():
         return {"error": "my ears aren't switched on right now"}
@@ -479,6 +542,10 @@ def handle(a: Dict[str, Any]) -> Dict[str, Any]:
         return shelf(query)
     if action == "status":
         return status()
+    if action == "along":
+        return along()
+    if action == "heard":
+        return heard((a.get("query") or "").strip())
     if not query:
         return {"error": f"{action} needs a query: an artist, album or song"}
     if not Path(ACOUSMATIC).exists():

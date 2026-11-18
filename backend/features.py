@@ -249,6 +249,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "music library in the background, keeps each listening record, and lets her read them and look "
            "at their pictures (listening.py)",
            default=False, where="listening.handle"),
+    _lever("listen_along", "Her ears on what Kohl's computer is playing (listen along): one song at a time, "
+           "titled from his media player, ended when the track changes; a light record is kept, never the audio. "
+           "Kohl's switch (it hears his system audio)", default=False, where="listening.handle"),
     _lever("ask_daedalus", "In her long-term planning and change-proposal sessions she can question a "
            "read-only Claude Code instance (Daedalus) about her code: a snapshot of the tracked files, "
            "no data, no writes, a daily cap; each talk kept in her workspace (daedalus_bridge.py)",

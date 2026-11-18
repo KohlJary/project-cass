@@ -368,6 +368,13 @@ LEVER_COVERAGE = {
         "note": "A workshop session with the lever on: studio help, then a render (Orphic faked) committed as a "
                 "draft with her message. Nothing starts on its own. Fast-suite: tests/test_studio.py.",
     },
+    "listen_along": {
+        "depth": "none",
+        "tests": [],
+        "note": "Off by default (it hears Kohl's system audio); listen along starts acousmatic live --follow-player "
+                "in the background only when she asks and the lever is on. Unit test (test_listening.py) checks "
+                "the switch and the light records; the capture itself needs a desktop with audio playing.",
+    },
     "listening": {
         "depth": "gate",
         "tests": ["tests/smoke/test_listening.py::test_listen_reads_a_record_and_shows_a_picture"],

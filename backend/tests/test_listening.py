@@ -183,3 +183,19 @@ def test_slugs_name_albums_and_songs_exactly_and_duplicates_collapse():
     assert L.find("bring-me-the-horizon/one-x", shelf)["tracks"] == []
     s = L.shelf("Sempiternal", tracks=shelf)
     assert s["albums"][0]["slug"] == "bring-me-the-horizon/sempiternal"
+
+
+def test_listening_along_is_kohls_switch_and_keeps_light_records(tmp_path, monkeypatch):
+    import json
+    import features
+    monkeypatch.setattr(L, "_root", lambda: tmp_path / "listening")
+    monkeypatch.setattr(features, "is_enabled", lambda name: name != "listen_along")
+    assert "his switch" in L.along()["error"]
+    d = tmp_path / "listening" / "live" / "20261118-210000"
+    d.mkdir(parents=True)
+    (d / "live.json").write_text(json.dumps({"meta": {"title": "Back on the Rocks", "artist": "Mega NRG Man"},
+                                             "duration_s": 300, "key": {"name": "E minor"}, "tempo": 155}))
+    (d / "live.md").write_text("# Back on the Rocks\nHeard live.")
+    h = L.heard()
+    assert h["heard_live"][0]["title"] == "Back on the Rocks" and h["listening_now"] is False
+    assert "Heard live" in L.heard("20261118-210000")["record"]
