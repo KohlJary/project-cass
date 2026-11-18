@@ -183,3 +183,23 @@ def test_the_router_dispatches_the_studio_end_to_end():
         return {"success": True, "result": {"ran": tool_input.get("action")}}
     out = asyncio.run(route_tool("studio", {"action": "tone"}, ToolContext(), {"studio": fake}))
     assert out == {"success": True, "result": {"ran": "tone"}}
+
+
+@pytest.mark.skipif(not Path(ST.ORPHIC).exists(), reason="needs Orphic installed")
+def test_clips_write_read_and_list_in_a_project(tmp_path, monkeypatch):
+    import workshop as W
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    monkeypatch.setattr(W, "_project", lambda slug, data_dir=None: proj)
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    w = ST.handle({"action": "clip", "project": "p", "name": "Chug One",
+                   "riff": "[E2 B2 E3]/0.25pm [E2 B2 E3]/0.25pm r/3.5"}, tmp_path)
+    assert w["clip"] == "chug-one" and (proj / "clips" / "chug-one.mid").exists()
+    assert "m" in w["roll"] and "sounds 0.5 of 4 beats" in w["roll"]
+    n = ST.handle({"action": "clip", "project": "p", "name": "lift",
+                   "clip_notes": [{"bar": 1, "beat": 1, "pitch": ["G2", "D3"], "len": 4}]}, tmp_path)
+    assert n["as_notation"] == "[G2 D3]/4"
+    r = ST.handle({"action": "clip", "project": "p", "name": "lift"}, tmp_path)
+    assert r["notes"] == 2 and "X===" in r["roll"]
+    assert {c["clip"] for c in ST.handle({"action": "clips", "project": "p"}, tmp_path)["clips"]} == {"chug-one", "lift"}
+    assert "error" in ST.handle({"action": "clip", "project": "p", "name": "nope"}, tmp_path)

@@ -57,14 +57,23 @@ TOOL = {
         "about twenty seconds. tone puts a guitar (default a real one, sampled: {\"sfz\": \"fsbs-direct\"}) through a chain or a "
         "rig and measures the tone: distortion character, how chords hold up, sustain, tightness, mud, fizz, "
         "and what changed since my last try; rig saves a chain on my gun belt by name (an instrument uses it as "
-        "rig: name); map also shows what an amp's knobs do (swankyamp). share sets who can follow my music log in Babelr (my listening, what I write "
+        "rig: name); map also shows what an amp's knobs do (swankyamp). clip writes a part as MIDI in a project "
+        "(clips/name.mid, opens in any DAW), from riff notation or from clip_notes (bar, beat, pitch, len in "
+        "beats, vel, pm), and shows it back as a piano roll a bar at a time (X a note, m palm-muted, = held, "
+        ". silence) with any bar that doesn't fill its beats; with only a name it reads one, clips lists them. "
+        "A song uses a clip as a part: <instrument>: {clip: name}, looped to fill the section. share sets who can follow my music log in Babelr (my listening, what I write "
         "about songs, my drafts and sketches); hide keeps any single one out of it, show puts it back."),
     "input_schema": {
         "type": "object",
         "properties": {
             "action": {"type": "string",
                        "enum": ["help", "render", "drafts", "read", "look", "compare", "patch", "map",
-                                "noodle", "sketchbook", "keep", "share", "hide", "show", "tone", "rig"]},
+                                "noodle", "sketchbook", "keep", "share", "hide", "show", "tone", "rig",
+                                "clip", "clips"]},
+            "clip_notes": {"type": "array", "items": {"type": "object"},
+                           "description": "clip: the notes as MIDI, each {\"bar\": 1, \"beat\": 1.5, \"pitch\": \"E2\" "
+                                          "or [\"E2\", \"B2\"], \"len\": 0.25 (beats), \"vel\": 1-127, \"pm\": true}"},
+            "bars": {"type": "string", "description": "clip: which bars to read, like 3 or 1-4"},
             "chain": {"type": "array", "items": {"type": "object"},
                       "description": "tone/rig: effects in order, each {\"plugin\": \"swankyamp\", \"params\": {...}} "
                                      "or a built-in like {\"builtin\": \"distortion\", \"drive_db\": 25}"},
@@ -412,6 +421,33 @@ def keep(slug: str, n: Optional[int], note: str, data_dir=None) -> Dict[str, Any
 
 
 # ---------------------------------------------------------------------------
+# clips: parts as MIDI, in a project's clips/ folder
+# ---------------------------------------------------------------------------
+
+def clip(slug: str, name: Optional[str], riff, notes, bars: Optional[str], listing: bool, data_dir=None):
+    import workshop as W
+    try:
+        project = W._project(slug, data_dir)
+    except Exception as e:
+        return {"error": f"no project {slug!r}: {e}"}
+    args = [ORPHIC, "clip"]
+    if listing:
+        args += ["list"]
+    elif riff or notes:
+        if not isinstance(riff, (str, type(None))):
+            return {"error": "a clip's riff is song notation (a drum grid isn't a clip yet)"}
+        args += ["write", name or ""] + (["--riff", riff] if riff else ["--notes", json.dumps(notes)])
+    else:
+        args += ["read", name or ""] + (["--bars", str(bars)] if bars else [])
+    args += ["--dir", str(project)]
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        return json.loads(r.stdout)
+    except (subprocess.TimeoutExpired, ValueError):
+        return {"error": "the clip tool didn't answer"}
+
+
+# ---------------------------------------------------------------------------
 # tone: the guitar probe through a rig, kept in the tonebook
 # ---------------------------------------------------------------------------
 
@@ -507,6 +543,10 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
         return patch(a.get("name"), a.get("synth"), a.get("params") or {}, a.get("notes") or "", data_dir)
     if action == "map":
         return synth_map(a.get("synth") or "")
+    if action in ("clip", "clips"):
+        if not slug:
+            return {"error": "clips live in a project: which one (project)?"}
+        return clip(slug, a.get("name"), a.get("riff"), a.get("clip_notes"), a.get("bars"), action == "clips", data_dir)
     if action == "tone":
         return tone(a.get("instrument") or {}, a.get("chain"), a.get("name"), a.get("note") or "", data_dir)
     if action == "rig":
@@ -544,7 +584,7 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
     if action == "keep":
         return keep(slug, a.get("sketch"), a.get("note") or "", data_dir)
     return {"error": "action is one of help, render, drafts, read, look, compare, patch, map, noodle, sketchbook, "
-                     "keep, share, hide, show, tone, rig"}
+                     "keep, share, hide, show, tone, rig, clip, clips"}
 
 
 def studio_tools(default_project: Optional[str] = None) -> Optional[Dict[str, Any]]:
