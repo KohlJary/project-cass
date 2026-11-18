@@ -302,6 +302,20 @@ WORK_TEMPLATES: Dict[str, WorkUnitTemplate] = {
         available=lambda: _agent_loop_on(),
     ),
 
+    # Changes to herself, grounded in her code (plan "Cass talks with Daedalus",
+    # phase 2): she reads how she works, asks Daedalus, and files asks. On the
+    # loop, and only while she can ask Daedalus (lever ask_daedalus).
+    "change_proposals": WorkUnitTemplate(
+        id="change_proposals",
+        name="Changes to Myself",
+        description="Look at how I'm built, ask Daedalus how it works, and ask for the changes I want.",
+        action_sequence=["session.change_proposals"],
+        default_duration_minutes=30,
+        estimated_cost_usd=0.40,
+        category="reflection",
+        available=lambda: _agent_loop_on() and _daedalus_on(),
+    ),
+
     # === Memory & system maintenance ===
     "memory_maintenance": WorkUnitTemplate(
         id="memory_maintenance",
@@ -430,6 +444,14 @@ def get_templates_by_category(category: str) -> List[WorkUnitTemplate]:
 def list_templates() -> List[Dict[str, Any]]:
     """List all available templates."""
     return [t.to_dict() for t in WORK_TEMPLATES.values()]
+
+
+def _daedalus_on() -> bool:
+    try:
+        from features import is_enabled
+        return is_enabled("ask_daedalus")
+    except Exception:
+        return False
 
 
 def _agent_loop_on() -> bool:

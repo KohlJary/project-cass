@@ -147,9 +147,11 @@ async def run_long_term_planning_turn(runner, *, duration_minutes: int = 30, max
     from agent_loop.session import run_session_turn
     working = working_toward_text(offered=False) or "I don't have any plans of my own yet."
     working = working.replace("## WHAT I'M WORKING TOWARD\n\n", "", 1)
+    from daedalus_bridge import daedalus_tools
+    local, daedalus_line = daedalus_tools(TEMPLATE_ID)
     return await run_session_turn(
-        runner, session_type=TEMPLATE_ID,
-        additions=INSTRUCTIONS.format(working=working) + _working_with(),
+        runner, session_type=TEMPLATE_ID, local_tools=local,
+        additions=INSTRUCTIONS.format(working=working) + _working_with() + daedalus_line,
         duration_minutes=duration_minutes, focus=focus, max_turns=max_turns,
         why=why or "I chose time to look further ahead",
         initial_message="Time to look further ahead than today.", **turn_kwargs)

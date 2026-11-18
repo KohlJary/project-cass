@@ -169,6 +169,18 @@
       "requires_idle": false,
       "runner_key": "long_term_planning"
     },
+    "session.change_proposals": {
+      "id": "session.change_proposals",
+      "name": "Changes to Myself",
+      "description": "Her change proposals: how she works, questions to Daedalus about her code, asks in Plans; on the agent loop",
+      "category": "reflection",
+      "handler": "session_handlers.change_proposals_action",
+      "estimated_cost_usd": 0.40,
+      "default_duration_minutes": 30,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "change_proposals"
+    },
     "session.wonderland": {
       "id": "session.wonderland",
       "name": "Wonderland",

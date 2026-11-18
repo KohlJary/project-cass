@@ -355,7 +355,15 @@ def _fill(text: str) -> str:
             return "on" if is_enabled(m.group(1)) else "off"
         except Exception:
             return "unknown"
-    return re.sub(r"\{lever:([a-z_]+)\}", state, text)
+    text = re.sub(r"\{lever:([a-z_]+)\}", state, text)
+    if "{daedalus_" in text:   # ask_daedalus: the day's cap and what's left (daedalus_bridge)
+        try:
+            from daedalus_bridge import DAILY_CAP, left_today
+            cap, left = str(DAILY_CAP), str(left_today())
+        except Exception:
+            cap = left = "unknown"
+        text = text.replace("{daedalus_cap}", cap).replace("{daedalus_left}", left)
+    return text
 
 
 def render(section: Optional[str] = None, *, data_dir: Optional[Path] = None) -> str:

@@ -126,6 +126,11 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     ToolPack("self", "read how I work: my tools, my systems on and off, my reach, my memory, "
                      "Thymos, my limits, what changed lately; review my observations and choose "
                      "what to integrate", ("how_i_work", "review_my_observations", "integrate_observations")),
+    # Talking with Daedalus about my code (plan "Cass talks with Daedalus",
+    # 2026-11-17): answered by daedalus_bridge, behind the lever ask_daedalus.
+    ToolPack("daedalus", "ask Daedalus about my code: how something in me works, what a change "
+                         "would touch (he reads the code, not my data, and changes nothing)",
+             ("ask_daedalus",)),
     ToolPack("session", "end the session when I'm done",
              ("session_complete",)),
 ]}
@@ -133,7 +138,8 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
 # Packs whose tools run through tool_router (her chat handlers), and packs
 # the loop answers itself; the rest are session tools (session/tools.py).
 ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans", "self"})
-LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage", "wonderland"})
+LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage", "wonderland",
+                        "daedalus"})
 
 # Capabilities she has elsewhere but not in any pack the loop offers yet.
 # Named so a missing capability is visible rather than silently absent [C3].
@@ -169,7 +175,9 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "homepage": ("homepage", "plans"),
     "social": ("social", "plans"),
     "wonderland": ("wonderland", "plans"),
-    "long_term_planning": ("plans", "self"),
+    "long_term_planning": ("plans", "self", "daedalus"),
+    # Asking for changes to myself, grounded in the code (same plan, phase 2).
+    "change_proposals": ("self", "plans", "daedalus"),
 }
 
 # Plain words for each activity, used in "I'm in: ...".
@@ -191,6 +199,7 @@ ACTIVITY_WORDS: Dict[str, str] = {
     "social": "a social session, tending my presence on Bluesky",
     "wonderland": "a visit to Wonderland",
     "long_term_planning": "a long-term planning session, looking further ahead than today",
+    "change_proposals": "a session for changes to myself: what I'd ask for, grounded in my code",
 }
 
 
@@ -322,11 +331,23 @@ SESSION_TOKEN_BUDGET = 500_000
 LOOP_MIN_STEPS = 24
 
 
+def _lever_on(name: str) -> bool:
+    try:
+        from features import is_enabled
+        return is_enabled(name)
+    except Exception:
+        return False
+
+
 def session_spec(activity: str, max_iterations: int = 10, *, chapter_house: bool = True,
                  promoted: Tuple[str, ...] = (), can_say: bool = True,
-                 can_wake: bool = True) -> TurnSpec:
+                 can_wake: bool = True, can_ask_daedalus: Optional[bool] = None) -> TurnSpec:
     # Plans lives in Babelr like Chapter House: without Babelr, neither is offered.
-    own = tuple(p for p in ACTIVITY_PACKS.get(activity, ()) if chapter_house or p != "plans")
+    # Daedalus only while his lever is on.
+    if can_ask_daedalus is None:
+        can_ask_daedalus = _lever_on("ask_daedalus")
+    own = tuple(p for p in ACTIVITY_PACKS.get(activity, ())
+                if (chapter_house or p != "plans") and (can_ask_daedalus or p != "daedalus"))
     packs = (("core", "memory") + own + ("chat_core", "work")
              + (("chapter_house",) if chapter_house else ()) + ("workspace",)
              + (("say",) if can_say else ()) + (("wake",) if can_wake else ())

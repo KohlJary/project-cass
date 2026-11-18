@@ -345,3 +345,28 @@ def test_an_answer_written_as_text_is_caught_before_the_session_ends(
     assert notes, "session_complete didn't say he was still waiting"
     assert frame["type"] == "response" and frame["text"] == "Here now. What's up?"
     assert result.success and result.data["status"] == "completed", result.data
+
+
+def test_change_proposals_session_asks_daedalus(app, fake_llm, levers, monkeypatch, tmp_path):
+    """ask_daedalus (plan "Cass talks with Daedalus"): one change-proposals session
+    through the registry, with a fake Daedalus in place of Claude Code."""
+    import daedalus_bridge
+    from scheduler.actions import get_action_registry
+
+    async def fake_daedalus(question, resume_id, root):
+        return {"answer": "Your budget is set in scheduler/budget.py:80.", "session_id": "s-smoke",
+                "tools": ["Read backend/scheduler/budget.py"]}
+    monkeypatch.setattr(daedalus_bridge, "_ask_with_sdk", fake_daedalus)
+    monkeypatch.setattr(daedalus_bridge, "snapshot", lambda *a, **k: tmp_path)
+    monkeypatch.setattr(daedalus_bridge, "_state_path", lambda: tmp_path / "count.json")
+
+    fake_llm.queue_tool_use("ask_daedalus", {"question": "Where is my budget set?"})
+    fake_llm.queue_tool_use("session_complete", {"summary": "Asked where my budget lives."})
+    with levers(agent_loop=True, ask_daedalus=True):
+        result = app.portal.call(lambda: get_action_registry().execute("session.change_proposals",
+                                                                       duration_minutes=5))
+    assert result.success, result.message
+    first = fake_llm.calls[0]
+    assert "ask_daedalus" in first.tool_names and "## CHANGES TO MYSELF" in first.system_text
+    sent = fake_llm.calls[1].messages[-1]["content"][0]
+    assert sent["type"] == "tool_result" and "budget.py:80" in str(sent["content"]), sent

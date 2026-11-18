@@ -308,6 +308,12 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Off by default; dream seeds only. Fast-suite: tests/test_entropy.py.",
     },
+    "ask_daedalus": {
+        "depth": "gate",
+        "tests": [f"{AGENT_LOOP}::test_change_proposals_session_asks_daedalus"],
+        "note": "A change-proposals session through the registry with the lever on; Claude Code "
+                "itself is faked. Fast-suite: tests/test_daedalus_bridge.py (fence, snapshot, cap).",
+    },
     "letters_to_future_me": {
         "depth": "none",
         "tests": [],
