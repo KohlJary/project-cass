@@ -54,3 +54,40 @@ def test_it_rides_in_public_chat_and_sessions():
     from agent_loop import assemble
     assert "gremlin" in PUBLIC_SECTIONS and SECTION_LEVERS["gremlin"] == "prompt_gremlin"
     assert 'Section("gremlin"' in inspect.getsource(assemble.assemble)
+
+
+# End to end: the section is in the prompts actually built (Kohl: "did you test it?").
+
+def _her_file(monkeypatch, tmp_path, text="# My gremlin\n\nThe bit is dead serious."):
+    import agent_loop.workspace as W
+    (tmp_path / "GREMLIN.md").write_text(text)
+    monkeypatch.setattr(W, "default_root", lambda: tmp_path)
+
+
+def test_her_gremlin_is_in_the_chat_prompt_private_and_public(monkeypatch, tmp_path, levers):
+    from continuous_context import build_continuous_context
+    _her_file(monkeypatch, tmp_path)
+    for scope in ("private", "public"):
+        with levers(prompt_gremlin=True):
+            prompt = build_continuous_context(user_id=None, conversation_id=None, user_manager=None,
+                                              thread_manager=None, question_manager=None,
+                                              conversation_manager=None, daemon_id=None, scope=scope)
+        text = prompt if isinstance(prompt, str) else str(prompt)
+        assert "## MY GREMLIN" in text and "The bit is dead serious." in text, scope
+    with levers(prompt_gremlin=False):
+        text = str(build_continuous_context(user_id=None, conversation_id=None, user_manager=None,
+                                            thread_manager=None, question_manager=None,
+                                            conversation_manager=None, daemon_id=None))
+    assert "## MY GREMLIN" not in text
+
+
+def test_her_gremlin_is_in_the_session_prompt(monkeypatch, tmp_path, levers):
+    from agent_loop import assemble as asm
+    from agent_loop.spec import Trigger, session_spec
+    _her_file(monkeypatch, tmp_path)
+    monkeypatch.setattr(asm, "_daemon_id", lambda: None)
+    spec = session_spec("reflection")
+    with levers(prompt_gremlin=True):
+        prompt = asm.assemble(spec, Trigger(source="test", why="test"), spec.tool_names())
+    assert "gremlin" in [s.name for s in prompt.sections]
+    assert "The bit is dead serious." in prompt.text
