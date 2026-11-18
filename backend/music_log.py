@@ -208,7 +208,7 @@ def shelf_ready(data_dir=None, asked=None) -> List[Dict[str, Any]]:
         except (OSError, ValueError):
             continue
         key = tj.parent.name
-        out.append({"artist": t.get("artist"), "album": t.get("album"), "title": t.get("title"),
+        out.append({"key": key, "artist": t.get("artist"), "album": t.get("album"), "title": t.get("title"),
                     "track": t.get("track"), "ready": datetime.fromtimestamp(tj.stat().st_mtime).isoformat(timespec="seconds"),
                     "how": "she asked for it" if key in asked_keys else "prepared for her"})
     def order(r):
@@ -230,6 +230,20 @@ def _norm(x) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(x or "").lower()).strip()
 
 
+def _measured(key, data_dir=None):
+    """The record's basics for a track (what her ears measured, not her take)."""
+    if not key:
+        return None
+    try:
+        r = json.loads((_data(data_dir) / "listening" / "records" / key / "record.json").read_text())
+        return {"tempo": r["rhythm"]["tempo"], "meter": f"{r['rhythm']['meter']}/4", "key": r["harmony"]["key"]["name"],
+                "form": " ".join(x["label"] for x in r["form"]["sections"]),
+                "lufs": r["loudness"]["integrated_lufs"], "minutes": round(r["source"]["duration"] / 60, 2),
+                "words": len((r.get("words") or {}).get("lines", []))}
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def albums(shelf: List[Dict[str, Any]], crate: List[Dict[str, Any]], docs_: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """The crate as albums: her take on each album, each track with her take and when she
     listened. Albums she's touched (listened, read or written about) first."""
@@ -239,7 +253,7 @@ def albums(shelf: List[Dict[str, Any]], crate: List[Dict[str, Any]], docs_: List
         a = out.setdefault(k, {"key": k, "artist": r.get("artist"), "album": r.get("album"), "tracks": [],
                                 "note": None, "how": r.get("how"), "touched": False})
         a["tracks"].append({"title": r.get("title"), "track": r.get("track"), "how": r.get("how"),
-                            "listened": [], "note": None})
+                            "listened": [], "note": None, "measured": _measured(r.get("key"))})
     def track_of(a, title):
         return next((t for t in a["tracks"] if _norm(t["title"]) == _norm(title)), None)
     for c in crate:
