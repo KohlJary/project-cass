@@ -430,6 +430,7 @@ TOOL_REGISTRY = {
     "social_dm_read": "social",
     "social_dm_send": "social",
     "social_dm_remember": "social",
+    "social_pause": "social",
 
     # Image generation tools (local Stable Diffusion)
     "generate_image": "image_generation",

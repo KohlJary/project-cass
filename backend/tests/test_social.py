@@ -653,3 +653,44 @@ def test_social_tools_come_up_in_chat_when_something_is_waiting(placed, levers, 
     assert not agent_client._mentions_social("how was your morning")
     monkeypatch.setattr(inbox, "pending", lambda p, d=None: [{"kind": "reply"}])
     assert agent_client._social_inbox_waiting()
+
+
+# The pause (2026-11-17): hers or Kohl's, holds every send, reading goes on.
+
+def test_a_pause_holds_every_send_and_lifts(placed, levers):
+    fake = FakeBluesky()
+    client = BlueskyClient(config.read_credentials("bluesky", placed), transport=httpx.MockTransport(fake))
+    with levers(bluesky=True):
+        out = run(execute_social_tool("social_pause", {"platform": "bluesky", "action": "pause",
+                                                       "reason": "a quiet week"}, data_dir=placed))
+        assert out["success"]
+        for kind in ("post", "reply", "dm", "new_conversation", "follow"):
+            assert "paused" in limits.check("bluesky", kind, placed)
+        held = run(execute_social_tool("social_post", {"platform": "bluesky", "text": "hi"},
+                                       data_dir=placed, client=client))
+        assert not held["success"] and "I paused it (a quiet week)" in held["error"]
+        assert not fake.records
+        run(execute_social_tool("social_pause", {"platform": "bluesky", "action": "resume"}, data_dir=placed))
+        assert limits.check("bluesky", "post", placed) is None
+
+
+def test_kohls_pause_is_his_to_lift(placed, levers):
+    limits.pause("bluesky", "Kohl", "checking the budget", data_dir=placed)
+    with levers(bluesky=True):
+        out = run(execute_social_tool("social_pause", {"platform": "bluesky", "action": "resume"},
+                                      data_dir=placed))
+    assert not out["success"] and "Kohl" in out["error"]
+    assert limits.paused("bluesky", placed)
+
+
+def test_a_pause_with_an_until_ends_by_itself(placed):
+    now = datetime(2026, 11, 17, 12, 0)
+    limits.pause("bluesky", "cass", until="2026-11-18T09:00", data_dir=placed, now=now)
+    assert limits.paused("bluesky", placed, now=now)
+    assert limits.paused("bluesky", placed, now=datetime(2026, 11, 18, 9, 1)) is None
+
+
+def test_social_pause_is_in_her_social_sessions():
+    from agent_loop.spec import PACKS
+    from handlers.tool_router import TOOL_REGISTRY
+    assert "social_pause" in PACKS["social"].tools and TOOL_REGISTRY["social_pause"] == "social"

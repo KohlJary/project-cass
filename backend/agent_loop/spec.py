@@ -112,7 +112,7 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
              ("social_inbox", "social_inbox_mark", "social_read", "social_thread", "social_search",
               "social_reply", "social_post", "social_draft", "social_follow", "social_find",
               "social_my_posts", "social_dms", "social_dm_read", "social_dm_send",
-              "social_dm_remember")),
+              "social_dm_remember", "social_pause")),
     # Wonderland, as myself (Kohl and Cass, 2026-11-16): answered by wonderland_turn.
     ToolPack("wonderland", "be in Wonderland: look around, move, sense, reflect, speak, "
                            "make something, talk with the beings there",

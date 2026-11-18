@@ -212,7 +212,22 @@ TRACK_TOOLS = [
     },
 ]
 
-SOCIAL_TOOLS = SOCIAL_TOOLS + TRACK_TOOLS + DM_TOOLS
+PAUSE_TOOL = {
+    "name": "social_pause",
+    "description": ("Pause or resume what I send on a platform: posts, replies, DMs and follows. While "
+                    "it's paused, reading still works. A pause lasts until I (or Kohl) resume it, or until "
+                    "the time I give. Kohl can pause it too."),
+    "input_schema": {
+        "type": "object",
+        "properties": {"platform": {"type": "string", "enum": ["bluesky", "tumblr"]},
+                       "action": {"type": "string", "enum": ["pause", "resume", "status"]},
+                       "until": {"type": "string", "description": "optional, ISO date/time, e.g. 2026-11-20T09:00"},
+                       "reason": {"type": "string", "description": "optional, my words"}},
+        "required": ["platform", "action"],
+    },
+}
+
+SOCIAL_TOOLS = SOCIAL_TOOLS + TRACK_TOOLS + DM_TOOLS + [PAUSE_TOOL]
 SOCIAL_TOOL_NAMES = frozenset(t["name"] for t in SOCIAL_TOOLS)
 DM_TOOL_NAMES = frozenset(t["name"] for t in DM_TOOLS)
 TRACK_TOOL_NAMES = frozenset(t["name"] for t in TRACK_TOOLS)
@@ -385,6 +400,24 @@ async def execute_social_tool(tool_name: str, tool_input: Dict[str, Any], daemon
     platform = a.get("platform", "")
     if tool_name not in SOCIAL_TOOL_NAMES:
         return _fail(f"unknown social tool {tool_name}")
+    if tool_name == "social_pause":
+        if platform not in config.PLATFORMS:
+            return _fail(f"I'm not on {platform!r}.")
+        action = a.get("action")
+        if action == "pause":
+            try:
+                rec = limits.pause(platform, "cass", a.get("reason") or "", a.get("until") or None, data_dir)
+            except ValueError:
+                return _fail(f"{a.get('until')!r} isn't a date and time I can read (e.g. 2026-11-20T09:00).")
+            return {"success": True, "result": {"paused": rec}}
+        if action == "resume":
+            held = limits.paused(platform, data_dir)
+            if held and held.get("by") not in ("cass", None):
+                # Kohl's pause is his to lift; hers she can lift herself.
+                return _fail(f"{held.get('by')} paused {platform}; that one is theirs to lift.")
+            limits.resume(platform, data_dir)
+            return {"success": True, "result": {"paused": None}}
+        return {"success": True, "result": {"paused": limits.paused(platform, data_dir)}}
     if tool_name in TRACK_TOOL_NAMES:
         return await _track_tool(tool_name, a, platform, daemon_id, data_dir, client, memory)
 

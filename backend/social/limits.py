@@ -54,10 +54,60 @@ def posted(platform: str, data_dir: Optional[Path] = None, since: Optional[datet
     return out
 
 
+# A pause (2026-11-17): DATA_DIR/social/<platform>/paused.json holds every
+# send (posts, replies, DMs, follows) until it's lifted or its `until`
+# passes. Reading goes on. She sets it with social_pause; Kohl with
+# scripts/social_pause.py.
+def _pause_path(platform: str, data_dir: Optional[Path]) -> Path:
+    return platform_dir(platform, data_dir) / "paused.json"
+
+
+def paused(platform: str, data_dir: Optional[Path] = None,
+           now: Optional[datetime] = None) -> Optional[dict]:
+    """The pause in force on a platform, or None."""
+    try:
+        p = json.loads(_pause_path(platform, data_dir).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    until = p.get("until")
+    try:
+        if until and datetime.fromisoformat(until) <= (now or datetime.now()):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return p
+
+
+def pause(platform: str, by: str, reason: str = "", until: Optional[str] = None,
+          data_dir: Optional[Path] = None, now: Optional[datetime] = None) -> dict:
+    if until:
+        datetime.fromisoformat(until)  # ValueError if it isn't a date
+    rec = {"by": by, "at": (now or datetime.now()).isoformat(timespec="seconds"),
+           "reason": reason, "until": until}
+    path = _pause_path(platform, data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
+    return rec
+
+
+def resume(platform: str, data_dir: Optional[Path] = None) -> bool:
+    try:
+        _pause_path(platform, data_dir).unlink()
+        return True
+    except FileNotFoundError:
+        return False
+
+
 def check(platform: str, kind: str, data_dir: Optional[Path] = None,
           now: Optional[datetime] = None) -> Optional[str]:
     """None if she can send this now, else why not. kind: post | reply | dm | new_conversation | follow."""
     now = now or datetime.now()
+    held = paused(platform, data_dir, now)
+    if held:
+        who = "I" if held.get("by") == "cass" else held.get("by") or "someone"
+        until = f" until {held['until']}" if held.get("until") else ""
+        why = f" ({held['reason']})" if held.get("reason") else ""
+        return f"{platform.capitalize()} is paused{until}: {who} paused it{why}. Reading still works."
     lim = limits(platform, data_dir)
     recent = posted(platform, data_dir, since=now - timedelta(days=1))
     if kind == "follow":
