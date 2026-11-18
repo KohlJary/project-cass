@@ -51,12 +51,24 @@ TOOL = {
         "committed as a draft with my message (what I changed and why), so my drafts are my decision log. "
         "read and look show what my ears heard in a draft; compare says what changed between two drafts, "
         "measured; drafts lists them. patch puts a synth setting on my gun belt to call by name; map shows "
-        "what a synth's knobs do. Rendering takes a minute or two."),
+        "what a synth's knobs do. noodle is for playing around: a riff on any instrument, looped, heard back "
+        "in seconds (the notes, the sound, and what changed since my last try), kept in my sketchbook, nothing "
+        "committed; keep copies a sketch I like into a project's riffs.md. Rendering takes a minute or two; a noodle "
+        "about twenty seconds."),
     "input_schema": {
         "type": "object",
         "properties": {
             "action": {"type": "string",
-                       "enum": ["help", "render", "drafts", "read", "look", "compare", "patch", "map"]},
+                       "enum": ["help", "render", "drafts", "read", "look", "compare", "patch", "map",
+                                "noodle", "sketchbook", "keep"]},
+            "instrument": {"type": "object", "description": "noodle: what plays it, like {\"synth\": \"nekobi\", "
+                                                            "\"params\": {\"cutoff\": 40}} or {\"kit\": \"808\"} or {\"gm\": 34}"},
+            "riff": {"description": "noodle: a bar or a few in song notation (E2/0.5 G2/0.5 ... | ...), or for the kit "
+                                    "a drum grid like {\"kick\": \"x...x...\", ...}"},
+            "tempo": {"type": "number", "description": "noodle: beats per minute (default 100)"},
+            "loops": {"type": "integer", "description": "noodle: how many times round (default 2)"},
+            "note": {"type": "string", "description": "noodle/keep: a note to myself about it"},
+            "sketch": {"type": "integer", "description": "keep: which sketch (default the latest)"},
             "project": {"type": "string", "description": "the workshop project (its slug)"},
             "song": {"type": "string", "description": "render: the song file in the project (default song.yaml)"},
             "message": {"type": "string", "description": "render: what I changed and why, in my words"},
@@ -291,6 +303,97 @@ def compare(slug: str, n: Optional[int], against: Optional[int], data_dir=None) 
 
 
 # ---------------------------------------------------------------------------
+# noodling: the sketchbook
+# ---------------------------------------------------------------------------
+
+def _sketchbook(data_dir=None) -> Path:
+    return _root(data_dir) / "sketchbook"
+
+
+def sketches(data_dir=None) -> List[Dict[str, Any]]:
+    out = []
+    for p in sorted(_sketchbook(data_dir).glob("*/sketch.json"), key=lambda p: int(p.parent.name)):
+        try:
+            out.append(json.loads(p.read_text()))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def noodle(instrument: Dict[str, Any], riff: Any, tempo: float, loops: int, note: str, data_dir=None) -> Dict[str, Any]:
+    if not instrument or not riff:
+        return {"error": "noodle needs an instrument and a riff"}
+    prev = sketches(data_dir)
+    n = (prev[-1]["n"] + 1) if prev else 1
+    d = _sketchbook(data_dir) / str(n)
+    d.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "ORPHIC_BELT": str(_belt(data_dir))}
+    args = ["nice", "-n", "10", ORPHIC, "noodle", "--instrument", json.dumps(instrument),
+            "--phrase", json.dumps(riff) if isinstance(riff, dict) else str(riff),
+            "--tempo", str(float(tempo or 100)), "--loops", str(int(loops or 2)), "-o", str(d)]
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=300, env=env)
+        out = json.loads(r.stdout)
+    except (subprocess.TimeoutExpired, ValueError):
+        shutil.rmtree(d, ignore_errors=True)
+        return {"error": "the noodle didn't play (it took too long or failed)"}
+    if out.get("error"):
+        shutil.rmtree(d, ignore_errors=True)
+        return {"error": f"it didn't play: {out['error']}"}
+    entry = {"n": n, "at": datetime.now().isoformat(timespec="seconds"), "instrument": instrument, "riff": riff,
+             "tempo": tempo or 100, "note": note or "", "notes_heard": out.get("notes_heard"),
+             "sound": out.get("sound"), "sound_raw": out.get("sound_raw")}
+    (d / "sketch.json").write_text(json.dumps(entry, indent=1, default=float))
+    result = {"sketch": n, "notes_heard": out.get("notes_heard"), "sound": out.get("sound"),
+              "would_have_clipped": out.get("would_have_clipped")}
+    last = prev[-1] if prev else None
+    if last and last.get("sound_raw") and (last.get("instrument") or {}).get("synth") == instrument.get("synth"):
+        result["since_last_try"] = _differences(last["sound_raw"], out.get("sound_raw") or {})
+    return result
+
+
+def _differences(before: Dict, after: Dict) -> List[str]:
+    labels = {"level_db": "level (dB)", "brightness_hz": "brightness (Hz)", "noise": "noise vs tone",
+              "attack_ms": "attack (ms)", "sustain": "sustain", "release_ms": "release (ms)",
+              "brightness_motion": "brightness change over a note (octaves)", "am_rate_hz": "tremolo/beating (Hz)",
+              "am_depth": "tremolo/beating depth", "width": "stereo width", "peak_hz": "resonant peak (Hz)",
+              "peak_db": "resonant peak height (dB)"}
+    scale = {"level_db": 3, "noise": 0.05, "sustain": 0.1, "brightness_motion": 0.3, "am_rate_hz": 1,
+             "am_depth": 0.1, "width": 0.08, "peak_db": 3}
+    out = []
+    for k, lab in labels.items():
+        a, b = before.get(k), after.get(k)
+        if a is None or b is None:
+            continue
+        if k in scale:
+            moved = abs(b - a) >= scale[k]
+        else:
+            moved = a > 0 and b > 0 and abs(__import__("math").log2(b / a)) >= 0.25
+        if moved:
+            out.append(f"{lab}: {a} -> {b}")
+    return out or ["no clear change in the sound"]
+
+
+def keep(slug: str, n: Optional[int], note: str, data_dir=None) -> Dict[str, Any]:
+    import workshop as W
+    ss = sketches(data_dir)
+    s = next((x for x in ss if x["n"] == int(n)), None) if n is not None else (ss[-1] if ss else None)
+    if not s:
+        return {"error": "no such sketch"}
+    try:
+        project = W._project(slug, data_dir)
+    except Exception as e:
+        return {"error": f"no project {slug}: {e}"}
+    riff = s["riff"] if not isinstance(s["riff"], dict) else json.dumps(s["riff"])
+    block = (f"\n## Sketch {s['n']} ({s['at'][:16]})\n\n{note or s.get('note') or ''}\n\n"
+             f"- instrument: {json.dumps(s['instrument'])}\n- tempo: {s['tempo']}\n- riff: `{riff}`\n")
+    p = project / "riffs.md"
+    p.write_text((p.read_text() if p.exists() else "# Riffs\n\nSketches I kept from noodling.\n") + block)
+    return {"kept": s["n"], "in": f"{slug}/riffs.md", "note": "it's in the project now, uncommitted; it goes in "
+                                                             "with my next draft or project commit"}
+
+
+# ---------------------------------------------------------------------------
 # the gun belt, and maps
 # ---------------------------------------------------------------------------
 
@@ -331,6 +434,11 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
         return patch(a.get("name"), a.get("synth"), a.get("params") or {}, a.get("notes") or "", data_dir)
     if action == "map":
         return synth_map(a.get("synth") or "")
+    if action == "noodle":
+        return noodle(a.get("instrument") or {}, a.get("riff"), a.get("tempo") or 100, a.get("loops") or 2,
+                      a.get("note") or "", data_dir)
+    if action == "sketchbook":
+        return {"sketches": [{k: v for k, v in s.items() if k != "sound_raw"} for s in sketches(data_dir)[-20:]]}
     if not slug:
         return {"error": f"{action} needs a project (its slug)"}
     if action == "render":
@@ -343,7 +451,9 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
         return look(slug, a.get("draft"), a.get("part"), data_dir)
     if action == "compare":
         return compare(slug, a.get("draft"), a.get("against"), data_dir)
-    return {"error": "action is one of help, render, drafts, read, look, compare, patch, map"}
+    if action == "keep":
+        return keep(slug, a.get("sketch"), a.get("note") or "", data_dir)
+    return {"error": "action is one of help, render, drafts, read, look, compare, patch, map, noodle, sketchbook, keep"}
 
 
 def studio_tools(default_project: Optional[str] = None) -> Optional[Dict[str, Any]]:

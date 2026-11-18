@@ -89,3 +89,34 @@ def test_the_lever_and_where_she_has_it(monkeypatch):
     assert set(ST.studio_tools("x")) == {"studio"}
     import workshop_turn
     assert "studio" in workshop_turn.STUDIO_LINE
+
+
+NOODLE = r'''#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+args = sys.argv
+inst = json.loads(args[args.index("--instrument") + 1])
+cut = (inst.get("params") or {}).get("cutoff", 50)
+print(json.dumps({"notes_heard": ["E2@0.00s", "G2@0.50s"], "sound": {"brightness": cut * 30},
+                  "sound_raw": {"brightness_hz": cut * 30.0, "level_db": -6.0}, "would_have_clipped": False}))
+'''
+
+
+def test_noodling_keeps_sketches_and_says_what_a_knob_did(tmp_path, monkeypatch):
+    import sys
+    fake = tmp_path / "orphic"
+    fake.write_text(NOODLE.replace("#!/usr/bin/env python3", f"#!{sys.executable}"))
+    fake.chmod(0o755)
+    monkeypatch.setattr(ST, "ORPHIC", str(fake))
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    a = ST.handle({"action": "noodle", "instrument": {"synth": "nekobi", "params": {"cutoff": 20}},
+                   "riff": "E2/0.5 G2/0.5", "note": "dark"}, tmp_path)
+    assert a["sketch"] == 1 and a["notes_heard"][0] == "E2@0.00s" and "since_last_try" not in a
+    b = ST.handle({"action": "noodle", "instrument": {"synth": "nekobi", "params": {"cutoff": 80}},
+                   "riff": "E2/0.5 G2/0.5"}, tmp_path)
+    assert b["sketch"] == 2 and any(l.startswith("brightness (Hz): 600.0 -> 2400.0") for l in b["since_last_try"])
+    assert [s["n"] for s in ST.handle({"action": "sketchbook"}, tmp_path)["sketches"]] == [1, 2]
+    slug = W.new("First Light", "other", "x", data_dir=tmp_path)["project"]
+    k = ST.handle({"action": "keep", "project": slug, "sketch": 1, "note": "the verse riff?"}, tmp_path)
+    riffs = (W._project(slug, tmp_path) / "riffs.md").read_text()
+    assert k["kept"] == 1 and "the verse riff?" in riffs and "E2/0.5 G2/0.5" in riffs
