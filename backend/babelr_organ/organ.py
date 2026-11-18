@@ -1193,9 +1193,40 @@ def start_babelr_organ(conversation_manager: Any = None,
         return None
     organ = BabelrOrgan(conversation_manager=conversation_manager, **kwargs)
     if not organ.start():
+        # Babelr itself not answering (it's restarting, or came up after the vessel) is
+        # temporary: keep trying in the background rather than leaving her deaf on Babelr
+        # until the next vessel restart (2026-11-18 08:14: both restarted 7 s apart).
+        if (organ.disabled_reason or "").startswith("couldn't reach Babelr"):
+            organ._retry_task = asyncio.create_task(_keep_trying(organ, wake_callback))
         return None
+    _go_live(organ, wake_callback)
+    return organ
+
+
+RETRY_DELAYS = (5, 10, 20, 30)
+RETRY_EVERY = 60
+
+
+def _go_live(organ: BabelrOrgan, wake_callback: Optional[WakeCallback]) -> None:
+    global _organ
     if wake_callback:
         organ.set_wake_callback(wake_callback)
     organ._task = asyncio.create_task(organ.run())
     _organ = organ
-    return organ
+
+
+async def _keep_trying(organ: BabelrOrgan, wake_callback: Optional[WakeCallback],
+                       sleep: Callable[[float], Any] = asyncio.sleep) -> bool:
+    attempt = 0
+    while True:
+        delay = RETRY_DELAYS[attempt] if attempt < len(RETRY_DELAYS) else RETRY_EVERY
+        attempt += 1
+        await sleep(delay)
+        if not babelr_enabled():
+            return False
+        if organ.start():
+            logger.info(f"[Babelr] Reached Babelr after {attempt} retr{'y' if attempt == 1 else 'ies'}")
+            _go_live(organ, wake_callback)
+            return True
+        if not (organ.disabled_reason or "").startswith("couldn't reach Babelr"):
+            return False   # something that waiting won't fix (the token, the lever)
