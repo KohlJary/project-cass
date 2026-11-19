@@ -239,8 +239,25 @@ _GOING_IN = re.compile(
     # "starting/opening/beginning a (listening) session", "I'll start a session"
     r"|(?:start(?:ing)?|open(?:ing)?|begin(?:ning)?|kick(?:ing)?\s+off|launch(?:ing)?)\s+(?:a|my|the|that|this|one)\s+"
     r"(?:\w+\s+){0,2}session"
+    # Saying it's done when it isn't (22:39, 2026-11-18: she told Kohl she'd started
+    # one and nothing had): "I started it", "I've kicked off a social session",
+    # "it's running", "I'm in the session now".
+    r"|(?:i|i[’']ve|i\s+have|just)\s+(?:just\s+)?(?:started|kicked\s+off|opened|launched|began)\s+"
+    r"(?:it|one|(?:a|my|the|that|this)\s+(?:\w+\s+){0,2}session)"
+    r"|started\s+it\b"
+    r"|(?:session|it)(?:[’']s|\s+is|\s+has)\s+(?:running|started|live|underway|begun)"
+    r"|i[’']?m\s+in\s+(?:(?:the|my|a)\s+(?:\w+\s+)?session|now\b)"
     r")",
     re.I)
+
+
+def _quiet(live: Callable[[], bool]) -> bool:
+    """Whether a session she asked for is already live or about to start (then "it's
+    running" is true, and START_NOTE isn't asked). A check that fails counts as no."""
+    try:
+        return bool(live())
+    except Exception:
+        return False
 
 
 def says_starting(text: str) -> bool:
@@ -322,6 +339,7 @@ async def run_loop(
     token_budget: Optional[int] = None,
     arrivals: Callable[[], List[str]] = lambda: [],
     also_callable: Optional[Any] = None,
+    session_live: Callable[[], bool] = lambda: False,
 ) -> LoopOutcome:
     """Run one turn. `messages` is the neutral history to start from (usually
     one {"role": "user", "content": ...}). `nudges` and `token_budget`
@@ -425,7 +443,7 @@ async def run_loop(
                 history.append({"role": "user", "content": THINK_NOTE})
                 continue
             if (not reply.tool_calls and not session_like and can_start and not start_called
-                    and not start_asked and says_starting(reply.text)):
+                    and not start_asked and says_starting(reply.text) and not _quiet(session_live)):
                 start_asked = True
                 out.start_asks += 1
                 logger.info("[agent_loop] she said she's going in without start_session; asked her once")

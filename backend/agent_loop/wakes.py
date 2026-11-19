@@ -469,6 +469,12 @@ def budget_refusal(activity: str, budget=None) -> Optional[str]:
             f"I can tell them so, or ask for the session another day (wake_me or my day plan).")
 
 
+def live_now(book: Optional["WakeBook"] = None) -> bool:
+    """Whether a session she asked for is about to start or running (loop.START_NOTE
+    isn't asked then: "it's running" is true)."""
+    return any(w.get("status") in (PENDING, STARTED) for w in (book or WakeBook()).all())
+
+
 def start_session_offer(turn_id: str, origin: Optional[Dict[str, Any]] = None):
     """(definition, handler) for chat, or None while the lever is off or nothing fires wakes."""
     import features

@@ -95,3 +95,13 @@ def test_say_is_her_reach_out_and_reach_out_isnt_findable():
     say = T.say_tool(catalog)
     assert say["input_schema"] == catalog["reach_out"]["input_schema"]
     assert "reach_out" not in T.findable(catalog, session_spec("reflection").tool_names())
+
+
+def test_live_now_is_a_pending_or_started_session(book):
+    import json
+    assert W.live_now(book) is False
+    book.path.write_text(json.dumps([{"id": "a", "status": W.DONE}, {"id": "b", "status": W.FAILED}]))
+    assert W.live_now(book) is False
+    for st in (W.PENDING, W.STARTED):
+        book.path.write_text(json.dumps([{"id": "a", "status": st}]))
+        assert W.live_now(book) is True

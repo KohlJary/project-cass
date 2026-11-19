@@ -293,6 +293,10 @@ async def run_conversation(
                "hold_reply": lambda a: check(a, lines),
                **({"start_session": starter[1]} if starter else {})})
 
+    def _session_live() -> bool:
+        from .wakes import live_now
+        return live_now()
+
     async def execute(name: str, tool_input: Dict[str, Any]) -> Any:
         await say({"type": "thinking", "status": f"Executing: {name}..."})
         return await box.execute(name, tool_input)
@@ -301,6 +305,7 @@ async def run_conversation(
         spec=spec, client=client, model=model, system=system, tools=tools,
         messages=history_from(continuous_messages) + [_this_message(model_message, image, image_media_type)],
         execute=execute, end_tool="hold_reply", nudges=0, also_callable=set(box.findable),
+        session_live=_session_live if starter else (lambda: False),
     )
     if outcome.status == "error":
         raise RuntimeError(f"conversation turn on the loop failed: {outcome.error}")

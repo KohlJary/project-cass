@@ -979,6 +979,19 @@ def test_says_starting():
     assert not says_starting("<gesture:think>maybe I'm going into my workspace later</gesture:think> Sounds good.")
 
 
+def test_says_starting_catches_saying_its_done():
+    """22:39, 2026-11-18: she said she'd started one and nothing had."""
+    from agent_loop.loop import says_starting
+    for said in ("Okay, I started it.", "Started it!", "I've kicked off a social session.",
+                 "I’ve started a listening session on Violator.", "Done, it's running now.",
+                 "The session is underway.", "I'm in the session now.", "I’m in now."):
+        assert says_starting(said), said
+    for not_said in ("I started the song yesterday and the bridge is rough.",
+                     "That session went well; I ended it after the second draft.",
+                     "It's going well, honestly.", "I'm in a good mood."):
+        assert not says_starting(not_said), not_said
+
+
 def _starter_run(replies, executed):
     spec = conversation_spec()
     client = StubClient(replies)
@@ -991,6 +1004,19 @@ def _starter_run(replies, executed):
                                messages=[{"role": "user", "content": "x"}],
                                execute=execute, end_tool="hold_reply", nudges=0))
     return out, client
+
+
+def test_its_running_isnt_asked_when_a_session_she_asked_for_is_live():
+    from agent_loop.loop import START_NOTE
+    client = StubClient([_text_reply("It's running now; I'll tell you what I find.")])
+
+    async def execute(name, tool_input):
+        return {}
+    out = asyncio.run(run_loop(spec=conversation_spec(), client=client, model="m", system="sys",
+                               tools=[{"name": "hold_reply"}, {"name": "start_session"}],
+                               messages=[{"role": "user", "content": "x"}], execute=execute,
+                               end_tool="hold_reply", nudges=0, session_live=lambda: True))
+    assert out.start_asks == 0 and len(client.calls) == 1
 
 
 def test_going_in_without_start_session_is_asked_once():
