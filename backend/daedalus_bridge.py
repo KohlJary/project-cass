@@ -487,7 +487,12 @@ class ProjectConversation(Conversation):
 
     def _project_dir(self, slug: str) -> Path:
         import workshop as W
-        return W._project(slug, self.data_dir)
+        p = W._project(slug, self.data_dir)
+        if W._kohls(p, self.data_dir):
+            # His live checkout: her commits take only files she touched, so edits
+            # made here would sit uncommitted in his tree.
+            raise ValueError("work_with_daedalus is for my own projects, not Kohl's")
+        return p
 
     async def work(self, args: Dict[str, Any]) -> Dict[str, Any]:
         request = str(args.get("request") or "").strip()

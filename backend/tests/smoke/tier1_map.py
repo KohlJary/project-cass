@@ -343,6 +343,11 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Nothing starts on its own; her project tool's publish calls it. Fast-suite: tests/test_workshop.py (GitHub and git push faked).",
     },
+    "workshop_kohl": {
+        "depth": "none",
+        "tests": [],
+        "note": "Nothing starts on its own; her project tool finds and links Kohl's repos when she lists projects (daily). Fast-suite: tests/test_workshop.py (real git repos: commit takes only her files, secrets and her live data stay closed).",
+    },
     "workshop_run": {
         "depth": "none",
         "tests": [],

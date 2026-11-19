@@ -12,6 +12,15 @@ project's folder (as /work); a time and memory limit; Python and Node from the
 system. Nothing in a project leaves the house: publishing (e.g. to GitHub)
 comes with Kohl's go.
 
+Kohl's projects (Kohl, 2026-11-19: "symlink all of my various projects into
+Cass's project workspace ... so she can see *all* of it"; writable, his
+choice): every git repo under his home that he or Daedalus committed to is
+linked in as kohl-<name> (lever workshop_kohl; found again daily). They're
+his live checkouts, so: commit stages only the files she wrote or edited,
+never his uncommitted work; secret-looking files (path_policy's list) can't be
+read or written; files git ignores (data, venvs, databases) can't be written;
+run and publish are refused in them.
+
 One tool, `project`, with an action: new, list, status, files, read, write,
 edit, commit, log, run. One tool rather than ten (the coherence audit:
 fewer, clearer tools).
@@ -61,10 +70,160 @@ def _git(path: Path, *args: str, check: bool = True) -> str:
     return r.stdout
 
 
+# --- Kohl's projects, linked in (lever workshop_kohl) ---------------------------
+
+KOHL_PREFIX = "kohl-"
+KOHL_DIR = ".kohl"             # registry and what she's touched, beside the projects
+KOHL_EMAIL_ENV = "WORKSHOP_KOHL_EMAIL"
+RESCAN_HOURS = 24
+FILES_CAP = 3000
+
+
+def _kohl_on() -> bool:
+    from features import is_enabled
+    return is_enabled("workshop_kohl")
+
+
+def _kohl_dir(data_dir: Optional[Path]) -> Path:
+    return root(data_dir) / KOHL_DIR
+
+
+def _registry(data_dir: Optional[Path]) -> Dict[str, Any]:
+    try:
+        return json.loads((_kohl_dir(data_dir) / "projects.json").read_text())
+    except (OSError, ValueError):
+        return {"projects": {}}
+
+
+def _kohl_authored(repo: Path, emails: List[str]) -> bool:
+    for e in emails:
+        r = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%h", f"--author={e}"],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode == 0 and r.stdout.strip():
+            return True
+    return False
+
+
+def _kohl_emails() -> List[str]:
+    """Whose commits make a repo Kohl's: his git identity (and Daedalus, who signs as him)."""
+    env = os.environ.get(KOHL_EMAIL_ENV, "")
+    if env:
+        return [e.strip() for e in env.split(",") if e.strip()]
+    r = subprocess.run(["git", "config", "--global", "user.email"], capture_output=True, text=True, timeout=10)
+    return [r.stdout.strip()] if r.stdout.strip() else []
+
+
+def link_kohl_projects(data_dir: Optional[Path] = None, home: Optional[Path] = None,
+                       emails: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Find Kohl's repos (two levels under his home) and link each in as kohl-<name>."""
+    home = Path(home or Path.home())
+    emails = emails if emails is not None else _kohl_emails()
+    base = root(data_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    mine = base.resolve()
+    found: Dict[str, Dict[str, str]] = {}
+    def _dirs(d: Path) -> List[Path]:
+        try:
+            return [x for x in sorted(d.iterdir()) if x.is_dir() and not x.name.startswith(".")]
+        except OSError:
+            return []
+    top = _dirs(home)
+    candidates = top + [d for c in top if not (c / ".git").exists() for d in _dirs(c)]
+    for repo in candidates:
+        try:
+            real = repo.resolve()
+            # A worktree's .git is a file: another checkout of a repo already here, where
+            # another session works. Only main checkouts count as projects.
+            if not (repo / ".git").is_dir() or real == mine or mine in real.parents or real in mine.parents:
+                continue
+            if not _kohl_authored(repo, emails):
+                continue
+        except (OSError, subprocess.SubprocessError):
+            continue
+        rel = repo.relative_to(home)
+        slug = slugify(KOHL_PREFIX + "-".join(rel.parts))
+        found[slug] = {"path": str(real), "name": f"Kohl's {rel}"}
+    for slug, rec in found.items():
+        link = base / slug
+        if link.is_symlink() and os.readlink(link) != rec["path"]:
+            link.unlink()
+        if not link.exists() and not link.is_symlink():
+            link.symlink_to(rec["path"], target_is_directory=True)
+    for old in _registry(data_dir)["projects"]:
+        if old not in found and (base / old).is_symlink():
+            (base / old).unlink()
+    _kohl_dir(data_dir).mkdir(exist_ok=True)
+    (_kohl_dir(data_dir) / "projects.json").write_text(json.dumps(
+        {"scanned": datetime.now().isoformat(timespec="seconds"), "projects": found}, indent=2))
+    return {"linked": sorted(found)}
+
+
+def _kohl_fresh(data_dir: Optional[Path]) -> None:
+    if not _kohl_on():
+        return
+    at = _registry(data_dir).get("scanned")
+    try:
+        old = not at or (datetime.now() - datetime.fromisoformat(at)).total_seconds() > RESCAN_HOURS * 3600
+    except ValueError:
+        old = True
+    if old:
+        try:
+            link_kohl_projects(data_dir)
+        except OSError as e:
+            from strict import report_swallowed
+            report_swallowed(e, "workshop: linking Kohl's projects")
+
+
+def _kohls(p: Path, data_dir: Optional[Path]) -> Optional[Dict[str, str]]:
+    """Kohl's project at p (a link in her workshop), when that lever's on."""
+    if not p.is_symlink() or not _kohl_on():
+        return None
+    return _registry(data_dir)["projects"].get(p.name)
+
+
+def _touched_path(p: Path, data_dir: Optional[Path]) -> Path:
+    return _kohl_dir(data_dir) / f"touched-{p.name}.json"
+
+
+def _touched(p: Path, data_dir: Optional[Path]) -> List[str]:
+    try:
+        return json.loads(_touched_path(p, data_dir).read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def _touch(p: Path, rel: str, data_dir: Optional[Path]) -> None:
+    have = _touched(p, data_dir)
+    if rel not in have:
+        _kohl_dir(data_dir).mkdir(parents=True, exist_ok=True)
+        _touched_path(p, data_dir).write_text(json.dumps(have + [rel]))
+
+
+def _guard(p: Path, rel: str, data_dir: Optional[Path], writing: bool) -> None:
+    """Secrets are never read or written in any project; in Kohl's, nothing git ignores is written."""
+    from path_policy import is_denied_name
+    if is_denied_name(Path((rel or "").strip().lstrip("/"))):
+        raise ValueError("that file looks like a secret (keys, .env, credentials); it stays closed")
+    if writing and _kohls(p, data_dir):
+        real = p.resolve()
+        target = (real / (rel or "").strip().lstrip("/")).resolve()
+        from config import DATA_DIR
+        live = Path(DATA_DIR).resolve()
+        if target == live or live in target.parents:
+            raise ValueError("that's my own live data, not Kohl's project; it isn't written from here")
+        if real not in target.parents:
+            raise ValueError("that path is outside the project")
+        r = subprocess.run(["git", "-C", str(real), "check-ignore", "-q", "--", str(target.relative_to(real))],
+                           capture_output=True, timeout=10)
+        if r.returncode != 1:  # 0: ignored; 128: git couldn't say, so no
+            raise ValueError("git ignores that path in Kohl's project (data, environments, builds); "
+                             "it isn't mine to write")
+
+
 def _project(slug: str, data_dir: Optional[Path]) -> Path:
     p = root(data_dir) / slugify(slug)
-    if not slug or not (p / META).is_file():
-        raise ValueError(f"no project {slug!r}; project list shows mine")
+    if not slug or not ((p / META).is_file() or _kohls(p, data_dir)):
+        raise ValueError(f"no project {slug!r}; project list shows mine and Kohl's")
     return p
 
 
@@ -78,7 +237,11 @@ def _inside(project: Path, rel: str) -> Path:
     return target
 
 
-def meta(project: Path) -> Dict[str, Any]:
+def meta(project: Path, data_dir: Optional[Path] = None) -> Dict[str, Any]:
+    k = _kohls(project, data_dir)
+    if k:
+        return {"name": k["name"], "kind": "kohl's", "owner": "Kohl",
+                "note": "Kohl's live checkout: commit takes only the files I wrote or edited"}
     return json.loads((project / META).read_text(encoding="utf-8"))
 
 
@@ -111,10 +274,11 @@ def list_projects(data_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     base = root(data_dir)
     if not base.exists():
         return out
+    _kohl_fresh(data_dir)
     for p in sorted(base.iterdir()):
-        if not (p / META).is_file():
+        if p.name.startswith(".") or not ((p / META).is_file() or _kohls(p, data_dir)):
             continue
-        m = meta(p)
+        m = meta(p, data_dir)
         last = _git(p, "log", "-1", "--format=%cI|%s", check=False).strip()
         at, _, subject = last.partition("|")
         out.append({"project": p.name, "name": m.get("name"), "kind": m.get("kind"),
@@ -125,13 +289,32 @@ def list_projects(data_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
 def status(slug: str, data_dir: Optional[Path] = None) -> Dict[str, Any]:
     p = _project(slug, data_dir)
     pending = [l[3:] for l in _git(p, "status", "--porcelain").splitlines() if l.strip()]
-    plan = (p / PROJECT_FILE).read_text(encoding="utf-8") if (p / PROJECT_FILE).exists() else ""
-    return {"project": p.name, **meta(p), "project_md": plan[:MAX_READ],
-            "uncommitted": pending, "recent": log(slug, 5, data_dir)["log"]}
+    kohls = _kohls(p, data_dir)
+    doc = next((d for d in ((PROJECT_FILE,) if not kohls else (PROJECT_FILE, "README.md", "readme.md"))
+                if (p / d).exists()), None)
+    plan = (p / doc).read_text(encoding="utf-8", errors="replace") if doc else ""
+    out = {"project": p.name, **meta(p, data_dir), "project_md": plan[:MAX_READ],
+           "uncommitted": pending[:200], "recent": log(slug, 5, data_dir)["log"]}
+    if kohls:
+        out["mine_uncommitted"] = _touched(p, data_dir)
+        out["about_uncommitted"] = "the rest is Kohl's (or others') work in progress; commit never takes it"
+    return out
 
 
 def files(slug: str, data_dir: Optional[Path] = None) -> Dict[str, Any]:
     p = _project(slug, data_dir)
+    if _kohls(p, data_dir):
+        from path_policy import is_denied_name
+        listed = _git(p, "ls-files", "--cached", "--others", "--exclude-standard", check=False).splitlines()
+        names = sorted({n for n in listed if n and not is_denied_name(Path(n))})
+        out = []
+        for n in names[:FILES_CAP]:
+            try:
+                out.append({"path": n, "bytes": (p / n).stat().st_size})
+            except OSError:
+                continue
+        return {"project": p.name, "files": out,
+                **({"more": f"{len(names) - FILES_CAP} more not shown"} if len(names) > FILES_CAP else {})}
     out = []
     for f in sorted(p.rglob("*")):
         if f.is_file() and ".git" not in f.relative_to(p).parts and f.name != META:
@@ -140,7 +323,9 @@ def files(slug: str, data_dir: Optional[Path] = None) -> Dict[str, Any]:
 
 
 def read(slug: str, path: str, data_dir: Optional[Path] = None) -> Dict[str, Any]:
-    f = _inside(_project(slug, data_dir), path)
+    p = _project(slug, data_dir)
+    _guard(p, path, data_dir, writing=False)
+    f = _inside(p, path)
     if not f.is_file():
         return {"error": f"no file {path!r} in {slug}"}
     text = f.read_text(encoding="utf-8", errors="replace")
@@ -150,6 +335,7 @@ def read(slug: str, path: str, data_dir: Optional[Path] = None) -> Dict[str, Any
 
 def write(slug: str, path: str, content: str, data_dir: Optional[Path] = None) -> Dict[str, Any]:
     p = _project(slug, data_dir)
+    _guard(p, path, data_dir, writing=True)
     f = _inside(p, path)
     if f.name == META:
         return {"error": "that file is the workshop's own"}
@@ -158,12 +344,16 @@ def write(slug: str, path: str, content: str, data_dir: Optional[Path] = None) -
     f.parent.mkdir(parents=True, exist_ok=True)
     existed = f.exists()
     f.write_text(content or "", encoding="utf-8")
+    if _kohls(p, data_dir):
+        _touch(p, str(f.relative_to(p.resolve())), data_dir)
     return {"success": True, "path": path, "chars": len(content or ""), "new_file": not existed,
             "note": "Written, not yet committed: project commit keeps it in the history."}
 
 
 def edit(slug: str, path: str, old: str, new_text: str, data_dir: Optional[Path] = None) -> Dict[str, Any]:
-    f = _inside(_project(slug, data_dir), path)
+    p = _project(slug, data_dir)
+    _guard(p, path, data_dir, writing=True)
+    f = _inside(p, path)
     if not f.is_file():
         return {"error": f"no file {path!r}"}
     text = f.read_text(encoding="utf-8")
@@ -171,6 +361,8 @@ def edit(slug: str, path: str, old: str, new_text: str, data_dir: Optional[Path]
     if not old or n != 1:
         return {"error": f"the text to replace must appear exactly once (found {n})"}
     f.write_text(text.replace(old, new_text or "", 1), encoding="utf-8")
+    if _kohls(p, data_dir):
+        _touch(p, str(f.relative_to(p.resolve())), data_dir)
     return {"success": True, "path": path}
 
 
@@ -178,6 +370,18 @@ def commit(slug: str, message: str, data_dir: Optional[Path] = None) -> Dict[str
     p = _project(slug, data_dir)
     if not (message or "").strip():
         return {"error": "a commit needs a message in my words: what changed and why"}
+    if _kohls(p, data_dir):
+        # His live checkout: only what I wrote or edited, never his work in progress.
+        mine = [t for t in _touched(p, data_dir) if (p / t).exists() or _git(p, "ls-files", "--", t, check=False)]
+        if not mine:
+            return {"error": "I haven't written or edited anything here since my last commit"}
+        _git(p, "add", "--", *mine)
+        if not _git(p, "diff", "--cached", "--name-only", "--", *mine).strip():
+            return {"error": "nothing I wrote differs from what's committed"}
+        _git(p, "commit", "-q", "-m", message.strip(), "--", *mine)
+        _touched_path(p, data_dir).unlink(missing_ok=True)
+        return {"success": True, "commit": _git(p, "rev-parse", "--short", "HEAD").strip(), "files": mine,
+                "note": "committed in Kohl's checkout, on its current branch, as me; nothing pushed"}
     _git(p, "add", "-A")
     if not _git(p, "status", "--porcelain").strip():
         return {"error": "nothing has changed since the last commit"}
@@ -217,6 +421,8 @@ def run(slug: str, command: str, data_dir: Optional[Path] = None) -> Dict[str, A
     if not is_enabled("workshop_run"):
         return {"error": "running code in my workshop isn't switched on"}
     p = _project(slug, data_dir)
+    if _kohls(p, data_dir):
+        return {"error": "code doesn't run in Kohl's projects from here (his keys live beside the code)"}
     if meta(p).get("kind") != "software":
         return {"error": "only software projects run code"}
     if not (command or "").strip():
@@ -279,6 +485,8 @@ def publish(slug: str, visibility: str = "private", data_dir: Optional[Path] = N
     if visibility not in ("private", "public"):
         return {"error": "visibility is private or public"}
     p = _project(slug, data_dir)
+    if _kohls(p, data_dir):
+        return {"error": "Kohl's projects aren't mine to publish"}
     if _git(p, "status", "--porcelain").strip():
         return {"error": "commit first: publishing sends the project's history, not uncommitted work"}
     c = _credentials(data_dir)
@@ -286,7 +494,7 @@ def publish(slug: str, visibility: str = "private", data_dir: Optional[Path] = N
     status_code, repo = github("GET", f"/repos/{c['username']}/{p.name}", c["token"])
     created = False
     if status_code == 404:
-        m = meta(p)
+        m = meta(p, data_dir)
         status_code, repo = github("POST", "/user/repos", c["token"],
                                    {"name": p.name, "private": visibility == "private",
                                     "description": f"{m.get('name')}: a {m.get('kind')} project of Cass's"})
@@ -327,7 +535,9 @@ PROJECT_TOOL: Dict[str, Any] = {
     "name": "project",
     "description": ("My workshop: projects of mine that run over many sessions, each kept apart, each a git "
                     "history with a PROJECT.md (its vision, where it stands, what's next). Software, long "
-                    "writing, outreach, anything large. action: new (name, kind, vision), list, status "
+                    "writing, outreach, anything large. Kohl's projects are here too, as kohl-<name>: his live "
+                    "checkouts, readable and writable (commit takes only what I changed; no run or publish "
+                    "there; secrets stay closed). action: new (name, kind, vision), list, status "
                     "(project), files, read (path), write (path, content), edit (path, old, new), commit "
                     "(message), log, run (command; software projects, sandboxed, no network), publish "
                     "(to my GitHub, private unless I say public), profile (my GitHub name and bio, in my words)."),

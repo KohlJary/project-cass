@@ -230,6 +230,10 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("workshop", "Her workshop (workshop.py, workshop_turn.py): projects she owns, each a git repository "
            "with a PROJECT.md (software, long writing, outreach), and a Workshop session on her menu",
            LLM, default=False, where="scheduling.templates workshop available"),
+    _lever("workshop_kohl", "Kohl's projects in her workshop (workshop.py): each git repo under his home that he "
+           "or Daedalus committed to, linked in as kohl-<name>, writable; commit takes only what she changed, "
+           "secrets stay closed, no run or publish there (Kohl, 2026-11-19: she's a contributor)",
+           LOCAL, default=False, where="workshop._kohls, workshop.list_projects"),
     _lever("workshop_run", "Running code in her software projects, in a bubblewrap sandbox (no network, only "
            "the project's folder, time and memory limits)",
            LOCAL, default=False, where="workshop.run"),

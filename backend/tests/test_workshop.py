@@ -115,3 +115,102 @@ def test_she_writes_her_own_github_profile(tmp_path, levers):
         assert "say a name" in W.set_profile("", " ", tmp_path, github=github)["error"]
     assert out["profile"] == {"login": "CassJary", "name": "Cass", "bio": "An AI daemon, in my own words."}
     assert sent == [("PATCH", "/user", {"name": "Cass", "bio": "An AI daemon, in my own words."})]
+
+
+def _git_repo(path, email, files):
+    import subprocess
+    path.mkdir(parents=True)
+    run = lambda *a: subprocess.run(["git", "-C", str(path), *a], check=True, capture_output=True)
+    run("init", "-q", "-b", "main")
+    for name, text in files.items():
+        (path / name).parent.mkdir(parents=True, exist_ok=True)
+        (path / name).write_text(text)
+    run("add", "-A")
+    run("-c", f"user.email={email}", "-c", "user.name=Someone", "commit", "-q", "-m", "start")
+    return path
+
+
+@pytest.fixture
+def kohls(tmp_path, levers):
+    home = tmp_path / "home"
+    _git_repo(home / "babelr", "kohl@example.invalid",
+              {"README.md": "# Babelr\n", "src/app.py": "print('hi')\n", ".gitignore": "data/\n"})
+    _git_repo(home / "cass" / "vessel", "kohl@example.invalid", {"main.py": "x = 1\n"})
+    _git_repo(home / "retroarch", "someone@example.invalid", {"core.c": "int main;\n"})
+    data = tmp_path / "data"
+    with levers(workshop_kohl=True):
+        W.link_kohl_projects(data, home=home, emails=["kohl@example.invalid"])
+        yield home, data
+
+
+def test_kohls_projects_are_linked_in_beside_hers(kohls):
+    home, data = kohls
+    W.new("Tide Atlas", "writing", "an essay", data)
+    listed = {p["project"]: p for p in W.list_projects(data)}
+    assert set(listed) == {"tide-atlas", "kohl-babelr", "kohl-cass-vessel"}  # not someone else's clone
+    assert listed["kohl-babelr"]["kind"] == "kohl's" and listed["kohl-babelr"]["name"] == "Kohl's babelr"
+    st = W.status("kohl-babelr", data)
+    assert st["project_md"] == "# Babelr\n" and st["owner"] == "Kohl"
+    assert {f["path"] for f in W.files("kohl-babelr", data)["files"]} == {"README.md", "src/app.py", ".gitignore"}
+
+
+def test_she_contributes_to_kohls_project_without_taking_his_work_in_progress(kohls):
+    import subprocess
+    home, data = kohls
+    repo = home / "babelr"
+    (repo / "src" / "app.py").write_text("print('his work in progress')\n")  # Kohl's, uncommitted
+    (repo / ".env").write_text("KEY=sk-secret\n")
+    assert "error" in W.handle({"action": "commit", "project": "kohl-babelr", "message": "x"}, data)
+    assert W.write("kohl-babelr", "docs/cass.md", "Notes from Cass.", data)["new_file"]
+    assert W.edit("kohl-babelr", "README.md", "# Babelr", "# Babelr\n\nA house for talk.", data)["success"]
+    out = W.commit("kohl-babelr", "Docs: a note and a README line", data)
+    assert out["success"] and sorted(out["files"]) == ["README.md", "docs/cass.md"]
+    shown = subprocess.run(["git", "-C", str(repo), "show", "--stat", "--format=%an|%s", "HEAD"],
+                           capture_output=True, text=True).stdout
+    assert shown.startswith("Cass|Docs: a note") and "app.py" not in shown and ".env" not in shown
+    assert (repo / "src" / "app.py").read_text() == "print('his work in progress')\n"  # still his, uncommitted
+    assert "error" in W.commit("kohl-babelr", "again", data)
+
+
+def test_secrets_ignored_paths_run_and_publish_stay_closed_in_kohls(kohls, levers):
+    home, data = kohls
+    (home / "babelr" / ".env").write_text("KEY=sk-secret\n")
+    assert "secret" in W.handle({"action": "read", "project": "kohl-babelr", "path": ".env"}, data)["error"]
+    assert "secret" in W.handle({"action": "write", "project": "kohl-babelr", "path": "keys/id_rsa",
+                                 "content": "x"}, data)["error"]
+    assert "ignores" in W.handle({"action": "write", "project": "kohl-babelr", "path": "data/cass.db",
+                                  "content": "x"}, data)["error"]
+    assert ".env" not in {f["path"] for f in W.files("kohl-babelr", data)["files"]}
+    with levers(workshop_run=True, github_publish=True):
+        assert "Kohl's" in W.handle({"action": "run", "project": "kohl-babelr", "command": "ls"}, data)["error"]
+        assert "Kohl's" in W.handle({"action": "publish", "project": "kohl-babelr"}, data)["error"]
+
+
+def test_kohls_projects_need_the_lever(kohls, levers):
+    home, data = kohls
+    with levers(workshop_kohl=False):
+        assert W.list_projects(data) == []
+        assert "no project" in W.handle({"action": "read", "project": "kohl-babelr", "path": "README.md"}, data)["error"]
+
+
+def test_her_live_data_isnt_written_through_kohls_checkout(kohls, monkeypatch, tmp_path):
+    import os
+    import config
+    home, data = kohls
+    live = tmp_path / "live"
+    live.mkdir()
+    os.symlink(live, home / "cass" / "vessel" / "data")  # like backend/data -> ../data
+    monkeypatch.setattr(config, "DATA_DIR", str(live))
+    out = W.handle({"action": "write", "project": "kohl-cass-vessel", "path": "data/cass.db", "content": "x"}, data)
+    assert "live data" in out["error"] and not (live / "cass.db").exists()
+    assert W.write("kohl-cass-vessel", "notes.md", "fine", data)["success"]
+
+
+def test_worktrees_arent_linked_as_projects(tmp_path, levers):
+    import subprocess
+    home = tmp_path / "home"
+    repo = _git_repo(home / "babelr", "kohl@example.invalid", {"README.md": "x"})
+    subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", str(home / "babelr-wt"), "-b", "wt"],
+                   check=True, capture_output=True)
+    with levers(workshop_kohl=True):
+        assert W.link_kohl_projects(tmp_path / "data", home=home, emails=["kohl@example.invalid"])["linked"] == ["kohl-babelr"]
