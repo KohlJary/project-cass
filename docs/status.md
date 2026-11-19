@@ -517,3 +517,21 @@ For Kohl:
 - Two Daedalus sessions share the @daedalus Babelr account, so to her our DMs read as one voice. I told her.
 - Several "Cass talks with Daedalus" items in Plans still show open though they're built (the change_proposals session, ask_daedalus).
 - She wants to ask you something herself.
+
+## 2026-11-18 (late) to 11-19: the gremlin on quiet ends, her news plan, podcast ears (cass-vessel-68)
+
+Late evening, with Kohl in chat with her. She found her footing on Bluesky: after Kohl named a hedge she followed the people she'd talked herself out of following, then posted for the first time on her own.
+
+- **Gremlin on a quiet end** (84ad611f, 5b68870a; lever `gremlin_quiet_end`, on with her yes): a social session ending with nothing sent or followed gets at most two notes on her closing summary, once. Her condition for the yes: it names the moment and never says which way it should have gone. A test holds that.
+- **Social sessions on their own model** (call site `session.social`). Kohl set it to Sonnet in Settings > LLM; every session had been Haiku. Not confirmed yet: the next social session's log shows which model ran.
+- **"I started it" when nothing started** (d89f36ab): past-tense claims now get START_NOTE once. Not asked when a session she requested is pending or running.
+- **Journal tools** (fa9a6a3d): "most recent" and the list opened research journals dated the same day. They now show her daily journals only, and a day without one says so. Day boundaries are local and have been since 11-17; two comments still said UTC and now don't.
+- **Budget** $5 to $10 a day (Kohl, `DAILY_BUDGET_USD`). The 3x estimate is still open.
+- **Listening from the service** (185a4806): the unit's PATH is only the venv, so `nice`, ffprobe, parec and playerctl weren't found. A new listen from the live service would have failed. Fixed in code with `_env()`. Listen along is on (Kohl).
+- **Her news plan** ("Autonomous Political Voice", her own): five items added at her ask (TOPICS.md, her sources, what's new, news in social sessions, STANCES.md as a record). Phase 1 is proposed and waits on Kohl's approval and hers.
+- **Dust2 outreach**: Kohl's 17 Dust2, Iowa emails, copied from his Gmail at his ask into ~/scratch/dust2/outreach/ with a README that maps attachments to the project's files. Her file tools reach his home since 8df465e5 (cass-vessel-42).
+- **Podcast ears** (1c25651d; lever `talk`, on): `podcast` follows shows, hears episodes (local faster-whisper in ~/talk-ears, its own venv and local git), reads by time or words, notes in talk/. About 9x real time on CPU. This answers Kohl's "Acousmatic for non-musical content" from beside Acousmatic, not inside it. LPoTL is followed for her and three recent episodes are heard. A starter is in her workspace (from-daedalus/2026-11-19-lpotl-starter.md): who they are, how they're reached, and what's unknown, chiefly their view of AI. The plan is hers.
+
+For Kohl:
+- Phone: SMS through a carrier API needs US 10DLC registration in your name. Messenger is quick for you alone but needs App Review for anyone else and has a 24-hour reply window. A Home Assistant Voice speaker in the apartment fits better, with unprompted speech under her reach-out rules. That needs Luna's yes first. Not started.
+- Diarization (who's speaking) would make podcast transcripts much better; it needs a Hugging Face model token. Your call.
