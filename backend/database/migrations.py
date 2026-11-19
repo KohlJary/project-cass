@@ -706,6 +706,22 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 67:
         ensure_consumed_articles_kept_columns(conn)
 
+    # v67 -> v68: which of her topics an article serves, and how relevant
+    # triage judged it (news.py, plan "Autonomous Political Voice").
+    if from_version < 68:
+        ensure_rss_item_topic_columns(conn)
+
+
+def ensure_rss_item_topic_columns(conn):
+    """Idempotently add rss_items.topics_json / relevance (v68)."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(rss_items)").fetchall()}
+    if not columns:
+        return
+    if 'topics_json' not in columns:
+        conn.execute("ALTER TABLE rss_items ADD COLUMN topics_json TEXT")
+    if 'relevance' not in columns:
+        conn.execute("ALTER TABLE rss_items ADD COLUMN relevance REAL")
+
 
 def ensure_consumed_articles_kept_columns(conn):
     """Idempotently add consumed_articles.interests_json / symbols_json (v67)."""

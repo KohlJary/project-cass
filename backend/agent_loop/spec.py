@@ -109,11 +109,11 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     # My Bluesky and Tumblr, as their own track (plan "Cass on Bluesky and Tumblr", phase 5).
     ToolPack("social", "tend my Bluesky: my inbox of what came in, read my timeline and threads, "
              "search for people and posts, reply, post, keep drafts, follow people, keep what I "
-             "find, and my DMs (when they're on)",
+             "find, my DMs (when they're on), and my news by my topics and my record of stances",
              ("social_inbox", "social_inbox_mark", "social_read", "social_thread", "social_search",
               "social_reply", "social_post", "social_draft", "social_follow", "social_find",
               "social_my_posts", "social_dms", "social_dm_read", "social_dm_send",
-              "social_dm_remember", "social_pause")),
+              "social_dm_remember", "social_pause", "news")),
     # Wonderland, as myself (Kohl and Cass, 2026-11-16): answered by wonderland_turn.
     ToolPack("wonderland", "be in Wonderland: look around, move, sense, reflect, speak, "
                            "make something, talk with the beings there",

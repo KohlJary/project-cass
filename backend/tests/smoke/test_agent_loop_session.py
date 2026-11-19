@@ -505,3 +505,30 @@ def test_gremlin_looks_once_at_a_quiet_social_end(app, fake_llm, levers, monkeyp
     assert result.success, result.message
     texts = [json.dumps(m) for c in fake_llm.calls for m in c.messages]
     assert any("[GREMLIN] you wanted to follow them" in t for t in texts)
+
+
+def test_news_opens_her_social_session_and_answers_by_topic(app, fake_llm, levers, monkeypatch, tmp_path):
+    """news (her news by her topics, lever news): her social session opens with what's
+    new in her topics beside her inbox, and the news tool answers in it."""
+    import json
+    import news
+    from rss import ParsedFeedItem, RSSFeed, save_feed, store_new_items
+    from rss.persistence import items_for_reading, set_item_triage
+    from scheduler.actions import get_action_registry
+    from social import config as social_config
+    monkeypatch.setattr(social_config, "availability", lambda platform, data_dir=None: None)
+    monkeypatch.setattr(news, "_state_path", lambda: tmp_path / "news" / "state.json")
+    save_feed(RSSFeed(id="smoke-feed", daemon_id=news._daemon_id(), url="https://thinker.invalid/feed",
+                      title="The Thinker", category="Labor"))
+    store_new_items("smoke-feed", [ParsedFeedItem(guid="1", title="Warehouse strike wins a contract",
+                                                  link="https://thinker.invalid/1", summary="It held.")])
+    set_item_triage(items_for_reading(news._daemon_id())[0]["id"], ["Labor"], 0.9)
+    fake_llm.queue_tool_use("use_tool", {"name": "news", "input": {"action": "new"}})
+    fake_llm.queue_tool_use("session_complete", {"summary": "Read the strike news."})
+    with levers(agent_loop=True, bluesky=True, news=True, gremlin_quiet_end=False):
+        result = app.portal.call(lambda: get_action_registry().execute("session.social", duration_minutes=5))
+    assert result.success, result.message
+    assert "What's new in my topics" in fake_llm.calls[0].system_text
+    assert "[Labor] Warehouse strike wins a contract" in fake_llm.calls[0].system_text
+    answer = json.dumps(fake_llm.calls[1].messages[-1])
+    assert "Warehouse strike wins a contract" in answer and "by_topic" in answer

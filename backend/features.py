@@ -260,6 +260,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("talk", "Her ears for talk (talk.py): follow podcasts and hear episodes, transcribed locally "
            "(~/talk-ears, faster-whisper on CPU, one at a time, niced); she reads what was said by time",
            LOCAL, default=False, where="talk.handle, agent_loop/tools.router_catalog"),
+    _lever("news", "Her news by her topics (news.py): TOPICS.md steers RSS triage, she adds and drops "
+           "feeds, reads what's new by topic, keeps STANCES.md; a few lines open her social session",
+           LOCAL, default=False, where="news.handle, news.brief, agent_loop/tools.router_catalog"),
     _lever("listen_along", "Her ears on what Kohl's computer is playing (listen along): one song at a time, "
            "titled from his media player, ended when the track changes; a light record is kept, never the audio. "
            "Kohl's switch (it hears his system audio)", default=False, where="listening.handle"),

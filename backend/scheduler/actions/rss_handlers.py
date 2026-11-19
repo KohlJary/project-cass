@@ -24,6 +24,20 @@ def _daemon_id(context: Dict[str, Any]):
     return context.get("daemon_id") or context.get("managers", {}).get("daemon_id")
 
 
+def _keep_triage(item, result) -> None:
+    """Which of her topics an item serves, kept with it (news.py reads it)."""
+    from rss import TriageDecision
+    from rss.persistence import set_item_triage
+    if result.decision == TriageDecision.DUPLICATE or (result.reason or "").startswith(
+            ("Triage timeout", "Triage error")):
+        return  # nothing was judged
+    try:
+        set_item_triage(item.id, result.topics, result.relevance_score)
+    except Exception as e:
+        from strict import report_swallowed
+        report_swallowed(e, "rss: keeping triage topics")
+
+
 async def add_feed_action(context: Dict[str, Any]) -> ActionResult:
     """
     Subscribe to a new RSS feed.
@@ -393,6 +407,7 @@ async def triage_items_action(context: Dict[str, Any]) -> ActionResult:
             seen_hashes=seen_hashes,
             skip_llm=skip_llm,
         )
+        _keep_triage(item, triage_result)
 
         entry = {
             "id": item.id,
@@ -536,6 +551,7 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
                 seen_hashes=seen_hashes,
                 skip_llm=skip_llm_triage,
             )
+            _keep_triage(item, triage_result)
 
             if triage_result.decision == TriageDecision.SKIP:
                 mark_item_processed(item.id, skip_reason=f"triage: {triage_result.reason[:80]}")

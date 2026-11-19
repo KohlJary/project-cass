@@ -1644,6 +1644,7 @@ from letters import LETTER_TOOLS
 from self_account import HOW_I_WORK_TOOLS
 from listening import LISTENING_TOOLS  # noqa: F401  (router catalog: her ears, lever listening)
 from talk import TALK_TOOLS  # noqa: F401  (router catalog: her ears for talk, lever talk)
+from news import NEWS_TOOLS  # noqa: F401  (router catalog: her news by her topics, lever news)
 from studio import STUDIO_TOOLS  # noqa: F401  (router catalog: her studio in chat, lever studio)
 from commitments import COMMITMENT_TOOLS  # noqa: F401  (router catalog: her commitments)
 

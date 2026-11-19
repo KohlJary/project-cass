@@ -123,6 +123,8 @@ def router_catalog() -> Dict[str, Dict[str, Any]]:
             continue  # her ears: only once switched on
         if attr == "TALK_TOOLS" and not is_enabled("talk"):
             continue  # her ears for talk (podcasts): only once switched on
+        if attr == "NEWS_TOOLS" and not is_enabled("news"):
+            continue  # her news by her topics: only once switched on
         if attr == "STUDIO_TOOLS" and not is_enabled("studio"):
             continue  # her studio: only once switched on
         value = getattr(agent_client, attr)

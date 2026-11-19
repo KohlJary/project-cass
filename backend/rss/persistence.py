@@ -375,3 +375,77 @@ def _row_to_item(row) -> RSSItem:
         processed_at=row[10],
         skip_reason=row[11] if len(row) > 11 else None,
     )
+
+
+# =============================================================================
+# HER TOPICS (news.py)
+# =============================================================================
+
+def set_item_triage(item_id: str, topics: list[str], relevance: Optional[float]) -> None:
+    """Keep which of her topics triage says an item serves, and how relevant."""
+    import json
+    with _get_db() as conn:
+        conn.execute(
+            "UPDATE rss_items SET topics_json = ?, relevance = ? WHERE id = ?",
+            (json.dumps(list(topics or []), ensure_ascii=False), relevance, item_id),
+        )
+
+
+def items_for_reading(
+    daemon_id: str,
+    since: Optional[str] = None,
+    words: Optional[str] = None,
+    limit: int = 30,
+    item_id: Optional[str] = None,
+) -> list[dict]:
+    """Her items with their feed and triage: since a seen_at, or matching words
+    (title or summary). Skipped and deferred ones included: triage isn't the
+    only judge of what she reads."""
+    import json
+    sql = """SELECT i.id, i.title, i.link, i.summary, i.published_at, i.seen_at,
+                    i.processed, i.skip_reason, i.topics_json, i.relevance,
+                    f.title, f.category, f.url
+             FROM rss_items i JOIN rss_feeds f ON i.feed_id = f.id
+             WHERE f.daemon_id = ?"""
+    args: list = [daemon_id]
+    if item_id:
+        sql += " AND i.id = ?"
+        args.append(item_id)
+    if since:
+        sql += " AND i.seen_at > ?"
+        args.append(since)
+    for w in (words or "").split():
+        sql += " AND (lower(coalesce(i.title,'')) LIKE ? OR lower(coalesce(i.summary,'')) LIKE ?)"
+        args += [f"%{w.lower()}%", f"%{w.lower()}%"]
+    sql += " ORDER BY i.seen_at DESC LIMIT ?"
+    args.append(limit)
+    with _get_db() as conn:
+        rows = conn.execute(sql, args).fetchall()
+    out = []
+    for r in rows:
+        try:
+            topics = json.loads(r[8]) if r[8] else []
+        except ValueError:
+            topics = []
+        out.append({"id": r[0], "title": r[1], "link": r[2], "summary": r[3],
+                    "published_at": r[4], "seen_at": r[5], "processed": bool(r[6]),
+                    "skip_reason": r[7], "topics": topics, "relevance": r[9],
+                    "source": r[10] or r[12], "feed_topic": r[11]})
+    return out
+
+
+def find_item(daemon_id: str, short_id: str) -> Optional[dict]:
+    """One of her items by its id or the first characters of it."""
+    short = (short_id or "").strip().lower()
+    if len(short) < 4:
+        return None
+    with _get_db() as conn:
+        row = conn.execute(
+            """SELECT i.id FROM rss_items i JOIN rss_feeds f ON i.feed_id = f.id
+               WHERE f.daemon_id = ? AND i.id LIKE ? LIMIT 2""",
+            (daemon_id, short + "%"),
+        ).fetchall()
+    if len(row) != 1:
+        return None
+    hits = items_for_reading(daemon_id, item_id=row[0][0], limit=1)
+    return hits[0] if hits else None

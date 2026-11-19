@@ -113,6 +113,7 @@ from self_account import execute_self_account_tool
 from commitments import execute_commitment_tool
 from listening import execute_listening_tool
 from talk import execute_talk_tool
+from news import execute_news_tool
 from studio import execute_studio_tool
 from handlers.email import execute_email_tool
 from handlers.state_query import execute_state_query_tool
@@ -538,6 +539,7 @@ TOOL_EXECUTORS = {
     "commitments": execute_commitment_tool,
     "listening": execute_listening_tool,
     "talk": execute_talk_tool,
+    "news": execute_news_tool,
     "studio": execute_studio_tool,
 }
 

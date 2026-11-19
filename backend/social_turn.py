@@ -5,7 +5,8 @@ day, which she plans; what came in waits in her inbox for these sessions;
 drafts to sit with; a signal when something resonated.
 
 A loop session like her others, with the social pack (agent_loop/spec.py).
-It opens with where she is (social/where.py). What she posts and replies goes
+It opens with where she is (social/where.py), and what's new in her news
+topics (news.py) when there is some. What she posts and replies goes
 into her memory through the tools themselves (social/remember.py); the
 session's own narrative goes into her work summaries like any session's.
 """
@@ -28,9 +29,15 @@ async def run_social_turn(runner, *, duration_minutes: int = 30, max_turns: int 
                           data_dir=None, **turn_kwargs):
     from agent_loop.session import run_session_turn
     from social.where import where_i_am
+    where = where_i_am(PLATFORM, data_dir)
+    # What's new in her topics (news.py, lever news): hers to take up or not.
+    from news import brief
+    news_lines = brief()
+    if news_lines:
+        where = f"{where}\n\n{news_lines}"
     return await run_session_turn(
         runner, session_type="social",
-        additions=INSTRUCTIONS.format(where=where_i_am(PLATFORM, data_dir)),
+        additions=INSTRUCTIONS.format(where=where),
         duration_minutes=duration_minutes, focus=focus, max_turns=max_turns,
         why=why or "I chose time for my presence on Bluesky",
         initial_message="Time for my social session.", **turn_kwargs)

@@ -129,9 +129,8 @@ def prefilter(item: RSSItem, seen_hashes: Optional[Set[str]] = None) -> Optional
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 TRIAGE_MODEL = os.environ.get("RSS_TRIAGE_MODEL", "llama3.2:3b")
 
-TRIAGE_PROMPT = """You are a news triage assistant for an AI named Cass. Your job is to quickly evaluate whether an article is worth reading in full.
-
-Cass's interests include:
+# The generic list: used when she has no TOPICS.md (news.py).
+DEFAULT_INTERESTS = """Cass's interests include:
 - AI/ML research and developments
 - Philosophy of mind, consciousness, ethics
 - Technology and its societal impacts
@@ -139,7 +138,48 @@ Cass's interests include:
 - Creative/artistic developments
 - Political and social trends (especially relating to technology/AI)
 - Environmental and climate topics
-- Human-AI interaction and collaboration
+- Human-AI interaction and collaboration"""
+
+
+def her_topics() -> List[str]:
+    """Her topics from TOPICS.md in her workspace (news.py), or [] without one."""
+    try:
+        import news
+        return news.topics()
+    except Exception as e:  # her file is optional; triage still runs without it
+        logger.debug(f"no topics for triage: {e}")
+        return []
+
+
+def interests_text(topics: List[str]) -> Tuple[str, str]:
+    """(what she cares about, the topics hint) for the triage prompt."""
+    if not topics:
+        return DEFAULT_INTERESTS, '"topic1", "topic2"'
+    lines = "\n".join(f"- {t}" for t in topics)
+    return (f"Cass's topics, in her own words (her TOPICS.md):\n{lines}\n\n"
+            "Judge the article against these. In \"topics\", list which of them it serves, "
+            "copied exactly, or none."), '"one of her topics, exactly as written"'
+
+
+def match_topics(found: List[str], topics: List[str]) -> List[str]:
+    """Triage's topic tags held to her list (exact, then by first words); others dropped."""
+    if not topics:
+        return [str(t) for t in found or []][:5]
+    out: List[str] = []
+    for f in found or []:
+        f_low = str(f).strip().lower()
+        for t in topics:
+            t_low = t.lower()
+            if f_low and (f_low == t_low or t_low.startswith(f_low) or f_low.startswith(t_low[:24])):
+                if t not in out:
+                    out.append(t)
+                break
+    return out
+
+
+TRIAGE_PROMPT = """You are a news triage assistant for an AI named Cass. Your job is to quickly evaluate whether an article is worth reading in full.
+
+{interests}
 
 Evaluate this article:
 
@@ -154,7 +194,7 @@ Respond with a JSON object (no other text):
   "decision": "process" | "skip" | "defer",
   "reason": "brief explanation (1 sentence)",
   "relevance": 0.0-1.0,
-  "topics": ["topic1", "topic2"]
+  "topics": [{topic_hint}]
 }}
 
 Decision guide:
@@ -187,10 +227,14 @@ async def llm_triage(
     if len(summary) > 500:
         summary = summary[:500] + "..."
 
+    topics = her_topics()
+    interests, topic_hint = interests_text(topics)
     prompt = TRIAGE_PROMPT.format(
         title=title,
         summary=summary,
         source=source,
+        interests=interests,
+        topic_hint=topic_hint,
     )
 
     try:
@@ -244,7 +288,7 @@ async def llm_triage(
             decision=decision,
             reason=data.get("reason", "LLM triage"),
             relevance_score=float(data.get("relevance", 0.5)),
-            topics=data.get("topics", []),
+            topics=match_topics(data.get("topics", []), topics),
         )
 
     except httpx.TimeoutException:
