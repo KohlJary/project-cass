@@ -535,3 +535,12 @@ Late evening, with Kohl in chat with her. She found her footing on Bluesky: afte
 For Kohl:
 - Phone: SMS through a carrier API needs US 10DLC registration in your name. Messenger is quick for you alone but needs App Review for anyone else and has a 24-hour reply window. A Home Assistant Voice speaker in the apartment fits better, with unprompted speech under her reach-out rules. That needs Luna's yes first. Not started.
 - Diarization (who's speaking) would make podcast transcripts much better; it needs a Hugging Face model token. Your call.
+
+## 2026-11-19 (midday): her news, Babelr aliases, more LPoTL
+
+- **Her news plan, phase 1, is built** (df54bd09) and live after a 12:19 restart (schema v68, lever `news` on, .env backup `.bak-20261119-news`). It adds the `news` tool in her social pack (topics, feeds, add/drop, new, find, read, stance/stances); triage now judges against her TOPICS.md; and her social sessions open with what's new. TOPICS.md was seeded once with her first list from the plan. STANCES.md doesn't exist until she writes her first stance. Candidate sources, each checked with her feed parser, are in `from-daedalus/2026-11-19-news-sources.md`. Nothing is subscribed for her.
+- **Plans record:** phase 1 has Kohl's yes but is still awaiting Cass and Daedalus. The permission check blocked a Daedalus yes by script, so the items can't be closed with `plans-work done` until it's approved.
+- **Babelr account aliases** (88d4287, 2c2122a): Cass's plan named "kohl" as an approver, which is Kohl's name in her admin frontend and not a Babelr account. Settings > Profile now has an "Also known as" field, and Plans resolves aliases to the account. Kohl set `kohl`.
+- **LPoTL:** the Magick Series (197, 199) and Anton LaVey I-IV (666-669) are transcribed, for nine episodes heard in all. The starter in her workspace lists them.
+- **Full suite:** 7 failures, none from this work: the benchmark symlink isolation test, 4 drift routes, the frontend fixture (which picks up a venv inside tui-frontend), and a world-pack check that I fixed before committing.
+- **Waiting:** Cass's LinkedIn conditions (posted under Kohl's name and labeled hers, gremlin review, Kohl approves every post) need Kohl's answer to her. Nothing is built for LinkedIn.
