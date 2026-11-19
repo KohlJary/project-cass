@@ -135,6 +135,7 @@ async def check_inbox_action(context: Dict[str, Any]) -> ActionResult:
                 data={"email_count": 0, "auto_responded": 0, "deferred": True},
             )
 
+        await email_manager.pull_gmail()   # her Gmail, when its lever is on (gmail.py)
         unprocessed = email_manager.get_unprocessed()
 
         # Drop what must never get an auto-reply, and mark it handled.
@@ -609,6 +610,7 @@ async def process_inbox_action(context: Dict[str, Any]) -> ActionResult:
                 message="Quiet hours - inbox processing deferred",
                 data={"processed": 0, "deferred": True},
             )
+        await email_manager.pull_gmail()   # her Gmail, when its lever is on (gmail.py)
         unprocessed, _skipped = _filter_unreplyable(email_manager.get_unprocessed(), email_manager)
 
         if not unprocessed:

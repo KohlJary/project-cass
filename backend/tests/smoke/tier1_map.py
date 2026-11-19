@@ -373,6 +373,14 @@ LEVER_COVERAGE = {
         "note": "A workshop session with the lever on: studio help, then a render (Orphic faked) committed as a "
                 "draft with her message. Nothing starts on its own. Fast-suite: tests/test_studio.py.",
     },
+    "gmail": {
+        "depth": "none",
+        "tests": [],
+        "note": "Off by default; needs an app password Kohl places in DATA_DIR/gmail/credentials.json. Nothing "
+                "starts on its own: new mail is pulled only inside the phase-change inbox check, and sends happen "
+                "only through send_email. Unit tests (test_gmail.py) cover IMAP/SMTP with fakes and the organ path; "
+                "a real cycle needs Google.",
+    },
     "listen_along": {
         "depth": "none",
         "tests": [],

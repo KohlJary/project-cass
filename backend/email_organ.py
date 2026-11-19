@@ -4,6 +4,7 @@ Email organ for Cass - send and receive email via Mailgun/Relay.
 Enables stakeholder outreach and response monitoring, integrating with
 PeopleDex for contact matching and Goals for tracking communication.
 """
+import logging
 import os
 import re
 import uuid
@@ -14,6 +15,8 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 
 from database import get_db, json_serialize, json_deserialize
+
+logger = logging.getLogger(__name__)
 
 
 class EmailDirection(str, Enum):
@@ -361,6 +364,9 @@ class EmailManager:
         if not stakeholder_id:
             stakeholder_id = self._match_sender_to_stakeholder(to)
 
+        import gmail
+        via_gmail = gmail.enabled()
+
         # Store as queued
         email = Email(
             id=email_id,
@@ -368,7 +374,7 @@ class EmailManager:
             direction=EmailDirection.OUTBOUND.value,
             status=EmailStatus.QUEUED.value,
             message_id=None,
-            from_address=f"cass@{self._get_domain()}",
+            from_address=(gmail.address() if via_gmail else f"cass@{self._get_domain()}"),
             to_address=to,
             subject=subject,
             body_plain=body_plain,
@@ -399,6 +405,12 @@ class EmailManager:
                 email.stakeholder_id, email.conversation_id,
                 email.attachments_json, email.created_at,
             ))
+
+        # Her Gmail, when its lever is on (gmail.py; Kohl, 2026-11-18)
+        if via_gmail:
+            result = await asyncio.to_thread(gmail.send, to, subject, body_plain, body_html,
+                                             in_reply_to, reply_to, attachments)
+            return self._finish_send(email_id, result, to, subject, goal_id, stakeholder_id)
 
         # Send via relay
         if not self._relay_client:
@@ -476,6 +488,44 @@ class EmailManager:
         finally:
             self._pending_sends.pop(request_id, None)
 
+    def _finish_send(self, email_id: str, result: Dict[str, Any], to: str, subject: str,
+                     goal_id: Optional[str], stakeholder_id: Optional[str]) -> Dict[str, Any]:
+        """Record a direct (non-relay) send's outcome, as the relay path does."""
+        if not result.get("success"):
+            self._update_email_status(email_id, EmailStatus.FAILED.value)
+            return {"success": False, "email_id": email_id, "error": result.get("error")}
+        with get_db() as conn:
+            conn.execute("UPDATE emails SET status = ?, message_id = ?, sent_at = ? WHERE id = ?",
+                         (EmailStatus.SENT.value, result.get("message_id"), datetime.now().isoformat(), email_id))
+        self._emit_event("email.sent", {"email_id": email_id, "to": to, "subject": subject,
+                                        "goal_id": goal_id, "stakeholder_id": stakeholder_id})
+        return {"success": True, "email_id": email_id, "message_id": result.get("message_id")}
+
+    async def pull_gmail(self) -> int:
+        """New mail from her Gmail into the inbox, through handle_inbound. Returns how many."""
+        import gmail
+        if not gmail.enabled():
+            return 0
+        try:
+            fresh = await asyncio.to_thread(gmail.fetch_new)
+        except Exception as e:
+            logger.warning(f"[gmail] inbox check failed: {type(e).__name__}: {e}")
+            return 0
+        n = 0
+        for data in fresh:
+            mid = data.get("message_id")
+            if mid:
+                with get_db() as conn:
+                    seen = conn.execute("SELECT 1 FROM emails WHERE daemon_id = ? AND message_id = ? LIMIT 1",
+                                        (self._daemon_id, mid)).fetchone()
+                if seen:
+                    continue
+            await self.handle_inbound(data)
+            n += 1
+        if n:
+            logger.info(f"[gmail] {n} new email(s)")
+        return n
+
     def _update_email_status(self, email_id: str, status: str) -> None:
         """Update email status in database."""
         with get_db() as conn:
@@ -534,6 +584,12 @@ class EmailManager:
     def own_addresses(self) -> set:
         """Addresses Cass sends from (her own outbound mail)."""
         addresses = {f"cass@{self._get_domain()}".lower()}
+        try:
+            import gmail
+            if gmail.address():
+                addresses.add(gmail.address())
+        except Exception:
+            pass
         with get_db() as conn:
             for row in conn.execute(
                 "SELECT DISTINCT from_address FROM emails WHERE daemon_id = ? AND direction = 'outbound'",

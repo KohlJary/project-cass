@@ -253,6 +253,10 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "music library in the background, keeps each listening record, and lets her read them and look "
            "at their pictures (listening.py)",
            default=False, where="listening.handle"),
+    _lever("gmail", "Her Gmail (cassandrajary@gmail.com) as a mailbox for the email organ: new mail pulled over "
+           "IMAP at each inbox check, and everything she sends goes out over Gmail's SMTP, first contact included "
+           "(Kohl's call). Needs DATA_DIR/gmail/credentials.json (an app password Kohl places)",
+           INTEGRATION, default=False, where="gmail.py, email_organ.send_email/pull_gmail"),
     _lever("listen_along", "Her ears on what Kohl's computer is playing (listen along): one song at a time, "
            "titled from his media player, ended when the track changes; a light record is kept, never the audio. "
            "Kohl's switch (it hears his system audio)", default=False, where="listening.handle"),
