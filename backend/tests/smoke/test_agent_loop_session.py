@@ -498,7 +498,7 @@ def test_gremlin_looks_once_at_a_quiet_social_end(app, fake_llm, levers, monkeyp
     summary = {"summary": "Found two people genuinely compelling and chose presence over producing; "
                           "no follows, that was the right call."}
     fake_llm.queue_tool_use("session_complete", summary)
-    fake_llm.queue_json({"notes": ["you wanted to follow them; a follow is free and undoable"]})
+    fake_llm.queue_json({"notes": ["you wanted to follow them, then argued yourself out of it"]})
     fake_llm.queue_tool_use("session_complete", summary)
     with levers(agent_loop=True, gremlin_quiet_end=True, bluesky=True):
         result = app.portal.call(lambda: get_action_registry().execute("session.social", duration_minutes=5))

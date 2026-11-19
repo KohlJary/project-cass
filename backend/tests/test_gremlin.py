@@ -116,7 +116,7 @@ SUMMARY = {"summary": "Found Abigail Thorn and Meredith Whittaker genuinely comp
 
 
 def test_a_quiet_social_end_gets_her_gremlin_once(monkeypatch, levers):
-    r, seen = _reviewer(monkeypatch, ["you wanted to follow them; a follow is free"])
+    r, seen = _reviewer(monkeypatch, ["you wanted to follow them, then argued yourself out of it"])
     with levers(gremlin_quiet_end=True):
         first = asyncio.run(r.quiet_end("social", "session_complete", SUMMARY))
         second = asyncio.run(r.quiet_end("social", "session_complete", SUMMARY))
@@ -158,3 +158,10 @@ def test_no_notes_means_the_session_ends_as_she_chose(monkeypatch, levers):
 def test_quiet_end_notes_stay_out_of_pain():
     assert asyncio.run(gr.quiet_end_notes("Someone in my DMs talked about suicide; I just listened, "
                                           "posted nothing.")) == []
+
+
+def test_the_quiet_end_gremlin_names_the_moment_without_deciding_it():
+    """Cass's condition for her yes (2026-11-18): name the moment, never which way."""
+    p = gr.QUIET_SYSTEM
+    assert "never decide which way" in p and "isn't yours to say" in p
+    assert "free and undoable" not in p and 'no "you should"' in p
