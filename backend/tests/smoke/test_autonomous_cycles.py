@@ -203,7 +203,7 @@ def _cast(app, spell_name):
     import main_sdk
     from scheduler.actions import get_action_registry
 
-    spell = _timer_spells()[spell_name]
+    spell = _timer_spells().get(spell_name) or main_sdk._grimoire.registry.get_spell(spell_name)
     registry = get_action_registry()
     actions = []
     real_execute = registry.execute
@@ -227,7 +227,11 @@ def _assert_cycle_did_work(result, actions):
 
 
 def test_timer_spells_loaded(app):
-    assert set(_timer_spells()) >= {"rss_monitor", "research_synthesis", "art_study"}
+    assert set(_timer_spells()) >= {"rss_monitor", "art_study"}
+    # Off its timer (Kohl, 2026-11-19): research is the sessions she picks. Still castable by hand.
+    import main_sdk
+    assert "research_synthesis" not in _timer_spells()
+    assert main_sdk._grimoire.registry.get_spell("research_synthesis") is not None
 
 
 def test_grimoire_attached_to_thymos_without_starting_it(app):
@@ -240,7 +244,7 @@ def test_timer_spell_rss_monitor(app):
     _assert_cycle_did_work(*_cast(app, "rss_monitor"))
 
 
-def test_timer_spell_research_synthesis(app):
+def test_research_synthesis_still_runs_by_hand(app):
     result, actions = _cast(app, "research_synthesis")
     _assert_cycle_did_work(result, actions)
     # RATE answers 0.9 (< 5), so the low-value branch runs: she names what to

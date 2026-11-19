@@ -5,7 +5,10 @@ UNIT research_synthesis
     TAGS research, synthesis, reflection, knowledge, complex
     SCOPE THYMOS, EXTERNAL, MEMORY
 
-ON TIMER EVERY 240
+' Off its timer (Kohl, 2026-11-19): it ran every four hours on its own, and a grimoire
+' model wrote the reflection and observations, not her (rated 0.8/10 twice on 11-18).
+' Research is the sessions she picks, where her gremlin is. Put the line back to restore:
+' ON TIMER EVERY 240
 ON MANUAL "Research Synthesis"
 
 ' =============================================================================

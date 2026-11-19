@@ -99,7 +99,7 @@ LEVER_COVERAGE = {
         "depth": "runs",
         "tests": [f"{CYCLES}::test_timer_spells_loaded",
                   f"{CYCLES}::test_timer_spell_rss_monitor",
-                  f"{CYCLES}::test_timer_spell_research_synthesis",
+                  f"{CYCLES}::test_research_synthesis_still_runs_by_hand",
                   f"{CYCLES}::test_timer_spell_art_study",
                   f"{CYCLES}::test_timer_spell_goal_executor"],
         "note": "Each spell is cast once by hand (what its timer would do); the on_tick trigger is not run. The spells run, but most of the actions they call run on empty input (see rss, research, art_study).",
@@ -121,7 +121,7 @@ LEVER_COVERAGE = {
     "autonomous_scheduling": {
         "depth": "partial",
         "tests": [f"{CYCLES}::test_timer_spell_rss_monitor",
-                  f"{CYCLES}::test_timer_spell_research_synthesis",
+                  f"{CYCLES}::test_research_synthesis_still_runs_by_hand",
                   f"{CYCLES}::test_timer_spell_art_study",
                   f"{CYCLES}::test_timer_spell_goal_executor",
                   f"{CYCLES}::test_need_spell_social_care_outreach",
@@ -164,7 +164,7 @@ LEVER_COVERAGE = {
     },
     "research": {
         "depth": "partial",
-        "tests": [f"{CYCLES}::test_timer_spell_research_synthesis",
+        "tests": [f"{CYCLES}::test_research_synthesis_still_runs_by_hand",
                   f"{CYCLES}::test_timer_spell_goal_executor"],
         "note": "research.run_batch completes 0 tasks and research.run_single finds the queue empty; only the RATE / set_research_focus branch does work.",
     },
