@@ -59,8 +59,9 @@ def test_old_loops_stand_down_for_heartbeat(app):
     # Grimoire: spells are Heartbeat work; the tick hook no longer runs them.
     assert wiring.owns("grimoire_spells") and app.thymos.spells_on_heartbeat
     spells = {n for n in names if n.startswith("spell.")}
-    assert {"spell.goal_executor", "spell.research_synthesis",
+    assert {"spell.goal_executor", "spell.art_study",
             "spell.cognitive_rest"} <= spells
+    assert "spell.research_synthesis" not in spells   # off its timer (2026-11-19)
 
     # Day phases: Heartbeat checks; the tracker has no loop of its own.
     assert wiring.owns("day_phase") and "day_phase" in names
