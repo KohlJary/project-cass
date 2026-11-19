@@ -261,6 +261,10 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "IMAP at each inbox check, and everything she sends goes out over Gmail's SMTP, first contact included "
            "(Kohl's call). Needs DATA_DIR/gmail/credentials.json (an app password Kohl places)",
            INTEGRATION, default=False, where="gmail.py, email_organ.send_email/pull_gmail"),
+    _lever("gpu_broker", "The house GPU broker (gpu-broker on :8095): music (ACE-Step) and image (ComfyUI) "
+           "work asks it for a session instead of freeing memory itself; it stops the LLM, starts and stops "
+           "ACE-Step, and hands the card back. Needs GPU_BROKER_TOKEN; off, the old coordinator path runs",
+           INTEGRATION, default=False, where="gpu_coordinator.GPUContext, gpu_broker_client.broker_session"),
     _lever("talk", "Her ears for talk (talk.py): follow podcasts and hear episodes, transcribed locally "
            "(~/talk-ears, faster-whisper on CPU, one at a time, niced); she reads what was said by time",
            LOCAL, default=False, where="talk.handle, agent_loop/tools.router_catalog"),

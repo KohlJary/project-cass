@@ -54,6 +54,13 @@ SERVICE_MEMORY_REQUIREMENTS = {
 # Lock file for coordination
 LOCK_FILE = Path("/tmp/cass-gpu-coordinator.lock")
 
+# With the gpu_broker lever on, these go through the house GPU broker (gpu_broker_client.py) as
+# sessions on its catalog keys; the broker stops the LLM, frees ComfyUI and starts/stops ACE-Step.
+BROKER_MODELS = {
+    GPUService.ACESTEP: "acestep",
+    GPUService.COMFYUI: "comfyui",
+}
+
 
 class GPUCoordinator:
     """
@@ -378,8 +385,20 @@ class GPUCoordinator:
             self.required_mb = required_mb
             self.max_wait = max_wait
             self.acquired = False
+            self._broker_cm = None
 
         async def __aenter__(self):
+            from gpu_broker_client import broker_session, enabled as broker_enabled
+            model = BROKER_MODELS.get(self.service)
+            if model and broker_enabled():
+                self._broker_cm = broker_session(model, max_wait=self.max_wait)
+                try:
+                    await self._broker_cm.__aenter__()
+                except Exception as e:
+                    self._broker_cm = None
+                    raise TimeoutError(f"GPU broker: {e}") from e
+                return self
+
             # Wait for lock (another heavy GPU operation might be running)
             start = time.time()
             while time.time() - start < self.max_wait:
@@ -400,6 +419,10 @@ class GPUCoordinator:
             return self
 
         async def __aexit__(self, _exc_type, _exc_val, _exc_tb):
+            if self._broker_cm is not None:
+                await self._broker_cm.__aexit__(_exc_type, _exc_val, _exc_tb)
+                self._broker_cm = None
+                return False
             if self.acquired:
                 self.coordinator._release_lock()
             return False

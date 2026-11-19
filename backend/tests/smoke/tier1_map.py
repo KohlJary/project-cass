@@ -386,6 +386,14 @@ LEVER_COVERAGE = {
                 "only through send_email. Unit tests (test_gmail.py) cover IMAP/SMTP with fakes and the organ path; "
                 "a real cycle needs Google.",
     },
+    "gpu_broker": {
+        "depth": "none",
+        "tests": [],
+        "note": "Off by default; needs the gpu-broker service and GPU_BROKER_TOKEN. Nothing starts on its own: it "
+                "only changes how music and image generation get the card. Unit tests (test_gpu_broker_client.py) "
+                "cover the session wait, failure and give-back with a fake broker; a real cycle was run on the "
+                "house card (KohlJary/gpu-broker, feat/generic-sessions).",
+    },
     "news": {
         "depth": "gate",
         "tests": ["tests/smoke/test_agent_loop_session.py::test_news_opens_her_social_session_and_answers_by_topic"],
