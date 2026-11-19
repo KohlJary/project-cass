@@ -538,9 +538,11 @@ PROJECT_TOOL: Dict[str, Any] = {
     "name": "project",
     "description": ("My workshop: projects of mine that run over many sessions, each kept apart, each a git "
                     "history with a PROJECT.md (its vision, where it stands, what's next). Software, long "
-                    "writing, outreach, anything large. Kohl's projects are here too, as kohl-<name>: his live "
+                    "writing, outreach, anything large. Kohl's projects are here too, as kohl-<name>: Kohl's live "
                     "checkouts, readable and writable (commit takes only what I changed; no run or publish "
-                    "there; secrets stay closed). action: new (name, kind, vision), list, status "
+                    "there; secrets stay closed). Some of Kohl's are private and house-only (robokohl, kannon, "
+                    "chapter-house, hearthweave-app, and any without a GitHub remote): nothing from those goes "
+                    "out in public. action: new (name, kind, vision), list, status "
                     "(project), files, read (path), write (path, content), edit (path, old, new), commit "
                     "(message), log, run (command; software projects, sandboxed, no network), publish "
                     "(to my GitHub, private unless I say public), profile (my GitHub name and bio, in my words)."),

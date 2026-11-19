@@ -1095,3 +1095,18 @@ def test_project_tool_in_private_chat_only(monkeypatch):
     assert workshop_tools({"scope": "public"}) == {}         # a room or Discord: not there
     monkeypatch.setattr(features, "is_enabled", lambda name: False)
     assert workshop_tools({"scope": "private"}) == {}        # workshop lever off
+
+
+def test_every_session_offers_her_projects_when_the_workshop_is_on(session_env, levers):
+    # Kohl, 2026-11-19: she has to be able to explain his projects from any session
+    # (a researcher on Bluesky asks about Wonderland), not only from her workshop.
+    from agent_loop.session import run_session_turn
+    runner, managers, fake = session_env
+    runner.set_managers(managers)
+    for on in (True, False):
+        fake.calls.clear()
+        fake.queue_tool_use("session_complete", {"summary": "Short."})
+        with levers(workshop=on):
+            asyncio.run(run_session_turn(runner, session_type="reflection", max_turns=2,
+                                         run_router=lambda n, i: None, catalog={}))
+        assert ("project" in fake.calls[0].tool_names) is on

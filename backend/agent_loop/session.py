@@ -319,6 +319,12 @@ async def run_session_turn(
                        "answer_them": (fold_mod.ANSWER_TOOL,
                                        lambda a: fold_mod.DESK.answer(str(a.get("id") or ""),
                                                                       str(a.get("text") or "")))}
+    # Her projects, and Kohl's linked ones, in every session (Kohl, 2026-11-19: she has to be
+    # able to explain Wonderland to a researcher on Bluesky; the tool was only in workshop
+    # sessions and private chat). A session that brings its own (the workshop) keeps it.
+    if "project" not in (local_tools or {}):
+        from .conversation import workshop_tools
+        local_tools = {**(local_tools or {}), **workshop_tools({"scope": "private"})}
     from .spec import LOOP_MIN_STEPS, MAKING_SESSIONS
     steps = max(max_turns, LOOP_MIN_STEPS)
     if session_type in MAKING_SESSIONS:
@@ -344,6 +350,8 @@ async def run_session_turn(
                   or n in (local_tools or {})]
     if folding:
         tool_names.append("answer_them")
+    if "project" in (local_tools or {}) and "project" not in tool_names:
+        tool_names.append("project")   # every session (above), not only the workshop's pack
     if origin and RB.TOOL in (local_tools or {}):
         tool_names.append(RB.TOOL)   # no pack lists it: it exists only when there's somewhere to reply
     tools = tool_definitions(tool_names, catalog,
