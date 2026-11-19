@@ -1080,3 +1080,18 @@ def test_blog_tools_in_chat_when_available(monkeypatch):
     got = blog_tools()
     assert set(got) == {"blog_list", "blog_read", "blog_keep"}
     assert all(d["name"] == n for n, (d, _) in got.items())
+
+
+# Her projects in chat (2026-11-19: she couldn't see the code in Kohl's linked projects;
+# the project tool was only in her workshop sessions)
+
+def test_project_tool_in_private_chat_only(monkeypatch):
+    import features
+    from agent_loop.conversation import workshop_tools
+    monkeypatch.setattr(features, "is_enabled", lambda name: name == "workshop")
+    got = workshop_tools({"scope": "private"})
+    assert set(got) == {"project"} and got["project"][0]["name"] == "project"
+    assert workshop_tools({}) .keys() == {"project"}          # private is the default
+    assert workshop_tools({"scope": "public"}) == {}         # a room or Discord: not there
+    monkeypatch.setattr(features, "is_enabled", lambda name: False)
+    assert workshop_tools({"scope": "private"}) == {}        # workshop lever off

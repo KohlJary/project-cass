@@ -69,6 +69,24 @@ def blog_tools() -> Dict[str, Any]:
         return {}
 
 
+def workshop_tools(person: Dict[str, Any]) -> Dict[str, Any]:
+    """Her `project` tool in a private chat, the same one her workshop sessions have: her
+    projects and Kohl's linked ones, with the same guards (Kohl, 2026-11-19: she said she
+    couldn't see the code in his projects; the tool was only in workshop sessions). Not in
+    public chat (a Babelr room, Discord), where what she reads could end up in front of others."""
+    if (person.get("scope") or "private") == "public":
+        return {}
+    try:
+        import features
+        if not features.is_enabled("workshop"):
+            return {}
+        import workshop as W
+        return {"project": (W.PROJECT_TOOL, lambda a: W.handle(a))}
+    except Exception as e:
+        logger.warning(f"[agent_loop] workshop tools for chat: {e}")
+        return {}
+
+
 def on_the_loop(channel: Optional[str]) -> bool:
     """Whether a chat turn in this channel runs on the loop."""
     import features
@@ -274,9 +292,11 @@ async def run_conversation(
         tool_names.append("start_session")
     blog = blog_tools()    # Kohl's blog, here too (Kohl, 2026-11-18: she said she couldn't see it)
     tool_names.extend(blog)
+    projects = workshop_tools(person)
+    tool_names.extend(projects)
     tools = tool_definitions(tool_names, catalog, strict=False,
                              extra=[hold_tool(lines)] + ([starter[0]] if starter else [])
-                             + [d for d, _ in blog.values()])
+                             + [d for d, _ in blog.values()] + [d for d, _ in projects.values()])
 
     who = person.get("user_name") or "someone"
     where = CHANNEL_WORDS.get(channel or "", channel or "a conversation")
@@ -310,7 +330,8 @@ async def run_conversation(
         local={**{n: (lambda a, n=n: workspace.run(n, a, turn_id)) for n in WORKSPACE_TOOL_NAMES},
                "hold_reply": lambda a: check(a, lines),
                **({"start_session": starter[1]} if starter else {}),
-               **{n: h for n, (_, h) in blog.items()}})
+               **{n: h for n, (_, h) in blog.items()},
+               **{n: h for n, (_, h) in projects.items()}})
 
     def _session_live() -> bool:
         from .wakes import live_now
