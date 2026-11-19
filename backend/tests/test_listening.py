@@ -199,3 +199,16 @@ def test_listening_along_is_kohls_switch_and_keeps_light_records(tmp_path, monke
     h = L.heard()
     assert h["heard_live"][0]["title"] == "Back on the Rocks" and h["listening_now"] is False
     assert "Heard live" in L.heard("20261118-210000")["record"]
+
+
+def test_subprocesses_get_a_usable_path_and_session(monkeypatch):
+    """2026-11-19: the service's PATH was only its venv, so nice/ffprobe/parec/playerctl
+    weren't found and live capture had no audio session."""
+    import listening
+    monkeypatch.setenv("PATH", "/some/venv/bin")
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    env = listening._env()
+    assert env["PATH"].startswith("/some/venv/bin") and "/usr/bin" in env["PATH"].split(":")
+    import os
+    if os.path.isdir(f"/run/user/{os.getuid()}"):
+        assert env["XDG_RUNTIME_DIR"] == f"/run/user/{os.getuid()}"

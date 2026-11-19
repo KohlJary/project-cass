@@ -88,6 +88,25 @@ def enabled() -> bool:
     return is_enabled(LEVER)
 
 
+def _env() -> Dict[str, str]:
+    """The environment for Acousmatic, ffprobe and the live capture. The vessel runs as
+    a system service whose PATH is only its venv and which has no desktop session, so
+    nice, ffprobe, parec and playerctl weren't found and live capture couldn't reach
+    Kohl's audio or media player (found 2026-11-19). Adds, never replaces."""
+    env = dict(os.environ)
+    parts = [p for p in env.get("PATH", "").split(":") if p]
+    for extra in ("/usr/local/bin", "/usr/bin", "/bin"):
+        if extra not in parts:
+            parts.append(extra)
+    env["PATH"] = ":".join(parts)
+    run = f"/run/user/{os.getuid()}"
+    if os.path.isdir(run):
+        env.setdefault("XDG_RUNTIME_DIR", run)
+        if os.path.exists(f"{run}/bus"):
+            env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={run}/bus")
+    return env
+
+
 def _root() -> Path:
     from config import DATA_DIR
     return Path(DATA_DIR) / "listening"
@@ -104,7 +123,7 @@ def _tags(path: Path) -> Dict[str, str]:
     try:
         out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
                               "format_tags=title,artist,album,album_artist,track,date:format=duration",
-                              "-of", "json", str(path)], capture_output=True, text=True, timeout=20).stdout
+                              "-of", "json", str(path)], capture_output=True, text=True, timeout=20, env=_env()).stdout
         d = json.loads(out).get("format", {})
         t = {k.lower(): v for k, v in (d.get("tags") or {}).items()}
         t["duration"] = d.get("duration")
@@ -278,7 +297,7 @@ def _run(t: Dict[str, Any]) -> Dict[str, Any]:
     tmp = d.with_name(d.name + ".partial")
     tmp.parent.mkdir(parents=True, exist_ok=True)
     cmd = ["nice", "-n", "10", ACOUSMATIC, "listen", str(MUSIC_DIR / t["id"]), "-o", str(tmp)]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=LISTEN_TIMEOUT)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=LISTEN_TIMEOUT, env=_env())
     if r.returncode != 0 or not (tmp / "record.md").exists():
         raise RuntimeError((r.stderr or "")[-600:] or f"exit {r.returncode}")
     if d.exists():
@@ -501,7 +520,8 @@ def along() -> Dict[str, Any]:
 
         def run():
             r = subprocess.run(["nice", "-n", "5", ACOUSMATIC, "live", "--follow-player", "--max", str(ALONG_MAX_S),
-                                "-o", str(d)], capture_output=True, text=True, timeout=ALONG_MAX_S + 120)
+                                "-o", str(d)], capture_output=True, text=True, timeout=ALONG_MAX_S + 120,
+                               env=_env())
             if not (d / "live.json").exists():
                 raise RuntimeError((r.stderr or "")[-300:] or "nothing was heard")
             return {"heard": d.name}
