@@ -72,7 +72,14 @@ def allowed_roots() -> List[Path]:
     roots = [Path(DATA_DIR), REPO_ROOT]
     roots.extend(_project_roots())
     extra = os.getenv("CASS_FILE_ROOTS", "")
-    roots.extend(Path(os.path.expanduser(p)) for p in extra.split(os.pathsep) if p.strip())
+    named = [Path(os.path.expanduser(p)) for p in extra.split(os.pathsep) if p.strip()]
+    roots.extend(named)
+    named_resolved = set()
+    for p in named:
+        try:
+            named_resolved.add(p.resolve())
+        except Exception:
+            pass
 
     resolved = []
     for root in roots:
@@ -80,8 +87,10 @@ def allowed_roots() -> List[Path]:
             r = root.resolve()
         except Exception:
             continue
-        # A root of "/" (or the home dir itself) would allow everything.
-        if r == Path(r.anchor) or r == Path.home().resolve():
+        # A root of "/" would allow everything. The home dir is allowed only when it's
+        # named in CASS_FILE_ROOTS on purpose (Kohl, 2026-11-18: "can we just give her
+        # full access to my filesystem"), never by a project whose folder happens to be it.
+        if r == Path(r.anchor) or (r == Path.home().resolve() and r not in named_resolved):
             continue
         if r not in resolved:
             resolved.append(r)

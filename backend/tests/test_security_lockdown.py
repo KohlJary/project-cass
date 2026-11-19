@@ -480,3 +480,33 @@ class TestTokensAndDemo:
         assert client.get("/files/list", params={"path": "/"}, headers=headers).status_code == 403
         assert client.post("/terminal/send/daedalus-x", headers=headers).status_code == 403
         assert client.post("/testing/rollback/execute", headers=headers).status_code == 403
+
+
+# Kohl, 2026-11-18: her file tools may read his whole home when he names it on purpose.
+
+def test_home_root_only_when_named(monkeypatch, tmp_path):
+    from pathlib import Path
+    import path_policy
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(path_policy, "_project_roots", lambda: [tmp_path, Path("/")])
+    monkeypatch.delenv("CASS_FILE_ROOTS", raising=False)
+    assert tmp_path.resolve() not in path_policy.allowed_roots()      # a project at home isn't enough
+    monkeypatch.setenv("CASS_FILE_ROOTS", str(tmp_path))
+    roots = path_policy.allowed_roots()
+    assert tmp_path.resolve() in roots and Path("/") not in roots     # named on purpose: yes; "/" never
+
+
+def test_named_home_still_refuses_secrets(monkeypatch, tmp_path):
+    from pathlib import Path
+    import pytest
+    import path_policy
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "plan.md").write_text("x")
+    (tmp_path / ".ssh").mkdir()
+    (tmp_path / ".ssh" / "id_ed25519").write_text("k")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(path_policy, "_project_roots", lambda: [])
+    monkeypatch.setenv("CASS_FILE_ROOTS", str(tmp_path))
+    assert path_policy.check_path(str(tmp_path / "notes" / "plan.md"))
+    with pytest.raises(path_policy.PathNotAllowed):
+        path_policy.check_path(str(tmp_path / ".ssh" / "id_ed25519"))
