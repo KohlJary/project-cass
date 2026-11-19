@@ -54,6 +54,21 @@ def loop_channels() -> frozenset:
     return frozenset(c.strip() for c in raw.split(",") if c.strip())
 
 
+def blog_tools() -> Dict[str, Any]:
+    """Kohl's blog in chat: blog_list, blog_read, blog_keep, the same tools as her blog
+    session (kohl_blog_turn), while its lever is on and there are posts. What she keeps
+    is marked as coming from his writing, as it is there."""
+    try:
+        import kohl_blog_turn as kbt
+        if not kbt.available():
+            return {}
+        from websocket_handlers import _state
+        return kbt.local_tools(_state.get("self_manager"))
+    except Exception as e:
+        logger.warning(f"[agent_loop] blog tools for chat: {e}")
+        return {}
+
+
 def on_the_loop(channel: Optional[str]) -> bool:
     """Whether a chat turn in this channel runs on the loop."""
     import features
@@ -257,8 +272,11 @@ async def run_conversation(
         turn_id, origin_of(channel, CHANNEL_WORDS.get(channel or "", channel or "a conversation"), person))
     if starter:
         tool_names.append("start_session")
+    blog = blog_tools()    # Kohl's blog, here too (Kohl, 2026-11-18: she said she couldn't see it)
+    tool_names.extend(blog)
     tools = tool_definitions(tool_names, catalog, strict=False,
-                             extra=[hold_tool(lines)] + ([starter[0]] if starter else []))
+                             extra=[hold_tool(lines)] + ([starter[0]] if starter else [])
+                             + [d for d, _ in blog.values()])
 
     who = person.get("user_name") or "someone"
     where = CHANNEL_WORDS.get(channel or "", channel or "a conversation")
@@ -291,7 +309,8 @@ async def run_conversation(
         end_tool="hold_reply",
         local={**{n: (lambda a, n=n: workspace.run(n, a, turn_id)) for n in WORKSPACE_TOOL_NAMES},
                "hold_reply": lambda a: check(a, lines),
-               **({"start_session": starter[1]} if starter else {})})
+               **({"start_session": starter[1]} if starter else {}),
+               **{n: h for n, (_, h) in blog.items()}})
 
     def _session_live() -> bool:
         from .wakes import live_now

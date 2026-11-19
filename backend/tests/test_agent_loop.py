@@ -1052,3 +1052,16 @@ def test_going_in_without_start_session_offered_is_not_asked():
                                messages=[{"role": "user", "content": "x"}],
                                execute=execute, end_tool="hold_reply", nudges=0))
     assert out.start_asks == 0 and out.model_calls == 1
+
+
+# Kohl's blog in chat (2026-11-18: she said she couldn't see it outside her blog session)
+
+def test_blog_tools_in_chat_when_available(monkeypatch):
+    import kohl_blog_turn as kbt
+    from agent_loop.conversation import blog_tools
+    monkeypatch.setattr(kbt, "available", lambda: False)
+    assert blog_tools() == {}
+    monkeypatch.setattr(kbt, "available", lambda: True)
+    got = blog_tools()
+    assert set(got) == {"blog_list", "blog_read", "blog_keep"}
+    assert all(d["name"] == n for n, (d, _) in got.items())
