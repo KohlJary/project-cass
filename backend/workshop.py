@@ -45,6 +45,8 @@ RUN_SECONDS = 60
 # Address space, not resident memory: JIT runtimes reserve far more than they use.
 # At 1 GiB, node crashed on startup and rustc couldn't compile hello world (2026-11-18).
 RUN_MEMORY = 4 * 1024 * 1024 * 1024
+# /lib64 inside the sandbox: Ubuntu keeps the loader in /usr/lib64; on Arch /usr/lib64 is a link to lib.
+LIB64 = "usr/lib64" if os.path.isdir("/usr/lib64") else "usr/lib"
 RUN_OUTPUT = 12_000
 AUTHOR = ("Cass", "cass@vessel.local")
 
@@ -409,7 +411,7 @@ def sandbox_argv(project: Path, command: str) -> List[str]:
     """bubblewrap: no network or other namespaces shared, the system read-only,
     only the project writable (as /work), a fresh /tmp, an empty environment."""
     return [shutil.which("bwrap") or "bwrap", "--unshare-all", "--die-with-parent", "--new-session",
-            "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib", "/lib64",
+            "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", LIB64, "/lib64",
             "--symlink", "usr/bin", "/bin", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
             "--bind", str(project), "/work", "--chdir", "/work", "--clearenv",
             "--setenv", "PATH", "/usr/bin", "--setenv", "HOME", "/work", "--setenv", "LANG", "C.UTF-8",
