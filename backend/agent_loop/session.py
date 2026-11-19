@@ -325,6 +325,8 @@ async def run_session_turn(
     if "project" not in (local_tools or {}):
         from .conversation import workshop_tools
         local_tools = {**(local_tools or {}), **workshop_tools({"scope": "private"})}
+    from house_wiki import wiki_tools   # what we're building, in every session (plan the-house-wiki)
+    local_tools = {**wiki_tools(), **(local_tools or {})}
     from .spec import LOOP_MIN_STEPS, MAKING_SESSIONS
     steps = max(max_turns, LOOP_MIN_STEPS)
     if session_type in MAKING_SESSIONS:
@@ -350,8 +352,9 @@ async def run_session_turn(
                   or n in (local_tools or {})]
     if folding:
         tool_names.append("answer_them")
-    if "project" in (local_tools or {}) and "project" not in tool_names:
-        tool_names.append("project")   # every session (above), not only the workshop's pack
+    for every in ("project", "house_wiki"):   # every session (above), not only one pack
+        if every in (local_tools or {}) and every not in tool_names:
+            tool_names.append(every)
     if origin and RB.TOOL in (local_tools or {}):
         tool_names.append(RB.TOOL)   # no pack lists it: it exists only when there's somewhere to reply
     tools = tool_definitions(tool_names, catalog,

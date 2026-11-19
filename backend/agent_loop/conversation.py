@@ -293,6 +293,8 @@ async def run_conversation(
     blog = blog_tools()    # Kohl's blog, here too (Kohl, 2026-11-18: she said she couldn't see it)
     tool_names.extend(blog)
     projects = workshop_tools(person)
+    from house_wiki import wiki_tools   # what we're building (plan the-house-wiki, phase 2)
+    projects.update(wiki_tools())
     tool_names.extend(projects)
     tools = tool_definitions(tool_names, catalog, strict=False,
                              extra=[hold_tool(lines)] + ([starter[0]] if starter else [])

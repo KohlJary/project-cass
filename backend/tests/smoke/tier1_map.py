@@ -343,6 +343,11 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Nothing starts on its own; her project tool's publish calls it. Fast-suite: tests/test_workshop.py (GitHub and git push faked).",
     },
+    "house_wiki": {
+        "depth": "none",
+        "tests": [],
+        "note": "Nothing starts on its own; a read-only tool over house-presence's mirror of Chapter House's wiki, offered in chat and sessions. Fast-suite: tests/test_house_wiki.py.",
+    },
     "workshop_kohl": {
         "depth": "none",
         "tests": [],

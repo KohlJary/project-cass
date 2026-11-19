@@ -1110,3 +1110,16 @@ def test_every_session_offers_her_projects_when_the_workshop_is_on(session_env, 
             asyncio.run(run_session_turn(runner, session_type="reflection", max_turns=2,
                                          run_router=lambda n, i: None, catalog={}))
         assert ("project" in fake.calls[0].tool_names) is on
+
+
+def test_every_session_offers_the_house_wiki_when_its_lever_is_on(session_env, levers):
+    from agent_loop.session import run_session_turn
+    runner, managers, fake = session_env
+    runner.set_managers(managers)
+    for on in (True, False):
+        fake.calls.clear()
+        fake.queue_tool_use("session_complete", {"summary": "Short."})
+        with levers(house_wiki=on):
+            asyncio.run(run_session_turn(runner, session_type="social", max_turns=2,
+                                         run_router=lambda n, i: None, catalog={}))
+        assert ("house_wiki" in fake.calls[0].tool_names) is on

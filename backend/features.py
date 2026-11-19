@@ -234,6 +234,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "or Daedalus committed to, linked in as kohl-<name>, writable; commit takes only what she changed, "
            "secrets stay closed, no run or publish there (Kohl, 2026-11-19: she's a contributor)",
            LOCAL, default=False, where="workshop._kohls, workshop.list_projects"),
+    _lever("house_wiki", "Chapter House's wiki in her chat and sessions (house_wiki.py): what we're building, a page "
+           "per project with a Public line, read-only, from house-presence's mirror (plan the-house-wiki, phase 2)",
+           LOCAL, default=False, where="agent_loop.conversation, agent_loop.session"),
     _lever("workshop_run", "Running code in her software projects, in a bubblewrap sandbox (no network, only "
            "the project's folder, time and memory limits)",
            LOCAL, default=False, where="workshop.run"),
