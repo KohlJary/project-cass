@@ -214,3 +214,12 @@ def test_worktrees_arent_linked_as_projects(tmp_path, levers):
                    check=True, capture_output=True)
     with levers(workshop_kohl=True):
         assert W.link_kohl_projects(tmp_path / "data", home=home, emails=["kohl@example.invalid"])["linked"] == ["kohl-babelr"]
+
+
+def test_the_repo_holding_her_workshop_is_linked_too(tmp_path, levers):
+    home = tmp_path / "home"
+    repo = _git_repo(home / "vessel", "kohl@example.invalid", {"main.py": "x", ".gitignore": "data/\n"})
+    data = repo / "data"  # her DATA_DIR lives inside the vessel's checkout
+    with levers(workshop_kohl=True):
+        assert W.link_kohl_projects(data, home=home, emails=["kohl@example.invalid"])["linked"] == ["kohl-vessel"]
+        assert {f["path"] for f in W.files("kohl-vessel", data)["files"]} == {"main.py", ".gitignore"}

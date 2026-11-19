@@ -134,7 +134,10 @@ def link_kohl_projects(data_dir: Optional[Path] = None, home: Optional[Path] = N
             real = repo.resolve()
             # A worktree's .git is a file: another checkout of a repo already here, where
             # another session works. Only main checkouts count as projects.
-            if not (repo / ".git").is_dir() or real == mine or mine in real.parents or real in mine.parents:
+            # Her own repos live inside the workshop and aren't Kohl's. A repo that holds the
+            # workshop (cass-vessel: DATA_DIR is its data/) is fine: data/ is git-ignored, so
+            # it isn't listed, and nothing resolving into her live data is written.
+            if not (repo / ".git").is_dir() or real == mine or mine in real.parents:
                 continue
             if not _kohl_authored(repo, emails):
                 continue
