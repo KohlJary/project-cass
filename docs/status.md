@@ -553,3 +553,11 @@ For Kohl:
 - **The house, shipped** (wiki: voices-in-the-box): Kohl decided Babelr becomes the daemon frontend with house voices; the plate ships as a Babelr plugin. The plugin shape, the first-run script and Daedalus's shipped voice are mine to draft. Cass was asked whether and how she's in it; that's between her and Kohl.
 - **Restart gate:** at 16:12 I restarted 17 seconds after a chat turn began; its reply had finished, but post-turn work may have been cut. The gate check now runs as its own step, read before restarting.
 - **Waiting:** Kohl on whether RoboKohl's blind test is running or parked; Cass on whether she wants a say on the pages about her.
+
+## 2026-11-19 (evening): hit 'em up while Kohl was out (cass-vessel-68)
+
+- **Her day in 90-minute slots** (8936835e, live since 18:17): 11 slots from 06:00 to 22:00; one session at a time; her menu says what fits; her own notes can sit beside her options (none written for her). Phase "Time through the day" done. The budget measurement for Kohl is in docs/design/day-slots-budget.md: a full day fits under $5, and the category split is what binds.
+- **hobgoblin v1** in ~/hobgoblin (local, 50 tests): sysprofile, the skill, the Linux backend, snapshot before change, apply exactly the approved revision then verify. Publishing waits for Kohl.
+- **Five "Cass talks with Daedalus" items** built on 11-17 are closed with evidence.
+- **The voices plugin** is drafted for Kohl (Chapter-House docs/design/voices-plugin.md), with the plate contract agreed with RoboKohl.
+- **Report and approval batch:** .daedalus/reports/2026-11-19-hit-em-up.md.
