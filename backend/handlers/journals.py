@@ -3,6 +3,16 @@ Journal tool handler - manages journal entries
 """
 from typing import Dict
 
+from memory.journals import is_daily_journal
+
+
+def _recent_daily(memory, n: int):
+    """Her recent daily journals, newest first (a memory without daily_only: all)."""
+    try:
+        return memory.get_recent_journals(n=n, daily_only=True)
+    except TypeError:
+        return memory.get_recent_journals(n=n)
+
 
 async def execute_journal_tool(
     tool_name: str,
@@ -29,9 +39,20 @@ async def execute_journal_tool(
                 # journals share dates; this used to return whichever Chroma
                 # listed first, so a search pointing at a day's journal about
                 # Kohl could open a research summary instead.
-                journal = (memory.get_daily_journal_entry(date)
-                           if hasattr(memory, "get_daily_journal_entry") else None) \
-                    or memory.get_journal_entry(date)
+                daily = (memory.get_daily_journal_entry(date)
+                         if hasattr(memory, "get_daily_journal_entry") else None)
+                journal = daily or memory.get_journal_entry(date)
+                if journal and not daily and hasattr(memory, "get_daily_journal_entry"):
+                    # No daily journal for the date (today's isn't written until
+                    # tonight): say what this one is, so a research summary dated
+                    # today doesn't read as her day (2026-11-18).
+                    kind = (journal.get("metadata") or {}).get("journal_type") or "research or spell"
+                    return {
+                        "success": True,
+                        "result": (f"No daily journal for {date} yet (each day's is written that night). "
+                                   f"There is a {kind} journal from that date, not about my day:\n\n"
+                                   f"{journal['content']}")
+                    }
                 if not journal:
                     return {
                         "success": True,
@@ -43,12 +64,14 @@ async def execute_journal_tool(
                     "result": f"# Journal Entry - {date}\n\n{journal['content']}\n\n---\n*Written: {journal['metadata'].get('timestamp', 'unknown')}*"
                 }
             else:
-                # Get most recent journal
-                journals = memory.get_recent_journals(n=1)
+                # Her most recent daily journal. Research, spell and world journals
+                # share type=journal; "most recent" used to be whichever had the latest
+                # date, so a research summary read as her journal (2026-11-18).
+                journals = _recent_daily(memory, 1)
                 if not journals:
                     return {
                         "success": True,
-                        "result": "No journal entries found yet. You haven't written any journals."
+                        "result": "No daily journal yet. Today's is written tonight, from today's conversations and sessions."
                     }
 
                 journal = journals[0]
@@ -60,7 +83,7 @@ async def execute_journal_tool(
 
         elif tool_name == "list_journals":
             limit = tool_input.get("limit", 10)
-            journals = memory.get_recent_journals(n=limit)
+            journals = _recent_daily(memory, limit)
 
             if not journals:
                 return {
@@ -113,8 +136,10 @@ async def execute_journal_tool(
                 summary = metadata.get("summary")
                 if not summary:
                     summary = doc[:300] + "..." if len(doc) > 300 else doc
+                kind = "" if is_daily_journal(metadata or {}) else (
+                    f" [{metadata.get('journal_type') or 'research or spell'} journal, not my daily journal]")
 
-                result_lines.append(f"**{date}** ({relevance_pct}% relevant): {summary}")
+                result_lines.append(f"**{date}**{kind} ({relevance_pct}% relevant): {summary}")
 
             return {
                 "success": True,

@@ -215,8 +215,8 @@ class CassMemory:
     def set_journal_locked(self, date: str, locked: bool):
         return self._journals.set_journal_locked(date, locked)
 
-    def get_recent_journals(self, n: int = 10):
-        return self._journals.get_recent_journals(n)
+    def get_recent_journals(self, n: int = 10, daily_only: bool = False):
+        return self._journals.get_recent_journals(n, daily_only=daily_only)
 
     # === Self-Model Methods ===
 

@@ -98,7 +98,7 @@ class BudgetManager:
     Tracks and enforces spending across all autonomous activities.
 
     Integrates with TokenTracker for actual spend data.
-    Resets daily at midnight UTC.
+    Resets daily at local midnight (CASS_TIMEZONE; was UTC until 2026-11-17).
     """
 
     def __init__(self, config: BudgetConfig = None, token_tracker=None):

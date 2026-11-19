@@ -495,12 +495,14 @@ Observations (one per line, starting with "{display_name}"):"""
 
         return True
 
-    def get_recent_journals(self, n: int = 10) -> List[Dict]:
+    def get_recent_journals(self, n: int = 10, daily_only: bool = False) -> List[Dict]:
         """
         Get the most recent journal entries.
 
         Args:
             n: Number of entries to return
+            daily_only: only her nightly daily journals (is_daily_journal), not the
+                research, spell and world journals that share type=journal
 
         Returns:
             List of journal entries, newest first
@@ -516,6 +518,8 @@ Observations (one per line, starting with "{display_name}"):"""
         # Combine and sort by journal_date descending
         journals = []
         for i, doc in enumerate(results["documents"]):
+            if daily_only and not is_daily_journal(results["metadatas"][i] or {}):
+                continue
             journals.append({
                 "content": doc,
                 "metadata": results["metadatas"][i],

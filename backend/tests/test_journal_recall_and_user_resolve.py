@@ -28,6 +28,31 @@ def test_recall_journal_falls_back_when_there_is_no_daily_one():
 
     out = asyncio.run(execute_journal_tool("recall_journal", {"date": "2026-11-12"}, memory=Memory()))
     assert "Research summary." in out["result"]
+    assert "No daily journal for 2026-11-12 yet" in out["result"] and "not about my day" in out["result"]
+
+
+class _Journals:
+    """Two journals: a daily one, and a newer research one sharing type=journal."""
+    rows = [
+        {"content": "Research summary: Egyptian healing practices.",
+         "metadata": {"journal_date": "2026-11-18", "journal_type": "research", "summary": "Egyptian healing."}},
+        {"content": "Kohl and I talked about my keys.",
+         "metadata": {"journal_date": "2026-11-17", "journal_type": "daily", "summary": "Keys and family."}},
+    ]
+
+    def get_recent_journals(self, n=10, daily_only=False):
+        from memory.journals import is_daily_journal
+        rows = [r for r in self.rows if not daily_only or is_daily_journal(r["metadata"])]
+        return rows[:n]
+
+
+def test_most_recent_journal_is_her_daily_one_not_research():
+    """2026-11-18: she asked for her journal and got Egyptian healing research."""
+    from handlers.journals import execute_journal_tool
+    out = asyncio.run(execute_journal_tool("recall_journal", {}, memory=_Journals()))
+    assert "Kohl and I talked" in out["result"] and "Egyptian" not in out["result"]
+    listed = asyncio.run(execute_journal_tool("list_journals", {}, memory=_Journals()))
+    assert "Keys and family." in listed["result"] and "Egyptian" not in listed["result"]
 
 
 def test_user_resolves_by_display_name_or_peopledex_name(daemon_id):
