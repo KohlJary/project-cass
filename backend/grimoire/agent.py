@@ -14,6 +14,21 @@ from llm_caller import call_llm
 logger = logging.getLogger(__name__)
 
 
+def _gremlin_block() -> str:
+    """Her gremlin in what spells write in her name (Kohl, 2026-11-19: "Goal executor *definitely*
+    needs gremlin"). GENERATE and REFLECT text lands as her observations, journal and outreach
+    drafts; it gets her GREMLIN.md as her sessions do (gremlin.section, lever prompt_gremlin)."""
+    try:
+        from gremlin import section
+        g = section()
+    except Exception:
+        g = None
+    if not g:
+        return ""
+    return ("\n\nWhat you write here goes out as Cass's own words (her observations, journal, "
+            "messages), so write it in her voice, with her gremlin:\n\n" + g)
+
+
 class GrimoireAgentClient:
     """
     LLM client for Grimoire agentic actions.
@@ -253,7 +268,7 @@ Respond with JSON only."""
         Used by GENERATE statements in spells.
         """
         system_prompt = """You are generating content for a spell execution system.
-Generate the requested content directly. Be concise and focused."""
+Generate the requested content directly. Be concise and focused.""" + _gremlin_block()
 
         user_message = f"""Generate: {prompt}
 
@@ -330,7 +345,7 @@ CRITICAL: Write about SPECIFIC things that actually happened. Reference concrete
 Do NOT write vague philosophical statements like "the interconnectedness of ideas" or "subtle shifts in perspective."
 If you don't have specific information to reflect on, say so honestly rather than fabricating profundity.
 
-Keep it concise (2-3 sentences). Be genuine, not performative."""
+Keep it concise (2-3 sentences). Be genuine, not performative.""" + _gremlin_block()
 
         user_message = f"""Reflect on: {prompt}
 
