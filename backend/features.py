@@ -257,6 +257,9 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "IMAP at each inbox check, and everything she sends goes out over Gmail's SMTP, first contact included "
            "(Kohl's call). Needs DATA_DIR/gmail/credentials.json (an app password Kohl places)",
            INTEGRATION, default=False, where="gmail.py, email_organ.send_email/pull_gmail"),
+    _lever("talk", "Her ears for talk (talk.py): follow podcasts and hear episodes, transcribed locally "
+           "(~/talk-ears, faster-whisper on CPU, one at a time, niced); she reads what was said by time",
+           LOCAL, default=False, where="talk.handle, agent_loop/tools.router_catalog"),
     _lever("listen_along", "Her ears on what Kohl's computer is playing (listen along): one song at a time, "
            "titled from his media player, ended when the track changes; a light record is kept, never the audio. "
            "Kohl's switch (it hears his system audio)", default=False, where="listening.handle"),

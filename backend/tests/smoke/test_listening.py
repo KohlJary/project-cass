@@ -59,3 +59,26 @@ def test_listening_session_runs_with_her_ears(app, fake_llm, levers):
     assert result.success, result.message
     first = fake_llm.calls[0]
     assert "## LISTENING" in first.system_text and "listen" in first.tool_names
+
+
+def test_podcast_ears_follow_a_show_in_a_session(app, fake_llm, levers, monkeypatch, tmp_path):
+    """talk (her ears for talk, lever talk): in a session she follows a show and lists
+    its episodes through use_tool; nothing is fetched (the feed and directory are faked)."""
+    import talk
+    from scheduler.actions import get_action_registry
+    feed = (b'<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Smoke Cast</title>'
+            b'<item><title>Episode 1: The Tide</title><pubDate>Fri, 13 Nov 2026 08:00:00 GMT</pubDate>'
+            b'<enclosure url="https://example.invalid/1.mp3"/><itunes:duration>3600</itunes:duration></item>'
+            b'</channel></rss>')
+    monkeypatch.setattr(talk, "_root", lambda: tmp_path / "talk")
+    monkeypatch.setattr(talk, "_get", lambda url, timeout=30: feed)
+    monkeypatch.setattr(talk, "find", lambda q, limit=5: [
+        {"title": "Smoke Cast", "by": "Smoke", "feed": "https://example.invalid/feed", "slug": "smoke-cast"}])
+    fake_llm.queue_tool_use("use_tool", {"name": "podcast", "input": {"action": "follow", "show": "Smoke Cast"}})
+    fake_llm.queue_tool_use("use_tool", {"name": "podcast", "input": {"action": "episodes", "show": "smoke-cast"}})
+    fake_llm.queue_tool_use("session_complete", {"summary": "Followed Smoke Cast."})
+    with levers(agent_loop=True, talk=True):
+        result = app.portal.call(lambda: get_action_registry().execute("session.reflection", duration_minutes=5))
+    assert result.success, result.message
+    eps = fake_llm.calls[2].messages[-1]["content"][0]
+    assert "Episode 1: The Tide" in str(eps["content"]), eps

@@ -381,6 +381,11 @@ LEVER_COVERAGE = {
                 "only through send_email. Unit tests (test_gmail.py) cover IMAP/SMTP with fakes and the organ path; "
                 "a real cycle needs Google.",
     },
+    "talk": {
+        "depth": "gate",
+        "tests": ["tests/smoke/test_listening.py::test_podcast_ears_follow_a_show_in_a_session"],
+        "note": "One session through the registry with the fake LLM: she follows a show and lists its episodes through use_tool; feed and directory faked. Fast-suite: tests/test_talk.py.",
+    },
     "listen_along": {
         "depth": "none",
         "tests": [],

@@ -150,8 +150,9 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
     # My ears (listening.py; plan "Cass's ears and studio"): records from Kohl's library.
     ToolPack("listening", "listen to records from Kohl's music library: browse the shelf, listen to a "
                           "song or an album, read what was heard (form, chords, words, lines, drums, "
-                          "sound), compare an album's songs, and look at spectrograms and the score",
-             ("listen",)),
+                          "sound), compare an album's songs, and look at spectrograms and the score; "
+                          "and podcasts: follow shows, hear episodes, read what was said",
+             ("listen", "podcast")),
     ToolPack("studio_chat", "my studio, right here: try a guitar tone through a rig and hear what each change "
                             "did, save rigs and synth patches to my gun belt, noodle a riff, render a song",
              ("studio",)),

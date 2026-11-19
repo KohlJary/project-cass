@@ -420,6 +420,7 @@ TOOL_REGISTRY = {
     "commitment": "commitments",
     "code_search": "self_account",   # her own code, read-only (code_search.py)
     "listen": "listening",           # her ears (listening.py, Acousmatic)
+    "podcast": "talk",               # her ears for talk (talk.py, ~/talk-ears)
     "studio": "studio",              # her studio in chat (studio.py, Orphic)
     "social_read": "social",
     "social_thread": "social",
@@ -979,6 +980,9 @@ async def route_tool(
         return await executor(tool_name=tool_name, tool_input=tool_input)
 
     elif executor_type == "listening":
+        return await executor(tool_name=tool_name, tool_input=tool_input)
+
+    elif executor_type == "talk":
         return await executor(tool_name=tool_name, tool_input=tool_input)
 
     elif executor_type == "studio":
