@@ -13,7 +13,8 @@ a broken bus never costs her the session.
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable, Optional
+from datetime import datetime, timedelta
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,22 @@ def _bus(daemon_id: Optional[str]):
     return get_state_bus(daemon_id)
 
 
+# Her sessions running now: id -> (started, minutes allowed). Read by the phase queue so
+# planned items run one session at a time (scheduling/slots.py). An entry outlives its
+# session only if session_ended never ran; it's ignored once well past its time.
+_RUNNING: Dict[str, Tuple[datetime, int]] = {}
+
+
+def running(now: Optional[datetime] = None) -> List[str]:
+    """Ids of her sessions running now."""
+    now = now or datetime.now()
+    return [sid for sid, (began, mins) in list(_RUNNING.items())
+            if now - began < timedelta(minutes=2 * (mins or 30) + 30)]
+
+
 def session_started(daemon_id: Optional[str], session_type: str, session_id: str,
                     focus: Optional[str], duration_minutes: int) -> None:
+    _RUNNING[session_id] = (datetime.now(), int(duration_minutes or 30))
     try:
         bus = _bus(daemon_id)
         if bus is None:
@@ -48,6 +63,7 @@ def session_started(daemon_id: Optional[str], session_type: str, session_id: str
 
 def session_ended(daemon_id: Optional[str], session_type: str, session_id: str, status: str,
                   end_reason: Optional[str], minutes: float, steps: int, tool_calls: int) -> None:
+    _RUNNING.pop(session_id, None)
     try:
         bus = _bus(daemon_id)
         if bus is None:

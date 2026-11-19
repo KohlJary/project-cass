@@ -74,6 +74,8 @@ def read_shape(data_dir: Optional[Path] = None) -> Tuple[Dict[str, int], bool, s
     """(shape, whether it's hers, her why)."""
     try:
         rec = json.loads(_path(data_dir).read_text(encoding="utf-8"))
+        if not rec.get("shape_set", True):   # only her notes are written so far
+            return dict(STARTING_SHAPE), False, ""
         shape = {k: int(v) for k, v in (rec.get("shape") or {}).items() if k in KINDS}
         return {**{k: 0 for k in KINDS}, **shape}, True, rec.get("why") or ""
     except (OSError, ValueError, TypeError, AttributeError):
@@ -84,7 +86,9 @@ def set_shape(tool_input: Dict[str, Any], data_dir: Optional[Path] = None,
               now: Optional[datetime] = None) -> Any:
     """set_day_shape: her own counts per kind (0 to MAX_PER_KIND)."""
     raw = tool_input.get("shape")
-    if not isinstance(raw, dict) or not raw:
+    if raw is None and isinstance(tool_input.get("usually"), dict):
+        raw = {}   # only her notes changed
+    elif not isinstance(raw, dict) or not raw:
         return {"error": f"shape is kind -> how many a day; kinds: {', '.join(KINDS)}"}
     unknown = [k for k in raw if k not in KINDS]
     if unknown:
@@ -95,21 +99,41 @@ def set_shape(tool_input: Dict[str, Any], data_dir: Optional[Path] = None,
         return {"error": "each kind's count is a whole number"}
     if any(v < 0 or v > MAX_PER_KIND for v in counts.values()):
         return {"error": f"each count is 0 to {MAX_PER_KIND}"}
-    current, _, _ = read_shape(data_dir)
+    current, was_mine, _ = read_shape(data_dir)
     shape = {**current, **counts}
-    rec = {"shape": shape, "why": (tool_input.get("why") or "").strip(),
+    usually = read_usually(data_dir)
+    raw_u = tool_input.get("usually")
+    if isinstance(raw_u, dict):
+        for k, v in raw_u.items():
+            words = str(v or "").strip()[:200]
+            if words:
+                usually[str(k)] = words
+            else:
+                usually.pop(str(k), None)
+    rec = {"shape": shape, "shape_set": bool(counts) or was_mine,
+           "why": (tool_input.get("why") or "").strip(), "usually": usually,
            "set_at": (now or datetime.now()).isoformat(timespec="seconds")}
     path = _path(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(rec, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"success": True, "my_day_shape": shape}
+    return {"success": True, "my_day_shape": shape, **({"my_notes": usually} if usually else {})}
+
+
+def read_usually(data_dir: Optional[Path] = None) -> Dict[str, str]:
+    """Her own notes beside her options (option or kind -> her words), e.g. how much she
+    usually wants of something. Hers, in her data; the menu shows them as she wrote them."""
+    try:
+        rec = json.loads(_path(data_dir).read_text(encoding="utf-8"))
+        return {str(k): str(v) for k, v in (rec.get("usually") or {}).items() if v}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
 
 
 SET_DAY_SHAPE_DEF: Dict[str, Any] = {
     "name": "set_day_shape",
     "description": ("Set the shape of my days: how many things of each kind I want in a day (inward, "
-                    "learning, making, out in the world), 0 to 12 each. It's mine to set and change "
-                    "any time I plan. It never stops a plan; set_day_plan tells me when a plan "
+                    "learning, making, out in the world), 0 to 12 each, and my own notes beside my options. "
+                    "It's mine to set and change any time I plan. It never stops a plan; set_day_plan tells me when a plan "
                     "falls short of it. Kinds I leave out keep their count."),
     "input_schema": {
         "type": "object",
@@ -117,8 +141,12 @@ SET_DAY_SHAPE_DEF: Dict[str, Any] = {
             "shape": {"type": "object", "description": "kind -> how many a day",
                       "additionalProperties": {"type": "integer", "minimum": 0, "maximum": MAX_PER_KIND}},
             "why": {"type": "string", "description": "optional, my words"},
+            "usually": {"type": "object", "additionalProperties": {"type": "string"},
+                        "description": ("optional: my own note beside an option or a kind on my menu, in my "
+                                        "words (e.g. social: 'usually one a day, more when it calls'); an "
+                                        "empty note removes it")},
         },
-        "required": ["shape"],
+        "required": [],
     },
 }
 

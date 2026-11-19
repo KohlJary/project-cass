@@ -103,8 +103,9 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
         + (" Each thing on my menu is charged to one of these; something over what its kind has "
            "left isn't on the menu, and is named under Not available today." if budget_by_category else ""),
         *([usage] if usage else []),
-        "A phase can hold several things (up to 12, counting what my spells add), each at its "
-        "own time, and my day can carry more than one of my plans.",
+        _slots_line(budget_remaining, candidates),
+        "A phase can hold several things (up to 12, counting what my spells add), and my day can "
+        "carry more than one of my plans.",
         "",
         *([shape, ""] if shape else []),
         "My menu, by kind (template_id: what it is, about how long, about what it costs):",
@@ -113,7 +114,12 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
     if never and len(never) < len(candidates):
         # Facts, not a push (Kohl, 2026-11-18: does seeing them vary her days?).
         lines.insert(len(lines) - 1, "Never done yet: " + ", ".join(never) + ".")
-    from .day_shape import KINDS, kind_of
+    from .day_shape import KINDS, kind_of, read_usually
+    try:  # her own notes beside her options, in her words (set_day_shape usually)
+        usually = read_usually()
+    except Exception as e:
+        logger.warning(f"[day_turn] couldn't read her own notes: {e}")
+        usually = {}
     groups: Dict[str, List[Any]] = {}
     for c in candidates:
         groups.setdefault(kind_of(c.template_id) or "other", []).append(c)
@@ -123,9 +129,11 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
         lines.append(f"{KINDS[kind][0].split(':')[0].capitalize() if kind in KINDS else 'Other'}:")
         for c in groups[kind]:
             last = _last_done_text(getattr(c, "last_done", None))
+            mine = usually.get(c.template_id) or usually.get(kind)
             lines.append(f"- {c.template_id}: {c.description} "
                          f"(~{c.estimated_duration_minutes}min, ${c.estimated_cost_usd:.2f}"
-                         f"{'; last done ' + last if last else '; never done yet'})")
+                         f"{'; last done ' + last if last else '; never done yet'})"
+                         + (f". My own note: {mine}" if mine else ""))
     if unavailable:
         lines.append("")
         lines.append("Not available today: " + ", ".join(unavailable) + ".")
@@ -141,6 +149,26 @@ def menu_text(candidates: Sequence[Any], phases: Sequence[Any], budget_remaining
         "session_complete.",
     ]
     return "\n".join(lines)
+
+
+def _slots_line(budget_remaining: float, candidates: Sequence[Any]) -> str:
+    from .slots import menu_line
+    try:
+        return menu_line(budget_left=budget_remaining,
+                         costs=[c.estimated_cost_usd for c in candidates if getattr(c, "estimated_cost_usd", None)])
+    except Exception as e:  # the menu never fails for this line
+        logger.warning(f"[day_turn] couldn't say what slots are left: {e}")
+        return ""
+
+
+def _phase_at(at: Any) -> Optional[str]:
+    """The phase an "at" (HH:MM) falls in, or None if it isn't a time."""
+    try:
+        hh = int(str(at).strip().split(":")[0])
+    except (ValueError, IndexError):
+        return None
+    from .day_phase import DEFAULT_PHASE_WINDOWS
+    return next((w.phase.value for w in DEFAULT_PHASE_WINDOWS if w.contains_hour(hh % 24)), None)
 
 
 def _run_at(at: Any, phase: Any, now: Optional[datetime] = None):
@@ -212,7 +240,9 @@ class DayPlanTool:
 
     def __init__(self, candidates: Sequence[Any], phases: Sequence[Any], workspace,
                  session_id_ref: Optional[Dict[str, str]] = None,
-                 plans: Optional[Sequence[Dict[str, Any]]] = None, now=None, data_dir=None):
+                 plans: Optional[Sequence[Dict[str, Any]]] = None, now=None, data_dir=None,
+                 budget_remaining: Optional[float] = None):
+        self.budget_remaining = budget_remaining
         self.plans = list(plans or [])
         self.now = now
         self.data_dir = data_dir
@@ -232,31 +262,39 @@ class DayPlanTool:
         if unknown_phases:
             return {"error": f"Not a phase left today: {', '.join(unknown_phases)}. "
                              f"Phases left: {', '.join(names)}."}
-        chosen: Dict[str, List[Dict[str, Any]]] = {}
+        chosen: Dict[str, List[Dict[str, Any]]] = {k: [] for k in plan}
         unknown: List[str] = []
         for phase, items in plan.items():
             if not isinstance(items, list):
                 return {"error": f"{phase} must be a list of choices"}
-            kept = []
             for item in items:
                 tid = item.get("template_id") if isinstance(item, dict) else None
                 if tid not in self.by_id:
                     unknown.append(str(tid))
                     continue
-                at, why_not = _run_at(item.get("at"), names[phase], self.now)
+                home = phase
+                if item.get("at"):   # a time goes in the phase it falls in, if that's still to come
+                    p_at = _phase_at(item.get("at"))
+                    if p_at in names:
+                        home = p_at
+                at, why_not = _run_at(item.get("at"), names[home], self.now)
                 if why_not:
                     return {"error": f"{tid} in {phase}: {why_not} Nothing was set."}
                 carried, why_not = _plan_item(item.get("plan"), item.get("item"), self.plans)
                 if why_not:
                     return {"error": f"{tid} in {phase}: {why_not} Nothing was set."}
-                kept.append({"template_id": tid,
-                             "focus": (item.get("focus") or None),
-                             "motivation": item.get("motivation") or "",
-                             "at": at, "plan_item": carried})
-            chosen[phase] = kept
+                chosen.setdefault(home, []).append({"template_id": tid,
+                                                    "focus": (item.get("focus") or None),
+                                                    "motivation": item.get("motivation") or "",
+                                                    "at": at, "plan_item": carried})
         if unknown:
             return {"error": f"Not on my menu today: {', '.join(unknown)}. Nothing was set; "
                              f"the menu is in my instructions."}
+        try:  # untimed items take their phase's free slots (slots.py)
+            from .slots import spread
+            spread(chosen, self.now)
+        except Exception as e:
+            logger.warning(f"[day_turn] couldn't spread the plan across slots: {e}")
         self.chosen = chosen
         self.intention = (tool_input.get("intention") or "").strip() or None
         try:
@@ -278,8 +316,16 @@ class DayPlanTool:
                          "or change my shape (set_day_shape).")
         except Exception as e:
             logger.warning(f"[day_turn] couldn't check her day shape: {e}")
+        fits = ""
+        try:  # what it takes, by the menu's estimates: never a refusal
+            from .slots import fits_text
+            if self.budget_remaining is not None:
+                fits = " " + fits_text(chosen, {t: c.estimated_cost_usd for t, c in self.by_id.items()},
+                                       self.budget_remaining, self.now)
+        except Exception as e:
+            logger.warning(f"[day_turn] couldn't say what the plan takes: {e}")
         return (f"Plan set: {count} thing(s) across {len([v for v in chosen.values() if v])} phase(s)."
-                + (f" {wrote}" if wrote else "") + short)
+                + fits + (f" {wrote}" if wrote else "") + short)
 
     def _write(self, chosen: Dict[str, List[Dict[str, Any]]]) -> Optional[str]:
         today = datetime.now().strftime("%A, %Y-%m-%d")
@@ -360,7 +406,7 @@ async def plan_day_in_turn(runner, candidates: Sequence[Any], phases: Sequence[A
     except Exception as e:
         logger.warning(f"[day_turn] couldn't read her plans: {e}")
         plans = None
-    tool = DayPlanTool(candidates, phases, workspace, plans=plans)
+    tool = DayPlanTool(candidates, phases, workspace, plans=plans, budget_remaining=budget_remaining)
     from . import day_recap
     try:
         usage = day_recap.usage_line()

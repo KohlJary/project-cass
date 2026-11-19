@@ -573,6 +573,12 @@ class PhaseQueueManager:
             logger.warning(f"[routines] couldn't queue today's routines: {e}")
         queue = self._phase_queues.get(phase) or []
         due = [q for q in queue if getattr(q.work_unit, "run_at", None) and not self._not_yet(q)]
+        due.sort(key=lambda q: q.work_unit.run_at)
+        # One session at a time (slots.py): a unit whose time comes while a session runs
+        # waits for it to end; one unit per tick, so the next waits for this one to start.
+        if due and self._session_running():
+            return 0
+        due = due[:1]
         n = 0
         for queued in due:
             if queued not in queue:
@@ -585,6 +591,17 @@ class PhaseQueueManager:
             else:
                 self._failed_held[phase].append(queued)
         return n
+
+    @staticmethod
+    def _session_running() -> bool:
+        """Whether one of her sessions is running now, or one she asked for is about to start."""
+        try:
+            from agent_loop.felt import running
+            from agent_loop.wakes import live_now
+            return bool(running()) or bool(live_now())
+        except Exception as e:
+            logger.warning(f"[phase_queue] couldn't tell whether a session is running: {e}")
+            return False
 
     async def _take_loop(self, phase, queue, dispatched, failed, stagger_seconds) -> None:
         first = True
