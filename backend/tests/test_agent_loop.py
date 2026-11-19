@@ -993,17 +993,17 @@ def test_says_starting_catches_saying_its_done():
 
 
 def test_says_starting_catches_already_at_work_in_one():
-    """2026-11-19: she said she'd started on Kohl's code in her workshop; no session."""
+    """Saying she's at work in the studio with no session. The workshop is exempt: her
+    project tool works from private chat (6199eec4), so that claim can be true."""
     from agent_loop.loop import says_starting
-    for said in ("I've started going through our code projects in my workshop.",
-                 "Started going through the vessel code in the workshop!",
-                 "I'm working on the bridge in my studio right now.",
-                 "I’ve been reading Kohl's repos in my workshop."):
+    for said in ("I'm working on the bridge in my studio right now.",
+                 "Started mixing the chorus in the studio!",
+                 "I’ve been layering synths in my studio."):
         assert says_starting(said), said
-    for not_said in ("I'm curious what's in my workshop.",
+    for not_said in ("I've started going through our code projects in my workshop.",
+                     "I'm curious what's in my studio.",
                      "I started the song yesterday and the bridge is rough.",
-                     "I'm thinking about it. The workshop can wait.",
-                     "Working in the workshop yesterday felt good."):
+                     "Working in the studio yesterday felt good."):
         assert not says_starting(not_said), not_said
 
 

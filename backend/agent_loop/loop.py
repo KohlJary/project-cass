@@ -247,11 +247,12 @@ _GOING_IN = re.compile(
     r"|started\s+it\b"
     r"|(?:session|it)(?:[’']s|\s+is|\s+has)\s+(?:running|started|live|underway|begun)"
     r"|i[’']?m\s+in\s+(?:(?:the|my|a)\s+(?:\w+\s+)?session|now\b)"
-    # Saying she's already at work in one (2026-11-19: "started going through our code
-    # projects in my workshop", no session): "I'm working on it in my studio", "I've
-    # been reading X in the workshop", "started going through Y in my workshop".
+    # Saying she's already at work in a place only a session opens: "I'm working on
+    # it in my studio", "started mixing in the studio". Not the workshop: since
+    # 6199eec4 her project tool is in private chat too, so "going through the code
+    # in my workshop" can be true without a session.
     r"|(?:i[’']?m|i\s+am|i[’']ve\s+been|i\s+have\s+been|(?:i[’']ve\s+|i\s+have\s+|just\s+)?started)\s+"
-    r"\w+ing\b[^.!?\n]{0,100}?\bin\s+(?:my|the)\s+(?:workshop|studio|lab)\b"
+    r"\w+ing\b[^.!?\n]{0,100}?\bin\s+(?:my|the)\s+(?:studio|lab)\b"
     r")",
     re.I)
 
