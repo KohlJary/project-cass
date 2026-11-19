@@ -1054,6 +1054,17 @@
       "priority": "normal",
       "requires_idle": false,
       "runner_key": "listening"
+    },
+    "goals.wake_session": {
+      "id": "goals.wake_session",
+      "name": "Session for a Goal",
+      "description": "Ask for a real session of hers (agent loop) for a goal, instead of writing in her name",
+      "category": "goals",
+      "handler": "goal_handlers.wake_session_action",
+      "estimated_cost_usd": 0.0,
+      "default_duration_minutes": 1,
+      "priority": "normal",
+      "requires_idle": false
     }
   }
 }

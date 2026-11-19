@@ -458,3 +458,20 @@ async def get_status_action(context: Dict[str, Any]) -> ActionResult:
             success=False,
             message=f"Failed to get status: {e}",
         )
+
+
+async def wake_session_action(context: Dict[str, Any]) -> ActionResult:
+    """
+    Ask for a real session of hers for a goal (agent_loop.wakes.goal_wake).
+
+    TASK goals.wake_session activity="reflection" focus="..." why="..."
+    The session runs on the agent loop within a minute (Heartbeat), with her own
+    context, tools and gremlin; she writes whatever comes of it.
+    """
+    from agent_loop.wakes import goal_wake
+    out = goal_wake(str(context.get("activity") or "reflection"), str(context.get("focus") or ""),
+                    str(context.get("why") or ""))
+    if out.get("error"):
+        return ActionResult(success=False, message=out["error"], data={"started": False})
+    return ActionResult(success=True, message=f"{out['started']} session asked for",
+                        data={"started": True, "activity": out["started"]})

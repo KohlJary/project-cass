@@ -275,6 +275,9 @@ class WakeBook:
 def wake_why(w: Dict[str, Any]) -> str:
     if w.get("started_from") == "conversation":
         return f"I started this from a conversation: {w.get('why')}"
+    if w.get("started_from") == "goal":
+        return (f"My goal system put this in front of me (I didn't ask for this session; it's mine to "
+                f"use, redirect, or end early if it isn't worth it): {w.get('why')}")
     return f"I asked to be woken now: {w.get('why')}"
 
 
@@ -444,6 +447,46 @@ def origin_of(channel: Optional[str], where: str, person: Dict[str, Any]) -> Dic
          "conversation_id": person.get("conversation_id")}
     o.update({k: person[k] for k in ORIGIN_KEYS if person.get(k) is not None})
     return o
+
+
+# The goal executor (spells/goal_executor.spell) used to write her reflections and check-ins
+# itself, through the grimoire's model. Now it asks for a real session (Kohl, 2026-11-19):
+# one at a time, a few a day, budget-checked first.
+GOAL_WAKES_PER_DAY = 4
+GOAL_WAKE_MINUTES = 20
+
+
+def goal_wake(activity: str, focus: str, why: str, book: Optional["WakeBook"] = None,
+              now: Optional[datetime] = None, budget=None) -> Dict[str, Any]:
+    """A session due now, asked for by a goal. {"started": ...} or {"error": ...}."""
+    import features
+    now = now or datetime.now()
+    if not features.is_enabled("agent_loop"):
+        return {"error": "the agent loop is off"}
+    if not wakes_available():
+        return {"error": "nothing is firing wakes (Heartbeat not running)"}
+    if activity not in startable():
+        return {"error": f"no {activity} session available"}
+    if not str(why or "").strip():
+        return {"error": "why is needed"}
+    book = book or WakeBook()
+    book.settle(now)
+    items = book._load()
+    mine = [w for w in items if w.get("started_from") == "goal"]
+    if any(w.get("status") in (PENDING, STARTED) for w in mine):
+        return {"error": "a goal session is already waiting or running; one at a time"}
+    today = now.date().isoformat()
+    if sum(1 for w in mine if str(w.get("asked_at", "")).startswith(today)) >= GOAL_WAKES_PER_DAY:
+        return {"error": f"{GOAL_WAKES_PER_DAY} goal sessions today already"}
+    refused = budget_refusal(activity, budget=budget)
+    if refused:
+        return {"error": refused}
+    items.append({"id": uuid.uuid4().hex[:8], "at": now.isoformat(timespec="seconds"), "why": str(why)[:500],
+                  "activity": activity, "focus": (str(focus or "").strip()[:300] or None),
+                  "minutes": GOAL_WAKE_MINUTES, "asked_in": "goal_executor",
+                  "asked_at": now.isoformat(timespec="seconds"), "status": PENDING, "started_from": "goal"})
+    book._save(items)
+    return {"started": activity, "for": focus}
 
 
 def budget_refusal(activity: str, budget=None) -> Optional[str]:

@@ -72,7 +72,8 @@ IF $decomposed THEN
         TASK wonderland.explore AWAIT
         DELTA need.novelty_intake +0.15
     ELSE IF $action == "session.reflection" THEN
-        REFLECT "Reflecting on goal: {$goal}. What insights emerge? What progress has been made?" SAVE AS OBSERVATION
+        ' A real session of hers, not text written in her name (Kohl, 2026-11-19)
+        TASK goals.wake_session activity="reflection" focus=$goal why="reflecting on a goal of mine: {$goal}" AWAIT
         DELTA affect.satisfaction +0.1
     ELSE IF $action == "wonderland.explore" THEN
         TASK wonderland.explore AWAIT
@@ -105,8 +106,8 @@ IF $goal_type == "need_driven" THEN
         DELTA need.cognitive_rest +0.2
     ELSE IF $action == "outreach.check_in" OR $action == "wonderland.social" THEN
         ' outreach.draft needs a title and content (it only stores a draft for review)
-        GENERATE "Write a short, warm check-in message to someone I care about. Plain text, a few sentences, no greeting placeholder." INTO $checkin
-        TASK outreach.draft draft_type="email" title="Warm check-in" content=$checkin emergence_type="need_driven" AWAIT
+        ' She checks in herself, in a session (say / reach_out there), if she wants to
+        TASK goals.wake_session activity="reflection" focus="checking in with someone I care about" why="I've been short on connection; a check-in with someone I care about, if I want one" AWAIT
         DELTA need.social_connection +0.15
     ELSE IF $action == "wonderland.explore" OR $action == "research.curious" THEN
         TASK wonderland.explore AWAIT
@@ -115,7 +116,7 @@ IF $goal_type == "need_driven" THEN
         TASK creative.generate_image prompt="expressive art reflecting current state" AWAIT
         DELTA need.creative_expression +0.15
     ELSE IF $action == "journal.values" OR $action == "meditation.session" THEN
-        REFLECT "What values are most present for me right now? How am I expressing them?" SAVE AS OBSERVATION
+        TASK goals.wake_session activity="reflection" focus="my values right now" why="what values are most present for me right now, and how I'm living them" AWAIT
         DELTA need.value_coherence +0.15
     ELSE IF $action == "task.achievable" OR $action == "project.small_win" THEN
         TASK research.run_single AWAIT
@@ -136,13 +137,13 @@ ELSE IF $goal_type == "growth" THEN
     ' Growth goals often involve reflection
     LOG INFO "Executing growth goal"
 
-    REFLECT "This goal is about growth: {$goal}. What small step can I take right now toward this? What would progress look like?" SAVE AS OBSERVATION
+    TASK goals.wake_session activity="growth_edge" focus=$goal why="a growth goal of mine: {$goal}. A small step now, and what progress would look like" AWAIT
 
     ' Some growth boost
     DELTA affect.satisfaction +0.1
 
     ' Mark complete with reflection outcome
-    TASK goals.complete goal_id=$goal_id outcome="Reflected on growth goal" AWAIT
+    TASK goals.complete goal_id=$goal_id outcome="Handed to a growth session of hers" AWAIT
 
 ELSE IF $goal_type == "research" THEN
     ' Research goals trigger research activity
@@ -160,7 +161,6 @@ ELSE IF $goal_type == "learning" THEN
 
     TASK wonderland.explore AWAIT
 
-    REFLECT "What did I learn from exploring? How does this connect to {$goal}?" SAVE AS OBSERVATION
 
     DELTA need.novelty_intake +0.15
 

@@ -172,3 +172,42 @@ def test_start_session_over_budget_records_nothing(monkeypatch, tmp_path):
     out = asyncio.run(handler({"activity": "workshop", "why": "the notation", "minutes": 45}))
     assert out == {"error": "Not started: over budget"}
     assert not (tmp_path / "wakes.json").exists() or wakes.WakeBook(tmp_path / "wakes.json").all() == []
+
+
+# ---------------------------------------------------------------------------
+# The goal executor asks for a real session instead of writing in her name (2026-11-19)
+# ---------------------------------------------------------------------------
+
+def _goal_env(monkeypatch):
+    import features
+    monkeypatch.setattr(features, "is_enabled", lambda name: True)
+    monkeypatch.setattr(WK, "wakes_available", lambda: True)
+    monkeypatch.setattr(WK, "startable", lambda: ["reflection", "growth_edge"])
+
+
+def test_goal_wake_is_one_at_a_time_and_capped(monkeypatch, tmp_path):
+    _goal_env(monkeypatch)
+    book = WK.WakeBook(tmp_path / "wakes.json")
+    now = datetime(2026, 11, 19, 9, 0)
+    ok = _Budget(True)
+    out = WK.goal_wake("reflection", "rest", "address cognitive fatigue", book=book, now=now, budget=ok)
+    assert out == {"started": "reflection", "for": "rest"}
+    [w] = book.pending()
+    assert w["started_from"] == "goal" and "didn't ask for this session" in WK.wake_why(w)
+    assert "already waiting" in WK.goal_wake("reflection", "x", "y", book=book, now=now, budget=ok)["error"]
+    for w in book._load():                       # let it finish, then fill the day's count
+        w["status"] = WK.DONE
+    items = book._load()
+    for i in range(WK.GOAL_WAKES_PER_DAY - 1):
+        items.append({"id": f"g{i}", "started_from": "goal", "status": WK.DONE, "activity": "reflection",
+                      "asked_at": now.isoformat(), "at": now.isoformat(), "why": "x"})
+    book._save([dict(w, status=WK.DONE) for w in items])
+    assert "goal sessions today" in WK.goal_wake("reflection", "x", "y", book=book, now=now, budget=ok)["error"]
+
+
+def test_goal_wake_asks_the_budget_and_the_menu(monkeypatch, tmp_path):
+    _goal_env(monkeypatch)
+    book = WK.WakeBook(tmp_path / "wakes.json")
+    assert WK.goal_wake("reflection", "x", "y", book=book, budget=_Budget(False))["error"].startswith("Not started")
+    assert "no workshop session" in WK.goal_wake("workshop", "x", "y", book=book, budget=_Budget(True))["error"]
+    assert book.pending() == []
