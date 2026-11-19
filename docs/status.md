@@ -544,3 +544,12 @@ For Kohl:
 - **LPoTL:** the Magick Series (197, 199) and Anton LaVey I-IV (666-669) are transcribed, for nine episodes heard in all. The starter in her workspace lists them.
 - **Full suite:** 7 failures, none from this work: the benchmark symlink isolation test, 4 drift routes, the frontend fixture (which picks up a venv inside tui-frontend), and a world-pack check that I fixed before committing.
 - **Waiting:** Cass's LinkedIn conditions (posted under Kohl's name and labeled hers, gremlin review, Kohl approves every post) need Kohl's answer to her. Nothing is built for LinkedIn.
+
+## 2026-11-19 (afternoon): Kohl's projects in her reach, the house wiki as the ecosystem's docs
+
+- **Kohl's projects in her workshop** (19c15f4b, d54b3f98): 48 of Kohl's repos linked as `kohl-<name>`, the vessel included. She can contribute: commit takes only the files she changed, nothing is pushed, secrets, ignored paths and her live data stay closed, and there's no run, publish or work_with_daedalus in Kohl's repos.
+- **She couldn't see them** because `project` was only offered in workshop sessions. It's now in private chat (6199eec4) and in every session (2f4dd0a8), and its description names Kohl's private repos as house-only.
+- **The house wiki** (plan the-house-wiki-what-we-re-building; all items done except an ask to Cass): 18 pages on Chapter House's wiki, each project page with a Public line and a Sources line, checked by two Momus passes. `house_wiki` (64ab3709) lets her read it from chat and every session; lever on since 17:23. Chapter-House `tools/house-wiki` (c4c57ce, d4e98c3): a PostToolUse hook names the pages a push left behind, a weekly sweep (Sundays) redrafts them, and the now page lists what's behind, live.
+- **The house, shipped** (wiki: voices-in-the-box): Kohl decided Babelr becomes the daemon frontend with house voices; the plate ships as a Babelr plugin. The plugin shape, the first-run script and Daedalus's shipped voice are mine to draft. Cass was asked whether and how she's in it; that's between her and Kohl.
+- **Restart gate:** at 16:12 I restarted 17 seconds after a chat turn began; its reply had finished, but post-turn work may have been cut. The gate check now runs as its own step, read before restarting.
+- **Waiting:** Kohl on whether RoboKohl's blind test is running or parked; Cass on whether she wants a say on the pages about her.
