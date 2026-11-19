@@ -126,6 +126,24 @@ def _since_last(runner) -> Optional[str]:
     return f"{gap} (a {kind} session)"
 
 
+# Session types with their own model assignment (llm_config). Kohl, 2026-11-18:
+# try social sessions on Sonnet without moving every session.
+SESSION_SITES = {"social": "session.social"}
+
+
+def session_call_site(session_type: str) -> str:
+    """The model assignment a session runs on: its own call site when it has one
+    with an override, else session.generic."""
+    site = SESSION_SITES.get(session_type)
+    try:
+        from llm_config import LLMConfigManager
+        if site and LLMConfigManager().override_for(site) is not None:
+            return site
+    except Exception:
+        pass
+    return "session.generic"
+
+
 def ledger_category() -> str:
     """The ledger category a session's model calls are filed under: its
     Heartbeat run's budget class (a phase unit's queue category, a wake's
@@ -353,7 +371,8 @@ async def run_session_turn(
     if client is None:
         # The call site's assignment picks the provider: Claude by default,
         # or a GPT / local model if Settings > LLM assigns one.
-        client, model = model_client_for("session.generic", model, runner.client)
+        # A session type can have its own assignment (session.social, ...), else session.generic.
+        client, model = model_client_for(session_call_site(session_type), model, runner.client)
 
     client.ledger = {**(getattr(client, "ledger", None) or {}),
                      "category": ledger_category(), "operation": f"session.{session_type}"}
@@ -407,10 +426,15 @@ async def run_session_turn(
             if waiting:
                 told.update(f.id for f in waiting)
                 return {"error": fold_mod.unanswered_note(waiting)}
+        quiet = await reviewer.quiet_end(session_type, name, tool_input)
+        if quiet is not None:
+            return quiet
         held = await reviewer.check(name, tool_input)
         if held is not None:
             return held
-        return await box.execute(name, tool_input)
+        result = await box.execute(name, tool_input)
+        reviewer.note_done(name, tool_input, result)
+        return result
 
     if folding:
         fold_mod.DESK.open_session(session_id)

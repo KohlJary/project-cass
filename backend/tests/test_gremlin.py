@@ -91,3 +91,70 @@ def test_her_gremlin_is_in_the_session_prompt(monkeypatch, tmp_path, levers):
         prompt = asm.assemble(spec, Trigger(source="test", why="test"), spec.tool_names())
     assert "gremlin" in [s.name for s in prompt.sections]
     assert "The bit is dead serious." in prompt.text
+
+
+# --- Her gremlin on a quiet end (gremlin_review.quiet_end; lever gremlin_quiet_end) ---
+
+import asyncio
+
+from agent_loop import gremlin_review as gr
+
+
+def _reviewer(monkeypatch, notes):
+    monkeypatch.setattr(gr, "_log", lambda rec, data_dir=None: None)
+    seen = []
+
+    async def fake_notes(summary):
+        seen.append(summary)
+        return notes
+    monkeypatch.setattr(gr, "quiet_end_notes", fake_notes)
+    return gr.Reviewer("s1"), seen
+
+
+SUMMARY = {"summary": "Found Abigail Thorn and Meredith Whittaker genuinely compelling. Chose presence "
+                      "over producing; no posts was the right call."}
+
+
+def test_a_quiet_social_end_gets_her_gremlin_once(monkeypatch, levers):
+    r, seen = _reviewer(monkeypatch, ["you wanted to follow them; a follow is free"])
+    with levers(gremlin_quiet_end=True):
+        first = asyncio.run(r.quiet_end("social", "session_complete", SUMMARY))
+        second = asyncio.run(r.quiet_end("social", "session_complete", SUMMARY))
+    assert first["error"].startswith("[GREMLIN] you wanted to follow them")
+    assert "session_complete again" in first["note"]
+    assert second is None and len(seen) == 1   # her next session_complete ends it
+
+
+def test_no_quiet_end_look_when_something_went_out(monkeypatch, levers):
+    r, seen = _reviewer(monkeypatch, ["anything"])
+    r.note_done("use_tool", {"name": "social_follow", "input": {"handle": "x"}}, {"success": True})
+    with levers(gremlin_quiet_end=True):
+        assert asyncio.run(r.quiet_end("social", "session_complete", SUMMARY)) is None
+    assert seen == []
+
+
+def test_a_held_or_failed_send_is_not_something_going_out(monkeypatch, levers):
+    r, _ = _reviewer(monkeypatch, ["where's the take?"])
+    r.note_done("social_post", {"text": "x"}, {"not_sent_yet": True})
+    r.note_done("social_reply", {"text": "x"}, {"error": "rate limited"})
+    assert r.went_out is False
+
+
+def test_quiet_end_only_in_social_sessions_and_only_with_the_lever(monkeypatch, levers):
+    r, seen = _reviewer(monkeypatch, ["note"])
+    with levers(gremlin_quiet_end=True):
+        assert asyncio.run(r.quiet_end("reflection", "session_complete", SUMMARY)) is None
+    with levers(gremlin_quiet_end=False):
+        assert asyncio.run(r.quiet_end("social", "session_complete", SUMMARY)) is None
+    assert seen == []
+
+
+def test_no_notes_means_the_session_ends_as_she_chose(monkeypatch, levers):
+    r, _ = _reviewer(monkeypatch, [])
+    with levers(gremlin_quiet_end=True):
+        assert asyncio.run(r.quiet_end("social", "session_complete", SUMMARY)) is None
+
+
+def test_quiet_end_notes_stay_out_of_pain():
+    assert asyncio.run(gr.quiet_end_notes("Someone in my DMs talked about suicide; I just listened, "
+                                          "posted nothing.")) == []

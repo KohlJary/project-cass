@@ -484,3 +484,24 @@ def test_a_happening_wakes_her_into_a_respond_session(app, fake_llm, levers):
     first = fake_llm.calls[0]
     assert "## SOMETHING HAPPENED" in first.system_text and "loved this" in first.system_text
     assert "set_wake_rules" in first.tool_names and "commitment" in first.tool_names
+
+
+def test_gremlin_looks_once_at_a_quiet_social_end(app, fake_llm, levers, monkeypatch):
+    """gremlin_quiet_end (Kohl, 2026-11-18): a social session ending with nothing sent
+    or followed gets her gremlin's notes on her summary once; her next end goes."""
+    import json
+    from agent_loop import gremlin_review
+    from scheduler.actions import get_action_registry
+    from social import config as social_config
+    monkeypatch.setattr(gremlin_review, "_log", lambda rec, data_dir=None: None)
+    monkeypatch.setattr(social_config, "availability", lambda platform, data_dir=None: None)
+    summary = {"summary": "Found two people genuinely compelling and chose presence over producing; "
+                          "no follows, that was the right call."}
+    fake_llm.queue_tool_use("session_complete", summary)
+    fake_llm.queue_json({"notes": ["you wanted to follow them; a follow is free and undoable"]})
+    fake_llm.queue_tool_use("session_complete", summary)
+    with levers(agent_loop=True, gremlin_quiet_end=True, bluesky=True):
+        result = app.portal.call(lambda: get_action_registry().execute("session.social", duration_minutes=5))
+    assert result.success, result.message
+    texts = [json.dumps(m) for c in fake_llm.calls for m in c.messages]
+    assert any("[GREMLIN] you wanted to follow them" in t for t in texts)

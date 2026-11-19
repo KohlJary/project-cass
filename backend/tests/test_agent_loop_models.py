@@ -467,3 +467,15 @@ def test_a_found_tool_called_by_name_runs_through_use_tool():
                                also_callable={"get_recent_activity"}))
     assert seen[0] == ("use_tool", {"name": "get_recent_activity", "input": {"days": 2}})
     assert "isn't available here" in out.steps[1].tool_results[0]["result"]["error"]
+
+
+def test_a_social_session_runs_on_its_own_assignment_when_set():
+    """session.social (Kohl, 2026-11-18: try social on Sonnet): its override wins for
+    social sessions only; without one, social runs on session.generic like the rest."""
+    from agent_loop.session import session_call_site
+    from llm_config import LLMConfigManager, ModelAssignment
+    assert session_call_site("social") == "session.generic"
+    LLMConfigManager().set("session.social", ModelAssignment("anthropic", "claude-sonnet-4-6"))
+    assert session_call_site("social") == "session.social"
+    assert session_call_site("reflection") == "session.generic"
+    assert session_call_site("no_such_type") == "session.generic"

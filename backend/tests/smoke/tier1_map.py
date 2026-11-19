@@ -268,6 +268,11 @@ LEVER_COVERAGE = {
         "tests": [f"{AGENT_LOOP}::test_gremlin_notes_hold_a_draft_once_then_it_goes"],
         "note": "One session through the registry with the fake LLM: a Chapter House post is held for the gremlin's notes, and the revised post goes on the next call. Fast-suite: tests/test_gremlin_review.py.",
     },
+    "gremlin_quiet_end": {
+        "depth": "gate",
+        "tests": [f"{AGENT_LOOP}::test_gremlin_looks_once_at_a_quiet_social_end"],
+        "note": "One social session through the registry with the fake LLM: ending with nothing out gets the gremlin's notes once, and the second session_complete ends it. Fast-suite: tests/test_gremlin.py.",
+    },
     "prompt_gremlin": {
         "depth": "none",
         "tests": [],

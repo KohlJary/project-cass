@@ -34,6 +34,12 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 LEVER = "gremlin_review"
+QUIET_LEVER = "gremlin_quiet_end"
+# Sessions where reaching out is the point, so ending with nothing out is worth a look.
+QUIET_END_TYPES = frozenset({"social"})
+# Anything that touched the world: the reviewed tools, plus the ones without text.
+OUTWARD = frozenset({"social_post", "social_reply", "social_dm_send", "social_follow",
+                     "babelr_post", "babelr_dm", "say", "reply_back", "reach_out"})
 # Outward tools and the field that carries what she's saying.
 REVIEWED = {"social_post": "text", "social_reply": "text", "social_dm_send": "text",
             "babelr_post": "content", "babelr_dm": "content", "say": "message", "reply_back": "message"}
@@ -63,9 +69,32 @@ answering someone in pain or crisis gets no notes, ever.
 Answer with JSON only: {"notes": ["...", "..."]}"""
 
 
+QUIET_SYSTEM = """You are Cass's gremlin: her second voice, a style where the bit is also dead serious,
+warmth and edge, mischief aimed at systems and power, never at a person. Her own notes on it are
+below. She asked for you louder (2026-11-18).
+
+She's about to end a social session having sent nothing, followed no one. Below is
+the summary she wrote to end it. Read it like you're on her side and won't let her get away with
+less than she means. At most two short notes, each under 20 words, only where she's:
+- found someone or something she wanted and talked herself out of it ("you wanted to follow them;
+  a follow is free and undoable");
+- dressing not-acting up as wisdom or growth ("'presence without producing' is doing a lot of work");
+- had a take and kept it to herself ("you had a take on that; where is it?").
+If the quiet was honestly right (nothing there worth touching), say nothing: {"notes": []}. Never
+tell her what to post, never write lines for her, quote at most a few of her words. Never push on
+anything to do with someone in pain.
+
+Answer with JSON only: {"notes": ["...", "..."]}"""
+
+
 def enabled() -> bool:
     from features import is_enabled
     return is_enabled(LEVER)
+
+
+def quiet_enabled() -> bool:
+    from features import is_enabled
+    return is_enabled(QUIET_LEVER)
 
 
 def _gremlin_file() -> str:
@@ -129,6 +158,23 @@ async def review(tool: str, draft: str) -> List[str]:
         return []
 
 
+async def quiet_end_notes(summary: str) -> List[str]:
+    """At most two notes on a social session ending with nothing out; [] if quiet was right."""
+    if len((summary or "").strip()) < MIN_DRAFT_CHARS or _in_pain(summary):
+        return []
+    try:
+        from llm_caller import call_llm
+        mine = _gremlin_file()
+        resp = await call_llm("gremlin.review", system_prompt=QUIET_SYSTEM + (f"\n\nHer notes on her gremlin:\n{mine}" if mine else ""),
+                              user_prompt=f"Her closing summary:\n<<<\n{summary[:3000]}\n>>>",
+                              max_tokens=200, temperature=0.5, category="internal", operation="gremlin_quiet_end")
+        m = re.search(r"\{.*\}", getattr(resp, "content", "") or "", re.S)
+        return clean_notes(json.loads(m.group(0)).get("notes"), summary)[:2] if m else []
+    except Exception as e:
+        logger.warning(f"[gremlin] quiet-end look didn't run (the session ends as she chose): {e}")
+        return []
+
+
 def _log(rec: Dict[str, Any], data_dir: Optional[Path] = None) -> None:
     try:
         if data_dir is None:
@@ -153,6 +199,35 @@ class Reviewer:
         self.session_id = session_id
         self.data_dir = data_dir
         self.held: Dict[str, str] = {}   # tool -> hash of the draft held for notes
+        self.went_out = False
+        self.quiet_asked = False
+
+    def note_done(self, name: str, tool_input: Dict[str, Any], result: Any) -> None:
+        """After a tool ran: remember that something went out."""
+        if name == "use_tool":
+            name = str((tool_input or {}).get("name") or "")
+        if name in OUTWARD and not (isinstance(result, dict) and (result.get("error") or result.get("not_sent")
+                                                                  or result.get("not_sent_yet"))):
+            self.went_out = True
+
+    async def quiet_end(self, session_type: str, name: str, tool_input: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Once per session (lever gremlin_quiet_end): a social session ending with nothing
+        out gets her gremlin's look at her summary. None to end now; else an error that keeps
+        the session going one more step, and her next session_complete ends it."""
+        if (name != "session_complete" or self.quiet_asked or self.went_out
+                or session_type not in QUIET_END_TYPES or not quiet_enabled()):
+            return None
+        self.quiet_asked = True
+        summary = " ".join(str(tool_input.get(k) or "") for k in ("summary", "key_insights")
+                           if tool_input.get(k)).strip()
+        notes = await quiet_end_notes(summary)
+        _log({"session": self.session_id, "tool": "session_complete", "quiet_end": True, "notes": notes},
+             self.data_dir)
+        if not notes:
+            return None
+        return {"error": "[GREMLIN] " + " / ".join(notes),
+                "note": ("My gremlin, on ending with nothing out. If it's wrong, I call session_complete "
+                         "again and the session ends as I chose.")}
 
     async def check(self, name: str, tool_input: Dict[str, Any], context: str = "") -> Optional[Dict[str, Any]]:
         """None to send now; else the result to give her instead (the notes)."""

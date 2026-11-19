@@ -186,6 +186,10 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "a Bluesky post/reply/DM, a Chapter House post/DM or a say goes out, one cheap call gives at most two "
            "notes (never rewrites); she revises or sends as is. Skips anything answering pain or crisis.",
            LLM, default=False, where="agent_loop/session.run_session_turn execute"),
+    _lever("gremlin_quiet_end", "Her gremlin on a quiet end (agent_loop/gremlin_review.py): a social session "
+           "ending with nothing sent or followed gets at most two notes on her closing summary, once; "
+           "her next session_complete ends it as she chose.",
+           LLM, default=False, where="agent_loop/session.run_session_turn execute"),
     _lever("prompt_gremlin", "Her gremlin (gremlin.py): her GREMLIN.md, a style where the bit is also dead "
            "serious, started from Kohl's and hers to rewrite, in her chat (public rooms too) and sessions",
            PROMPT, where="continuous_context.build_continuous_context, agent_loop/assemble.py"),

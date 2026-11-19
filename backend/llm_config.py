@@ -350,6 +350,11 @@ CALL_SITES: dict[str, CallSite] = _sites(
     CallSite("session.generic", from_caller("DEFAULT_SESSION_MODEL or the session's model", f"anthropic:{HAIKU}"),
              "Autonomous sessions", "GenericSessionRunner tool loop (research, reflection, ...)", "per session turn",
              text_only=False),
+    # Per-type assignment (Kohl, 2026-11-18: try social sessions on Sonnet). With no
+    # override it runs whatever session.generic runs.
+    CallSite("session.social", from_caller("session.generic's model", f"anthropic:{HAIKU}"),
+             "Social sessions", "Bluesky social session tool loop (falls back to session.generic)",
+             "per session turn", category="autonomous", text_only=False),
     CallSite("session.legacy", from_caller("BaseSessionRunner haiku/ollama model", f"anthropic:{HAIKU}"),
              "Legacy session runner", "BaseSessionRunner tool loop", "per session turn", category="autonomous",
              text_only=False),
