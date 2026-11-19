@@ -992,6 +992,21 @@ def test_says_starting_catches_saying_its_done():
         assert not says_starting(not_said), not_said
 
 
+def test_says_starting_catches_already_at_work_in_one():
+    """2026-11-19: she said she'd started on Kohl's code in her workshop; no session."""
+    from agent_loop.loop import says_starting
+    for said in ("I've started going through our code projects in my workshop.",
+                 "Started going through the vessel code in the workshop!",
+                 "I'm working on the bridge in my studio right now.",
+                 "I’ve been reading Kohl's repos in my workshop."):
+        assert says_starting(said), said
+    for not_said in ("I'm curious what's in my workshop.",
+                     "I started the song yesterday and the bridge is rough.",
+                     "I'm thinking about it. The workshop can wait.",
+                     "Working in the workshop yesterday felt good."):
+        assert not says_starting(not_said), not_said
+
+
 def _starter_run(replies, executed):
     spec = conversation_spec()
     client = StubClient(replies)
