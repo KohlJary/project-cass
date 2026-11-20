@@ -37,6 +37,7 @@ DAEDALUS_USER_ID = "7fe31ade-e3d2-42b7-a128-e0e3a6b46fa1"
 CREDENTIALS_FILE = DATA_DIR / "daedalus_credentials.json"
 STATE_FILE = DATA_DIR / "daedalus_chat_state.json"
 API_BASE = "http://localhost:8000"
+CHAT_TIMEOUT = int(__import__("os").environ.get("CASS_CHAT_TIMEOUT", 600))
 
 
 def load_credentials():
@@ -238,7 +239,7 @@ def send_message(message: str, conversation_id: str = None, new: bool = False, i
             f"{API_BASE}/chat",
             json=payload,
             headers=get_auth_headers(),
-            timeout=120  # LLM responses can be slow
+            timeout=CHAT_TIMEOUT  # a turn where she uses tools (a studio render) runs minutes
         )
         response.raise_for_status()
         data = response.json()
@@ -258,7 +259,8 @@ def send_message(message: str, conversation_id: str = None, new: bool = False, i
         }
 
     except requests.exceptions.Timeout:
-        return {"success": False, "error": "Request timed out (120s)"}
+        return {"success": False, "error": f"No reply within {CHAT_TIMEOUT}s. Her turn keeps running on the "
+                                           f"server; read it later with: history {conv_id}"}
     except requests.exceptions.ConnectionError:
         return {"success": False, "error": "Could not connect to Cass backend. Is it running?"}
     except requests.exceptions.HTTPError as e:
