@@ -42,8 +42,10 @@ def get_or_create_daemon(label: str = "cass", kernel_version: str = "temple-code
 
 
 def get_daemon_id() -> str:
-    """Get the default daemon ID (Cass)."""
-    return get_or_create_daemon("cass")
+    """This house's daemon: Cass in Kohl's house, or the one `house up` named (CASS_DAEMON_LABEL)."""
+    import os
+    return get_or_create_daemon(os.getenv("CASS_DAEMON_LABEL", "cass"),
+                                name=os.getenv("CASS_DAEMON_NAME", "Cass"))
 
 
 def get_daemon_info(daemon_id: str) -> dict:

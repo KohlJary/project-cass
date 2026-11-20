@@ -16,3 +16,11 @@ def test_init_passes_the_name_through(test_db, monkeypatch):
     monkeypatch.setattr(json_migrations, "run_migrations", lambda _id: None, raising=False)
     did = migrations.init_database_with_migrations("ember", "Ember")
     assert get_daemon_entity_name(did) == "Ember"
+
+
+def test_the_default_daemon_is_this_houses(test_db, monkeypatch):
+    from database.daemon import get_daemon_id, get_daemon_info
+    monkeypatch.setenv("CASS_DAEMON_LABEL", "wren")
+    monkeypatch.setenv("CASS_DAEMON_NAME", "Wren")
+    info = get_daemon_info(get_daemon_id())
+    assert (info["label"], info["name"]) == ("wren", "Wren")
