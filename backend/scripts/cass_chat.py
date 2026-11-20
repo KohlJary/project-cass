@@ -9,6 +9,7 @@ Usage:
     python scripts/cass_chat.py send "Your message here"
     python scripts/cass_chat.py send "Message" --conversation-id <id>
     python scripts/cass_chat.py send "Message" --new  # Force new conversation
+    python scripts/cass_chat.py send "Message" --image pic.png  # Show her a picture
     python scripts/cass_chat.py list                  # List recent conversations
     python scripts/cass_chat.py history <conv_id>    # Show conversation history
     python scripts/cass_chat.py summary <conv_id>    # Show working summary
@@ -171,7 +172,22 @@ def create_conversation(title: str = None) -> dict:
         return {"success": False, "error": str(e)}
 
 
-def send_message(message: str, conversation_id: str = None, new: bool = False) -> dict:
+def encode_image(path: str, max_side: int = 1024) -> tuple:
+    """(media_type, base64) for a picture to show her, shrunk so the longest side is max_side."""
+    import base64
+    import io
+    from PIL import Image
+    im = Image.open(path)
+    im.thumbnail((max_side, max_side))
+    buf = io.BytesIO()
+    if im.mode in ("RGBA", "LA", "P"):
+        im.convert("RGBA").save(buf, "PNG")
+        return "image/png", base64.b64encode(buf.getvalue()).decode()
+    im.convert("RGB").save(buf, "JPEG", quality=88)
+    return "image/jpeg", base64.b64encode(buf.getvalue()).decode()
+
+
+def send_message(message: str, conversation_id: str = None, new: bool = False, image: str = None) -> dict:
     """
     Send a message to Cass and get the response.
 
@@ -214,6 +230,8 @@ def send_message(message: str, conversation_id: str = None, new: bool = False) -
         "message": message,
         "conversation_id": conv_id,
     }
+    if image:   # a picture to show her (POST /chat takes one image per message)
+        payload["image_media_type"], payload["image"] = encode_image(image)
 
     try:
         response = requests.post(
@@ -327,7 +345,8 @@ def cmd_send(args):
     result = send_message(
         message=args.message,
         conversation_id=args.conversation_id,
-        new=args.new
+        new=args.new,
+        image=args.image,
     )
 
     if result["success"]:
@@ -430,6 +449,7 @@ def main():
     send_parser.add_argument("message", help="The message to send")
     send_parser.add_argument("-c", "--conversation-id", help="Continue specific conversation")
     send_parser.add_argument("-n", "--new", action="store_true", help="Start new conversation")
+    send_parser.add_argument("-i", "--image", help="A picture to show her with the message (a file path)")
     send_parser.set_defaults(func=cmd_send)
 
     # list command
