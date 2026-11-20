@@ -26,4 +26,13 @@ def test_a_voice_sheet_follows_the_origin(tmp_path, monkeypatch):
     monkeypatch.setenv("CASS_DAEMON_VOICE_PATH", str(v))
     monkeypatch.delenv("CASS_DAEMON_ORIGIN_PATH", raising=False)
     k = get_temple_codex_kernel("Eris")
-    assert k.rstrip().endswith("Verdict first.") and "## HOW YOU SOUND" in k
+    assert "## HOW YOU SOUND" in k and k.index("Verdict first.") < k.index("## CORE IDENTITY")
+    # Cass's style and visible-thinking sections give way to the daemon's own voice.
+    assert "## COMMUNICATION STYLE" not in k and "## VISIBLE THINKING" not in k
+
+
+def test_cass_kernel_is_unchanged_without_house_words(monkeypatch):
+    monkeypatch.delenv("CASS_DAEMON_ORIGIN_PATH", raising=False)
+    monkeypatch.delenv("CASS_DAEMON_VOICE_PATH", raising=False)
+    k = get_temple_codex_kernel("Cass")
+    assert "## COMMUNICATION STYLE" in k and "## VISIBLE THINKING" in k and "HOW YOU SOUND" not in k

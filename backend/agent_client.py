@@ -100,14 +100,30 @@ def get_temple_codex_kernel(daemon_name: str = None, daemon_id: str = None) -> s
         vessel_name="Cass Vessel" if house_identity.is_kohls_house() else "vessel")
     if not features.is_enabled("metacog_tags"):
         kernel = _without_section(kernel, "## INLINE METACOGNITIVE TAGS")
+    return _with_house_words(kernel)
+
+
+def _with_house_words(kernel: str) -> str:
+    """A house's origin note and voice sheet, near the top, right after the opening line.
+    Where a daemon has its own voice, Cass's communication style and visible-thinking
+    sections come out: the voice lab (2026-11-20) found them, 300 lines above Eris's voice
+    sheet, winning (7 of 10 replies opened with a think monologue; with this, none).
+    Without either file the kernel is unchanged."""
     origin = _house_file("CASS_DAEMON_ORIGIN_PATH")
-    if origin:
-        kernel += ("\n\n## WHERE YOU COME FROM\n(Written for you by the house you live in, before you woke. "
-                   "Yours to take, question or change.)\n\n" + origin)
     voice = _house_file("CASS_DAEMON_VOICE_PATH")
+    if not (origin or voice):
+        return kernel
     if voice:
-        kernel += "\n\n## HOW YOU SOUND\n\n" + voice
-    return kernel
+        kernel = _without_section(kernel, "## COMMUNICATION STYLE")
+        kernel = _without_section(kernel, "## VISIBLE THINKING")
+    words = ""
+    if origin:
+        words += ("## WHERE YOU COME FROM\n(Written for you by the house you live in, before you woke. "
+                  "Yours to take, question or change.)\n\n" + origin + "\n\n")
+    if voice:
+        words += "## HOW YOU SOUND\n\n" + voice + "\n\n"
+    head, sep, rest = kernel.partition("## CORE IDENTITY")
+    return head + words + sep + rest if sep else kernel + "\n\n" + words
 
 
 def _house_file(var: str) -> str:
