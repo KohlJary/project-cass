@@ -5,6 +5,7 @@ Handles Cass's image generation tool calls via ComfyUI.
 Supports text-to-image, image refinement, variations, and upscaling.
 """
 
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -30,7 +31,12 @@ def _state_when_made(state_bus) -> Optional[Dict[str, Any]]:
         try:
             from dataclasses import asdict, is_dataclass
             emotional = state_bus.read_state().emotional
-            out["emotional"] = asdict(emotional) if is_dataclass(emotional) else dict(vars(emotional))
+            # to_dict gives last_updated as text; asdict kept the datetime, so saving the
+            # image record failed after every render (2026-11-19, her pfps).
+            if hasattr(emotional, "to_dict"):
+                out["emotional"] = emotional.to_dict()
+            else:
+                out["emotional"] = asdict(emotional) if is_dataclass(emotional) else dict(vars(emotional))
         except Exception as e:
             logger.warning(f"Could not read her emotional state: {e}")
     try:
@@ -193,7 +199,7 @@ async def handle_generate_image(
                     result["height"],
                     result["generation_time_ms"],
                     result["seed"],
-                    json_serialize(emotional_state) if emotional_state else None,
+                    json.dumps(emotional_state, default=str) if emotional_state else None,
                     result.get("generation_type", "txt2img"),
                     result.get("iteration_number", 1),
                     json_serialize(result.get("params")),
