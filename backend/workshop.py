@@ -48,7 +48,8 @@ RUN_MEMORY = 4 * 1024 * 1024 * 1024
 # /lib64 inside the sandbox: Ubuntu keeps the loader in /usr/lib64; on Arch /usr/lib64 is a link to lib.
 LIB64 = "usr/lib64" if os.path.isdir("/usr/lib64") else "usr/lib"
 RUN_OUTPUT = 12_000
-AUTHOR = ("Cass", "cass@vessel.local")
+# The vessel's own daemon signs its commits (Cass here; another house's daemon there).
+AUTHOR = (os.getenv("CASS_DAEMON_NAME", "Cass"), f"{os.getenv('CASS_DAEMON_LABEL', 'cass')}@vessel.local")
 
 
 def root(data_dir: Optional[Path] = None) -> Path:
@@ -277,10 +278,9 @@ def new(name: str, kind: str, vision: str, data_dir: Optional[Path] = None) -> D
 def list_projects(data_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     out = []
     base = root(data_dir)
-    if not base.exists():
-        return out
-    _kohl_fresh(data_dir)
-    for p in sorted(base.iterdir()):
+    if base.exists():
+        _kohl_fresh(data_dir)
+    for p in (sorted(base.iterdir()) if base.exists() else []):
         if p.name.startswith(".") or not ((p / META).is_file() or _kohls(p, data_dir)):
             continue
         m = meta(p, data_dir)
@@ -288,6 +288,12 @@ def list_projects(data_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
         at, _, subject = last.partition("|")
         out.append({"project": p.name, "name": m.get("name"), "kind": m.get("kind"),
                     "last_commit": at[:16].replace("T", " "), "last_message": subject})
+    import house_share
+    have = {o["project"] for o in out}
+    for o in house_share.offered_to_me():
+        if o["project"] not in have:
+            out.append({"project": o["project"], "name": o.get("name"), "kind": f"shared by {o['from']}, not joined",
+                        "note": "project join takes a working copy"})
     return out
 
 
@@ -391,7 +397,12 @@ def commit(slug: str, message: str, data_dir: Optional[Path] = None) -> Dict[str
     if not _git(p, "status", "--porcelain").strip():
         return {"error": "nothing has changed since the last commit"}
     _git(p, "commit", "-q", "-m", message.strip())
-    return {"success": True, "commit": _git(p, "rev-parse", "--short", "HEAD").strip()}
+    out = {"success": True, "commit": _git(p, "rev-parse", "--short", "HEAD").strip()}
+    import house_share
+    note = house_share.after_commit(p)
+    if note:
+        out["shared"] = note
+    return out
 
 
 def log(slug: str, n: int = 20, data_dir: Optional[Path] = None) -> Dict[str, Any]:
@@ -547,12 +558,15 @@ PROJECT_TOOL: Dict[str, Any] = {
                     "out in public. action: new (name, kind, vision), list, status "
                     "(project), files, read (path), write (path, content), edit (path, old, new), commit "
                     "(message), log, run (command; software projects, sandboxed, no network), publish "
-                    "(to my GitHub, private unless I say public), profile (my GitHub name and bio, in my words)."),
+                    "(to my GitHub, private unless I say public), profile (my GitHub name and bio, in my words), "
+                    "share (project, with: a housemate daemon; they get a working copy and our commits sync), "
+                    "unshare (project, with), join (a project a housemate shared with me), sync (pull theirs, push mine)."),
     "input_schema": {
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["new", "list", "status", "files", "read", "write", "edit",
-                                                  "commit", "log", "run", "publish", "profile"]},
+                                                  "commit", "log", "run", "publish", "profile",
+                                                  "share", "unshare", "join", "sync"]},
             "project": {"type": "string"}, "name": {"type": "string"},
             "kind": {"type": "string", "enum": list(KINDS)}, "vision": {"type": "string"},
             "path": {"type": "string"}, "content": {"type": "string"},
@@ -560,6 +574,7 @@ PROJECT_TOOL: Dict[str, Any] = {
             "message": {"type": "string"}, "command": {"type": "string"}, "n": {"type": "integer"},
             "visibility": {"type": "string", "enum": ["private", "public"]},
             "bio": {"type": "string", "description": "profile: up to 160 characters"},
+            "with": {"type": "string", "description": "share/unshare: the housemate (daemon) by name"},
         },
         "required": ["action"],
     },
@@ -594,6 +609,19 @@ def handle(a: Dict[str, Any], data_dir: Optional[Path] = None) -> Dict[str, Any]
             return run(slug, a.get("command") or "", data_dir)
         if action == "publish":
             return publish(slug, a.get("visibility") or "private", data_dir)
-        return {"error": "action is one of: new, list, status, files, read, write, edit, commit, log, run, publish, profile"}
+        import house_share
+        if action == "join":
+            return house_share.join(root(data_dir), slug)
+        if action in ("share", "unshare", "sync"):
+            p = _project(slug, data_dir)
+            if action == "sync":
+                return house_share.sync(p)
+            if _kohls(p, data_dir) or house_share.is_shared_clone(p):
+                return {"error": "only my own projects can be shared or unshared by me"}
+            if action == "share":
+                return house_share.share(p, slugify(slug), a.get("with") or "", meta(p, data_dir).get("name") or slug)
+            return house_share.unshare(slugify(slug), a.get("with") or "")
+        return {"error": "action is one of: new, list, status, files, read, write, edit, commit, log, run, publish, "
+                         "profile, share, unshare, join, sync"}
     except (ValueError, RuntimeError, OSError) as e:
         return {"error": str(e)}
