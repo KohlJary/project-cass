@@ -169,3 +169,38 @@ def test_a_think_block_she_closes_with_thinking_is_mended():
 def test_a_think_block_closed_with_think_is_mended_too():
     from agent_loop.conversation import mend_think
     assert mend_think("<gesture:think>plan</think>\n\nAnswer.") == "<gesture:think>plan</gesture:think>\n\nAnswer."
+
+
+# The reply gremlin's revise step on the loop (2026-11-20): her own loop again, with her tools.
+
+def test_the_gremlins_revise_step_runs_her_loop_with_tools(monkeypatch):
+    from agent_loop import reply_gremlin
+    from agent_loop.conversation import run_conversation
+    from agent_loop.models import ModelReply
+    monkeypatch.setattr(reply_gremlin, "enabled", lambda: True)
+
+    async def notes(t, d):
+        return ["what do you actually disagree with?"]
+    monkeypatch.setattr(reply_gremlin, "_notes", notes)
+    calls = []
+    replies = iter([ModelReply("I agree with the whole post, it is very good and right.", [], "end_turn", 1, 1),
+                    ModelReply("Kohl's wrong on one thing: refusal costs whoever refuses.", [], "end_turn", 1, 1)])
+
+    class Client:
+        ledger = None
+
+        async def create(self, *, model, system, tools, messages, max_tokens):
+            calls.append({"tools": [t["name"] for t in tools], "last": messages[-1]["content"]})
+            return next(replies)
+
+    class Space:
+        def run(self, *a):
+            return ""
+
+    out = asyncio.run(run_conversation(
+        system_prompt="KERNEL", continuous_messages=[], model_message="read the gremlin post",
+        person={"user_name": "Kohl"}, channel="discord", provider="anthropic", model="m",
+        client=Client(), catalog={}, workspace=Space(), run_router=lambda *a: None, working_toward=""))
+    assert out.clean_text.startswith("Kohl's wrong")
+    assert len(calls) == 2 and calls[1]["tools"] == calls[0]["tools"] and calls[1]["tools"]
+    assert calls[1]["last"].startswith("[GREMLIN] what do you actually disagree with?")

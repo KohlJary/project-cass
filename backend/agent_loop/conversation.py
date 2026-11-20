@@ -371,9 +371,24 @@ async def run_conversation(
         # what's sent is stored, never the draft.
         from . import reply_gremlin
         if reply_gremlin.enabled() and last:
+            revise_steps: List[Any] = []
+
+            async def revise(msgs):
+                # Her own loop again, briefly, with her tools: the gremlin's question
+                # may need a second look (Kohl, 2026-11-20: a gap, not a worse reply).
+                import dataclasses
+                again = await run_loop(
+                    spec=dataclasses.replace(spec, max_iterations=reply_gremlin.REVISE_STEPS), client=client,
+                    model=model, system=system, tools=tools, messages=msgs, execute=execute,
+                    end_tool="hold_reply", nudges=0, also_callable=set(box.findable))
+                revise_steps.extend(again.steps)
+                return mend_think(next((st.text for st in reversed(again.steps) if st.text), ""))
+
             sent = await reply_gremlin.review(
                 client=client, model=model, system=system, messages=turn_messages,
-                their=user_message if user_message is not None else (model_message or ""), draft=last)
+                their=user_message if user_message is not None else (model_message or ""), draft=last,
+                revise=revise)
+            outcome.steps.extend(revise_steps)
             if sent != last:
                 raw = raw[: len(raw) - len(last)] + sent if raw.endswith(last) else sent
                 last = sent

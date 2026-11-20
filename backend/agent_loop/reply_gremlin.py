@@ -39,6 +39,13 @@ NUDGE = re.compile(r"^\s*\[(system|relay|nudge|babelr relay)\b", re.I)
 PRIVATE = ("(Your gremlin, not a person, and nobody else sees it. Send it as it was or revised: "
            "reply with only what you'd post, and never mention the gremlin or the revision. "
            "No tools in this step: what you did this turn is done, only the words change.)")
+# When the revise step can use the turn's tools (conversation.py passes `revise`):
+# the gremlin's question may need a second look, a keep, a check.
+PRIVATE_TOOLS = ("(Your gremlin, not a person, and nobody else sees it. If its notes send you back to look again, "
+                 "keep something, or check a fact, use your tools; then reply with only what you'd post, the draft "
+                 "as it was or revised. Never mention the gremlin or the revision.)")
+REVISE_STEPS = 4
+
 # A revision that announces work instead of saying the thing, or types out a tool
 # call (there are no tools in the revise step): the draft goes out instead. Voice
 # lab, 2026-11-20: "Alright. Let me actually read this thing. blog_read ..."
@@ -128,7 +135,9 @@ async def _notes(their: str, draft: str) -> List[str]:
 
 
 async def review(*, client: Any, model: str, system: str, messages: List[Dict[str, Any]],
-                 their: str, draft: str, data_dir: Optional[Path] = None) -> str:
+                 their: str, draft: str, data_dir: Optional[Path] = None, revise: Any = None) -> str:
+    """`revise`, when given, is async (messages) -> text: one more short run of the
+    daemon's own loop, with its tools (conversation.py). Without it, one tool-less call."""
     """The reply to send: the draft, or its one revision. Never raises."""
     why = skip_reason(their, draft)
     if why == "off":
@@ -148,11 +157,16 @@ async def review(*, client: Any, model: str, system: str, messages: List[Dict[st
         _log({**rec, "notes": [], "revised": False}, data_dir)
         return clean
     try:
-        reply = await client.create(
-            model=model, system=system, tools=[], max_tokens=1500,
-            messages=list(messages) + [{"role": "assistant", "content": clean},
-                                       {"role": "user", "content": "[GREMLIN] " + " / ".join(notes) + "\n" + PRIVATE}])
-        revised = THINK.sub("", reply.text or "").strip()
+        back = list(messages) + [{"role": "assistant", "content": clean}]
+        notes_line = "[GREMLIN] " + " / ".join(notes) + "\n"
+        if revise is not None:
+            text = await revise(back + [{"role": "user", "content": notes_line + PRIVATE_TOOLS}])
+        else:
+            reply = await client.create(
+                model=model, system=system, tools=[], max_tokens=1500,
+                messages=back + [{"role": "user", "content": notes_line + PRIVATE}])
+            text = reply.text
+        revised = THINK.sub("", text or "").strip()
     except Exception as e:
         logger.warning(f"[reply_gremlin] revise didn't run (the draft goes out): {e}")
         revised = ""

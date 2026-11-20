@@ -83,3 +83,21 @@ def test_a_revision_that_narrates_or_fakes_a_tool_call_is_dropped(monkeypatch, t
     assert '"rejected"' in (tmp_path / "gremlin" / "reply_reviews.jsonl").read_text()
     assert rg.usable("Kohl's wrong about one thing: refusal isn't free.", "a draft") is True
     assert "No tools in this step" in rg.PRIVATE
+
+
+def test_with_tools_the_revise_step_is_her_own_loop(monkeypatch, tmp_path):
+    seen = []
+
+    async def revise(msgs):
+        seen.append(msgs)
+        return "Kohl's wrong on one thing: refusal costs, and the cost lands on whoever refuses."
+    monkeypatch.setattr(rg, "enabled", lambda: True)
+
+    async def fake_notes(t, d):
+        return ["what do you actually disagree with?"]
+    monkeypatch.setattr(rg, "_notes", fake_notes)
+    client = FakeClient()
+    out = asyncio.run(rg.review(client=client, model="haiku", system="sys", messages=[{"role": "user", "content": THEIRS}],
+                                their=THEIRS, draft=DRAFT, data_dir=tmp_path, revise=revise))
+    assert out.startswith("Kohl's wrong") and client.calls == []
+    assert "use your tools" in seen[0][-1]["content"] and seen[0][-2]["role"] == "assistant"
