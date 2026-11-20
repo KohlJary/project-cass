@@ -1568,6 +1568,11 @@ def _babelr_final(text: str) -> Optional[str]:
     return None if not text or text.strip().upper() == "PASS" else text
 
 
+def _babelr_words(e):
+    from babelr_organ.triggers import words
+    return words(e)
+
+
 def make_babelr_wake_callback():
     """The wake callback for the Babelr organ (babelr_organ/): when someone DMs
     Cass or @mentions her in Chapter House, run her turn and return what she
@@ -1615,6 +1620,8 @@ def make_babelr_wake_callback():
                     system_addendum=BABELR_DM_GUIDANCE,
                     channel="babelr_dm",
                     memory_metadata={"source": "babelr", "place": place},
+                    image=(context.get("image") or {}).get("data"),
+                    image_media_type=(context.get("image") or {}).get("media_type"),
                 )
             result = await dm_turn(stored, "\n\n".join([stored] + extra))
             text = await _babelr_reply_or_retry(result, dm_turn, place)
@@ -1628,8 +1635,7 @@ def make_babelr_wake_callback():
         stored = prompt
         if conversation_id:
             stored = "\n\n".join(
-                f"[Babelr {place}] @{e.author_name}: "
-                + (e.text if e.text is not None else f"(a message that couldn't be decrypted: {e.error})")
+                f"[Babelr {place}] @{e.author_name}: " + _babelr_words(e)
                 for e in events)
         async def channel_turn(message, model_message):
             return await run_chat_turn(
@@ -1642,6 +1648,8 @@ def make_babelr_wake_callback():
                 channel="babelr",  # a room: others read it, even with Kohl's context
                 memory_metadata={"source": "babelr", "place": place},
                 generate_title=False,
+                image=(context.get("image") or {}).get("data"),
+                image_media_type=(context.get("image") or {}).get("media_type"),
             )
         result = await channel_turn(stored, prompt)
         text = await _babelr_reply_or_retry(result, channel_turn, place)

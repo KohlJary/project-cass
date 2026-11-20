@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 class TriggerPriority(str, Enum):
@@ -25,6 +25,17 @@ class TriggerAction(str, Enum):
     WAKE_CASS = "wake_cass"
     LOG_FOR_SNAPSHOT = "log_snapshot"
     NO_ACTION = "no_action"
+
+
+IMAGE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
+
+
+def words(event: "BabelrEvent") -> str:
+    """What they sent, as text: their words, plus a line for each file with it."""
+    body = event.text if event.text is not None else f"(a message that couldn't be decrypted: {event.error})"
+    files = [f"[sent {'a picture' if (a.get('contentType') or '') in IMAGE_TYPES else 'a file'}: {a.get('filename') or 'untitled'}]"
+             for a in event.attachments or []]
+    return "\n".join([b for b in [body.strip()] if b] + files)
 
 
 @dataclass
@@ -42,6 +53,7 @@ class BabelrEvent:
     channel_id: Optional[str] = None
     partner_id: Optional[str] = None
     error: Optional[str] = None    # set when a DM couldn't be decrypted
+    attachments: List[Dict[str, Any]] = field(default_factory=list)  # [{url, filename, contentType}]
 
     def to_dict(self) -> Dict[str, Any]:
         return dict(self.__dict__)

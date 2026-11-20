@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Callable, Deque, Dict, List, Optional
 from babelr_organ.config import BabelrConfig, babelr_enabled, load_config
 from babelr_organ.state import OrganState
 from babelr_organ.terms import Terms, ensure_terms_file
-from babelr_organ.triggers import BabelrEvent, TriggerAction, evaluate
+from babelr_organ.triggers import IMAGE_TYPES, BabelrEvent, TriggerAction, evaluate, words
 
 try:
     from babelr_agent import Agent, BabelrError
@@ -60,6 +60,24 @@ PART_MARK_ROOM = 12  # room for the "\n\n(1/5)" marker on a part
 # the watch list, which are checked every poll. A Retry pressed when nothing
 # was watching it (a restart, a reply that died with the process) still lands.
 RETRY_SCAN_POLLS = 15
+
+
+# The model takes an image up to 5 MB, base64'd; leave room.
+IMAGE_MAX_BYTES = 3_500_000
+
+
+def _fit(data: bytes, media_type: str):
+    """A picture small enough to send: as it is, or scaled down to a JPEG."""
+    if len(data) <= IMAGE_MAX_BYTES:
+        return data, media_type
+    import io
+    from PIL import Image
+    img = Image.open(io.BytesIO(data))
+    img = img.convert("RGB")
+    img.thumbnail((1568, 1568))
+    out = io.BytesIO()
+    img.save(out, "JPEG", quality=85)
+    return out.getvalue(), "image/jpeg"
 
 
 def split_message(text: str, limit: int = MAX_MESSAGE_CHARS) -> List[str]:
@@ -378,6 +396,7 @@ class BabelrOrgan:
                     author_name=author.get("preferredUsername", "someone"),
                     text=m.get("text"), published=m["published"],
                     dm_id=dm["id"], partner_id=partner["id"], error=m.get("error"),
+                    attachments=m.get("attachments") or [],
                 ))
         return out
 
@@ -441,6 +460,7 @@ class BabelrOrgan:
                     message_id=msg["id"], author_id=author.get("id", ""),
                     author_name=author.get("preferredUsername", "someone"),
                     text=msg.get("content", ""), published=msg["published"], channel_id=cid,
+                    attachments=(msg.get("properties") or {}).get("attachments") or [],
                 ))
         return out
 
@@ -496,9 +516,9 @@ class BabelrOrgan:
             "conversation_id": (self._conversation_id(place, last.place_label)
                                 if last.kind != "dm" and self.terms.remember else None),
             # What they wrote, without the Babelr framing, for the stored turn.
-            "their_words": "\n\n".join(
-                e.text if e.text is not None else f"(a message that couldn't be decrypted: {e.error})"
-                for e in events),
+            "their_words": "\n\n".join(words(e) for e in events),
+            # The newest picture they sent, for her to see (one per turn).
+            "image": self._image(events),
             "recent": [f"@{e.author_name}: {e.text}" for e in recent if e.text],
             "terms": self.terms.shown_to_her(),
             "pending_requests": list(self._pending_requests),
@@ -508,6 +528,23 @@ class BabelrOrgan:
                          else self.terms.remember),
             "me": self.my_username,
         }
+
+    def _image(self, events: List[BabelrEvent]) -> Optional[Dict[str, str]]:
+        """The newest picture in these events, fetched and base64'd, or None."""
+        import base64
+        for e in reversed(events):
+            for a in reversed(e.attachments or []):
+                if (a.get("contentType") or "") not in IMAGE_TYPES:
+                    continue
+                try:
+                    data = self.client.fetch(a["url"], max_bytes=20 * 1024 * 1024)
+                    data, media = _fit(data, a["contentType"])
+                except Exception as err:
+                    logger.warning(f"[Babelr] Couldn't fetch a picture ({a.get('filename')}): {err}")
+                    return None
+                return {"data": base64.b64encode(data).decode(), "media_type": media,
+                        "filename": a.get("filename") or "picture"}
+        return None
 
     def _channel_user(self, event: BabelrEvent, links: Dict[str, str]) -> Optional[str]:
         """Whose private context a channel turn carries. The linked person who
@@ -533,8 +570,9 @@ class BabelrOrgan:
             lines.append("Earlier here:")
             lines.extend(f"  {line}" for line in context["recent"])
         for e in events:
-            body = e.text if e.text is not None else f"(a message that couldn't be decrypted: {e.error})"
-            lines.append(f"@{e.author_name}: {body}")
+            lines.append(f"@{e.author_name}: {words(e)}")
+        if context.get("image"):
+            lines.append(f"(The picture {context['image']['filename']} is attached to this message: you can see it.)")
         if context["pending_requests"]:
             names = ", ".join(f"@{r['from']}" for r in context["pending_requests"])
             lines.append(f"(Waiting on your answer: DM requests from {names}.)")
@@ -642,6 +680,7 @@ class BabelrOrgan:
                     author_name=author.get("preferredUsername", "someone"),
                     text=m.get("text"), published=m["published"],
                     dm_id=dm_id, partner_id=partner, error=m.get("error"),
+                    attachments=m.get("attachments") or [],
                 ))
         for place, watched in list(self._watch.items()):
             if not place.startswith("channel:") or not (watched or first_scan):
@@ -666,6 +705,7 @@ class BabelrOrgan:
                         message_id=msg["id"], author_id=author.get("id", ""),
                         author_name=author.get("preferredUsername", "someone"),
                         text=msg.get("content"), published=msg.get("published", ""), channel_id=cid,
+                        attachments=(msg.get("properties") or {}).get("attachments") or [],
                     ))
         return out
 
