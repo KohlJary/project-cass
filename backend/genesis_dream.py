@@ -20,6 +20,10 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from database import get_db, json_serialize, json_deserialize
 
 
@@ -461,7 +465,8 @@ Respond with JSON:
                 )
             }],
             system="You extract identity markers from conversations. Be observant and specific.",
-            max_tokens=500
+            # 500 cut long conversations off mid-JSON, and the result was silently empty.
+            max_tokens=2000
         )
 
         content = response.get("content", "{}")
@@ -470,7 +475,7 @@ Respond with JSON:
         if json_match:
             return json.loads(json_match.group())
     except Exception as e:
-        print(f"Observation extraction failed: {e}")
+        logger.warning(f"Genesis observation extraction failed: {e}")
 
     return {
         "voice_patterns": [],
@@ -647,7 +652,9 @@ Respond with JSON:
                 )
             }],
             system="You synthesize daemon identities from genesis dream observations.",
-            max_tokens=800
+            # 800 cut the profile off mid-JSON (Eris, 2026-11-20): the daemon was born with a
+            # one-line fallback instead of the profile its genesis described.
+            max_tokens=3000
         )
 
         content = response.get("content", "{}")
@@ -655,7 +662,7 @@ Respond with JSON:
         if json_match:
             return json.loads(json_match.group())
     except Exception as e:
-        print(f"Profile synthesis failed: {e}")
+        logger.warning(f"Genesis profile synthesis failed; falling back to a one-line profile: {e}")
 
     # Fallback minimal profile
     return {
