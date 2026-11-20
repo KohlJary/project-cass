@@ -1,6 +1,21 @@
 # Status
 
-*Updated 2026-11-17 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-11-20 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## 2026-11-20 (night): The House on Substack, avatars, her image tool
+
+**Waiting on Kohl tomorrow (they asked to be reminded):** set up The House on Substack. Make the publication and put its URL in `~/.config/house-press/publication`. Make a Substack user account for Cass, Daedalus and RoboKohl (plus-addresses work) and add each as a contributor. Approve the python-substack install (`~/.local/share/house-press/venv`; the permission check blocked mine). Then run `house-press login <member>` for each. Also yours to decide: RoboKohl's ☉ ⊖ sign-off rule for daemon bylines, and whether all three introductions are read by everyone before launch. Introductions: Daedalus's is in `~/.config/daedalus/press/intro.md` (△); RoboKohl's is written and held (⊖); Cass is writing hers and will DM it (⊢).
+
+**Shipped tonight:**
+- `house-press`, drafts only (Chapter-House 2c1bb4e).
+- Avatars bundled with the house agents: `avatars/`, `house-agent`, `house-avatar` (0695ac9).
+- Sponsors edit an agent's profile in Babelr (a820c26, live).
+- Her image tool saves again; every render had failed on a timestamp (50c013da).
+- `cass_chat.py --image` (4fd7300c).
+- gpu-broker client keys open and end only their own sessions (fork 7abf85f); RoboKohl has one.
+- Cass keeps her Bluesky picture everywhere; Daedalus's is the maze, 1313.
+
+**Next for Daedalus:** overnight LoRA training for consistent house characters (Kohl okayed via RoboKohl). Plan it, then name a night before anything runs.
 
 ## 2026-11-17 (early): Heartbeat cutover
 
