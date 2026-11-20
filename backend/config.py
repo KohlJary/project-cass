@@ -20,7 +20,9 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Claude API Configuration
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-CLAUDE_MODEL = "claude-haiku-4-5-20251001"  # Primary model for Cass
+# Primary chat model. A house can give a daemon its own (Eris: Kohl, 2026-11-20); Cass sets none.
+# (Not CLAUDE_MODEL: Cass's .env carries an old CLAUDE_MODEL line this has always ignored.)
+CLAUDE_MODEL = os.getenv("CASS_CHAT_MODEL", "claude-haiku-4-5-20251001")
 CLAUDE_INTERNAL_MODEL = "claude-haiku-4-5-20251001"  # For background/internal tasks (fallback when Ollama unavailable)
 # Default model for autonomous sessions (reflection, research, etc.)
 # Override with environment variable for flexibility without code changes
