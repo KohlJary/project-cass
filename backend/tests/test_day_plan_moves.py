@@ -127,8 +127,9 @@ def _log(root, kind, at, cost=0.1, seconds=120, summary=""):
         "duration_seconds": seconds, "summary": summary, "status": "completed"}))
 
 
-def test_the_recap_shows_what_ran_and_the_room_left(tmp_path):
+def test_the_recap_shows_what_ran_and_the_room_left(tmp_path, monkeypatch):
     from scheduling.day_recap import since_last_plan, usage_line
+    monkeypatch.delenv("DAILY_BUDGET_USD", raising=False)
     now = datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
     for d in range(1, 8):
         for h in (9, 13, 19):
@@ -145,6 +146,16 @@ def test_the_recap_shows_what_ran_and_the_room_left(tmp_path):
     text = since_last_plan(ws, tmp_path, now=now)
     assert "# My plan for yesterday" in text and "Sent Kohl the message I'd prepared." in text
     assert "(5 of these 5 were growth_edge.)" in text  # two of the week's fall after that plan
+
+
+def test_the_recap_names_the_cap_the_gate_uses(tmp_path, monkeypatch):
+    from scheduling.day_recap import usage_line
+    monkeypatch.setenv("DAILY_BUDGET_USD", "10")
+    now = datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
+    for d in range(1, 8):
+        _log(tmp_path, "growth_edge", now - timedelta(days=d))
+    line = usage_line(tmp_path, now=now)
+    assert "of my $10.00 a day" in line and "$5.00" not in line
 
 
 def test_her_plans_say_when_a_day_last_carried_them():

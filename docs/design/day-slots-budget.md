@@ -1,6 +1,6 @@
 # What a full day of slots would cost (plan "Cass plans her own day", phase 4)
 
-Measured 2026-11-19 for Kohl's decision on the $5/day cap and its category split. Nothing here changes either; the cap is Kohl's call.
+Measured 2026-11-19 for Kohl's decision on the daily cap and its category split. The cap is $10/day (Kohl raised it from $5 on 2026-11-18, `DAILY_BUDGET_USD`; the live gate reports `daily_budget_usd: 10.0`). Nothing here changes it; the cap is Kohl's call. *Corrected the same evening: the first version of this note assumed $5.*
 
 ## Sources
 
@@ -23,12 +23,12 @@ Measured 2026-11-19 for Kohl's decision on the $5/day cap and its category split
 
 ## What that means for the cap
 
-- **The total isn't the binding limit.** A full slotted day (about $2.35 in sessions plus $0.30 in background) fits under $5 with room left.
-- **The category split is the binding limit.** Allocations are research 30% ($1.50), reflection 20% ($1.00), growth 15% ($0.75), curiosity 15% ($0.75), system 10% ($0.50), triggered 5% and messages 5%. A day that leans on one kind hits that kind's share long before the slots run out: for example, five or six reflection-class sessions use up the $1.00. That's what stopped the change-proposal loop on 11-18, with $0.33 of reflection budget left against a $0.40 estimate.
+- **The total isn't the binding limit.** A full slotted day (about $2.35 in sessions plus $0.30 in background) fits under $10 with plenty of room.
+- **The category split is the binding limit.** Allocations at $10 are research 30% ($3.00), reflection 20% ($2.00), growth 15% ($1.50), curiosity 15% ($1.50), system 10% ($1.00), triggered 5% ($0.50) and messages 5% ($0.50). A day that leans on one kind can still hit that kind's share before the slots run out: at the reflection average, roughly ten reflection-class sessions use up the $2.00. On 11-18 the change-proposal loop stopped with $0.33 of reflection budget left against a $0.40 estimate; that was by the split, not the total.
 - **Her menu already reflects this.** It names what's over its kind's budget under "Not available today", and from now on `set_day_plan` says what a plan would cost against what's left.
 
 ## Kohl's options (none taken)
 
-1. **Keep everything as is.** A full day fits the total, and the split shapes which kinds she can fill it with.
+1. **Keep everything as is.** A full day fits the total about three times over, and the split shapes which kinds she can fill it with.
 2. **Re-weight the split toward her day shape.** Her shape (inward, learning, making, out) doesn't map one-to-one onto the budget's categories, so a kind she wants more of can run out early.
-3. **Raise the cap.** Only worth it if the ledger starts showing full days at the cap. Last week's average was $3.08 including chat.
+3. **Raise the cap further.** Not indicated: last week's average was $3.08 a day including chat, and a full slotted day is about $2.65.

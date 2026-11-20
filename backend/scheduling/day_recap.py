@@ -60,9 +60,15 @@ def _sessions(data_dir: Path, since: datetime) -> List[Dict[str, Any]]:
     return sorted(out, key=lambda s: s["at"])
 
 
-def usage_line(data_dir: Optional[Path] = None, daily_budget: float = 5.0,
+def usage_line(data_dir: Optional[Path] = None, daily_budget: Optional[float] = None,
                now: Optional[datetime] = None) -> str:
-    """How much of her day she's been using, over the last week."""
+    """How much of her day she's been using, over the last week.
+
+    The cap is the one the budget gate uses (DAILY_BUDGET_USD, as main_sdk reads it).
+    """
+    if daily_budget is None:
+        import os
+        daily_budget = float(os.getenv("DAILY_BUDGET_USD", "5.0"))
     now = now or datetime.now()
     since = (now - timedelta(days=RECAP_DAYS)).replace(hour=0, minute=0, second=0, microsecond=0)
     runs = [s for s in _sessions(_data_dir(data_dir), since) if s["at"] < now.replace(hour=0, minute=0)]

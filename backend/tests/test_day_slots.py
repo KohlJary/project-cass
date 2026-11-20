@@ -69,11 +69,13 @@ def test_a_time_goes_to_the_phase_it_falls_in(tmp_path):
     assert tool.chosen["afternoon"][0]["at"].endswith("14:30")
 
 
-def test_the_menu_names_slots_left_and_what_filling_them_costs():
+def test_the_menu_names_slots_left_and_what_filling_them_costs(monkeypatch):
     line = S.menu_line(NOW, budget_left=5.0, costs=[0.2, 0.4])
     assert "Slots left today: 10" in line and "the next at 07:30" in line
     assert "about $3.00 of the $5.00 left" in line
     assert "No slots left" in S.menu_line(datetime(2026, 11, 19, 21, 30))
+    real = S.menu_line
+    monkeypatch.setattr(S, "menu_line", lambda now=None, **kw: real(NOW, **kw))  # not the wall clock
     text = menu_text([], [DayPhase.MORNING], 4.9)
     assert "90-minute slots" in text and "up to 12" in text
 
