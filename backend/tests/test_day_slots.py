@@ -98,6 +98,10 @@ def test_her_notes_sit_beside_her_options_and_dont_claim_a_shape(tmp_path, monke
 def test_one_session_at_a_time_and_one_unit_per_tick(monkeypatch):
     from scheduling.phase_queue import PhaseQueueManager
     import agent_loop.felt as felt
+    import agent_loop.wakes as wakes
+    # Only this test's session counts: none left over from other tests, no wake due.
+    monkeypatch.setattr(felt, "_RUNNING", {})
+    monkeypatch.setattr(wakes, "live_now", lambda *a, **k: False)
     pq = PhaseQueueManager()
     sent = []
 

@@ -83,8 +83,10 @@ def test_the_menu_says_how_much_room_there_is():
     assert "about 6 sessions a day" in text and "up to 12" in text and "more than one of my plans" in text
 
 
-def test_timed_units_wait_in_their_phase_until_due():
+def test_timed_units_wait_in_their_phase_until_due(monkeypatch):
     from scheduling.phase_queue import PhaseQueueManager
+    # No session running (another test's, or a wake due) holds the queue back here.
+    monkeypatch.setattr(PhaseQueueManager, "_session_running", staticmethod(lambda: False))
     pq = PhaseQueueManager()
     sent = []
 
