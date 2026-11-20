@@ -183,3 +183,28 @@ def ask_in_plans(title: str, body: str, kind: str = "ask") -> Dict[str, Any]:
         return {"success": False, "unavailable": True,
                 "error": "Babelr isn't running, so my ask can't reach Plans right now."}
     return organ.plans("ask", title=title, body=body, kind=kind)
+
+
+def for_this_house(value, server: str, person: str, name: str):
+    """Tool text written for Kohl's house, said for another one: its server, its person,
+    its daemon. Kohl's house never calls this, so Cass's tools are unchanged."""
+    if isinstance(value, str):
+        return (value.replace("Chapter House", server).replace("Cass's asks", f"{name}'s asks")
+                .replace("Kohl", person).replace("Cass", name))
+    if isinstance(value, list):
+        return [for_this_house(v, server, person, name) for v in value]
+    if isinstance(value, dict):
+        return {k: for_this_house(v, server, person, name) for k, v in value.items()}
+    return value
+
+
+def _localize() -> None:
+    import os
+    import house_identity
+    if house_identity.is_kohls_house():
+        return
+    BABELR_TOOLS[:] = for_this_house(BABELR_TOOLS, os.getenv("BABELR_SERVER", "the house"),
+                                     house_identity.house_person(), house_identity.daemon_name())
+
+
+_localize()

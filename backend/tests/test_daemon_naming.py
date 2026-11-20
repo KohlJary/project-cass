@@ -24,3 +24,23 @@ def test_the_default_daemon_is_this_houses(test_db, monkeypatch):
     monkeypatch.setenv("CASS_DAEMON_NAME", "Wren")
     info = get_daemon_info(get_daemon_id())
     assert (info["label"], info["name"]) == ("wren", "Wren")
+
+
+def test_a_named_house_never_grows_a_second_cass(test_db, monkeypatch):
+    """Goals, the roadmap and the self-model used to create label 'cass' if it was missing."""
+    from database import get_db
+    from database.daemon import get_daemon_id
+    from roadmap import RoadmapManager
+    from self_model import SelfManager
+    from unified_goals import UnifiedGoalManager
+    with get_db() as conn:
+        conn.execute("DELETE FROM daemons WHERE label = 'cass'")
+    monkeypatch.setenv("CASS_DAEMON_LABEL", "wren")
+    monkeypatch.setenv("CASS_DAEMON_NAME", "Wren")
+    wren = get_daemon_id()
+    assert RoadmapManager()._daemon_id == wren
+    assert UnifiedGoalManager()._daemon_id == wren
+    assert SelfManager().daemon_id == wren
+    with get_db() as conn:
+        labels = [r[0] for r in conn.execute("SELECT label FROM daemons")]
+    assert "cass" not in labels

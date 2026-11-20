@@ -106,6 +106,10 @@ ASKS_PLAN_TITLE = "Cass's asks"
 ASKS_PLAN_GOAL = ("What I ask for: changes to me, to what I can do, to my world. "
                   "An ask waits here, outside any phase; Kohl pulls it into a phase to build it, "
                   "and its status and resolution say what came of it.")
+if not __import__("house_identity").is_kohls_house():   # another house: its daemon, its person
+    import house_identity as _hi
+    ASKS_PLAN_TITLE = f"{_hi.daemon_name()}'s asks"
+    ASKS_PLAN_GOAL = ASKS_PLAN_GOAL.replace("Kohl", _hi.house_person())
 ITEM_KINDS = ("ask", "build", "research", "decision")
 ITEM_STATUSES = ("open", "in_progress", "done", "declined")
 # A phase she can add items to without voiding anyone's yes (Plans voids a

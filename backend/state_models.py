@@ -162,7 +162,7 @@ class GlobalIdentityState:
     dreaming, or reflecting. Not static, but slowly evolving.
     """
 
-    daemon_name: str = "Cass"
+    daemon_name: str = field(default_factory=lambda: __import__("house_identity").daemon_name())
     daemon_id: Optional[str] = None
 
     # Core identity aspects (from self-model)
@@ -205,7 +205,7 @@ class GlobalIdentityState:
             last_refresh = datetime.fromisoformat(data["last_identity_refresh"])
 
         return cls(
-            daemon_name=data.get("daemon_name", "Cass"),
+            daemon_name=data.get("daemon_name") or __import__("house_identity").daemon_name(),
             daemon_id=data.get("daemon_id"),
             core_aspects=data.get("core_aspects", []),
             growth_edges=data.get("growth_edges", []),

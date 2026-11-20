@@ -393,28 +393,9 @@ class UnifiedGoalManager:
             self._load_default_daemon()
 
     def _load_default_daemon(self):
-        """Load the default daemon ID from database"""
-        with get_db() as conn:
-            cursor = conn.execute(
-                "SELECT id FROM daemons WHERE label = 'cass' LIMIT 1"
-            )
-            row = cursor.fetchone()
-            if row:
-                self._daemon_id = row['id']
-            else:
-                # Create default daemon if not exists
-                self._daemon_id = str(uuid.uuid4())
-                conn.execute("""
-                    INSERT INTO daemons (id, label, name, created_at, kernel_version, status)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    self._daemon_id,
-                    'cass',
-                    'Cass',
-                    datetime.now().isoformat(),
-                    'temple-codex-1.0',
-                    'active'
-                ))
+        """This house's daemon (Cass in Kohl's house; see database.daemon.get_daemon_id)."""
+        from database.daemon import get_daemon_id
+        self._daemon_id = get_daemon_id()
 
     def _emit_goal_event(self, event_type: str, data: dict) -> None:
         """Emit a goal event to the state bus."""

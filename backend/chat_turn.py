@@ -26,6 +26,7 @@ chat entry points onto the pipeline the WebSocket already runs.
 """
 from __future__ import annotations
 
+import house_identity
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -194,7 +195,7 @@ async def run_chat_turn(
         thread_manager=thread_manager,
         question_manager=question_manager,
         conversation_manager=conversation_manager,
-        daemon_name="Cass",
+        daemon_name=house_identity.daemon_name(),
         daemon_id=daemon_id,
         memory=memory if include_memory else None,
         query=user_message if include_memory else None,
