@@ -40,8 +40,9 @@ COLLECTION_NAME = "cass_memory"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Local embedding model
 
 # Server Configuration
-HOST = "0.0.0.0"
-PORT = 8000
+# A second vessel on the same machine (`house member`) sets these; Cass's vessel sets neither.
+HOST = os.getenv("HOST", "0.0.0.0")
+PORT = int(os.getenv("PORT", "8000"))
 
 # World State Configuration
 SERVER_LOCATION = os.getenv("SERVER_LOCATION", "")  # Fallback when geolocation fails; empty = unknown, not a guessed city
