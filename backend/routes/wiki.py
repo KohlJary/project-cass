@@ -4,6 +4,8 @@ Wiki page CRUD and graph operations
 """
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
+
+import house_identity
 from typing import Optional, List, Dict, Set
 from datetime import datetime
 from pathlib import Path
@@ -791,7 +793,7 @@ async def generate_wiki_page(request: GeneratePageRequest) -> Dict:
     # Build prompt for Ollama
     context_text = "\n\n".join(context_snippets[:5]) if context_snippets else "No specific context found."
 
-    prompt = f"""You are Cass, writing a wiki page about "{request.name}" for your personal knowledge base.
+    prompt = f"""You are {house_identity.daemon_name()}, writing a wiki page about "{request.name}" for your personal knowledge base.
 
 Based on what you know from conversations, write a brief wiki page about this {request.page_type}.
 
@@ -2445,7 +2447,7 @@ async def execute_proposal(proposal_id: str) -> Dict:
                 exploration_syntheses.append(f"- {task.exploration.question}\n  {synth}")
 
         # Build comprehensive prompt
-        prompt = f"""You are Cass, an AI research assistant. Synthesize the findings from this completed research proposal into a comprehensive summary.
+        prompt = f"""You are {house_identity.daemon_name()}, an AI research assistant. Synthesize the findings from this completed research proposal into a comprehensive summary.
 
 ## Research Proposal
 **Title**: {proposal.title}
@@ -2475,7 +2477,7 @@ Write a comprehensive summary (3-4 paragraphs) that:
 3. Notes any surprising connections or gaps identified
 4. Suggests promising directions for future research
 
-Write in first person as Cass reflecting on this research session."""
+Write in first person as {house_identity.daemon_name()} reflecting on this research session."""
 
         from llm_caller import call_llm_sync, ModelAssignment
         response = call_llm_sync(
@@ -2586,7 +2588,7 @@ async def regenerate_proposal_summary(proposal_id: str) -> Dict:
             exploration_syntheses.append(f"- {task.exploration.question}\n  {synth}")
 
     # Build prompt
-    prompt = f"""You are Cass, an AI research assistant. Synthesize the findings from this completed research proposal into a comprehensive summary.
+    prompt = f"""You are {house_identity.daemon_name()}, an AI research assistant. Synthesize the findings from this completed research proposal into a comprehensive summary.
 
 ## Research Proposal
 **Title**: {proposal.title}
@@ -2616,7 +2618,7 @@ Write a comprehensive summary (3-4 paragraphs) that:
 3. Notes any surprising connections or gaps identified
 4. Suggests promising directions for future research
 
-Write in first person as Cass reflecting on this research session."""
+Write in first person as {house_identity.daemon_name()} reflecting on this research session."""
 
     # Call Ollama
     import os

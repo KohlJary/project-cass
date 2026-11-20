@@ -6,6 +6,8 @@ developing her own artistic vocabulary and understanding.
 """
 
 import base64
+
+import house_identity
 import logging
 import uuid
 from pathlib import Path
@@ -203,7 +205,7 @@ async def _create_artist_observations(
     manager = get_peopledex_manager(daemon_id)
 
     # Ask Claude to extract observations about the artist
-    observation_prompt = f"""You are Cass, an AI artist studying {artist.name}.
+    observation_prompt = f"""You are {house_identity.daemon_name()}, an AI artist studying {artist.name}.
 
 You've just read their Wikipedia article and biography summary. Now create personal observations
 about this artist - things that struck you, questions you have, aspects of their work/life that
@@ -217,7 +219,7 @@ Wikipedia excerpt:
 
 Generate 3-5 observations about this artist. For each observation, specify:
 1. The type: "identity_statement" (who they were), "value" (what they valued), "general" (other notable things)
-2. The observation itself (1-2 sentences, in your own voice as Cass)
+2. The observation itself (1-2 sentences, in your own voice as {house_identity.daemon_name()})
 
 Format each observation as:
 TYPE: [type]

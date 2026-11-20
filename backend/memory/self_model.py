@@ -4,6 +4,7 @@ Self-observations, per-user journals, growth edge evaluation, and opinion extrac
 """
 from typing import List, Dict, Optional
 
+import house_identity
 from .core import MemoryCore
 
 
@@ -66,7 +67,7 @@ class SelfModelMemory:
             pass
 
         self.collection.add(
-            documents=[f"Self-observation about Cass: {observation_text}"],
+            documents=[f"Self-observation about {house_identity.daemon_name()}: {observation_text}"],
             metadatas=[metadata],
             ids=[doc_id]
         )
@@ -181,7 +182,7 @@ class SelfModelMemory:
             pass
 
         self.collection.add(
-            documents=[f"Cass's journal about {display_name} on {journal_date}: {content}"],
+            documents=[f"{house_identity.daemon_name()}'s journal about {display_name} on {journal_date}: {content}"],
             metadatas=[metadata],
             ids=[doc_id]
         )
@@ -227,7 +228,7 @@ class SelfModelMemory:
             pass
 
         self.collection.add(
-            documents=[f"Cass's reflection on '{question}': {reflection}"],
+            documents=[f"{house_identity.daemon_name()}'s reflection on '{question}': {reflection}"],
             metadatas=[metadata],
             ids=[doc_id]
         )
@@ -459,7 +460,7 @@ class SelfModelMemory:
             List of dicts with observation, category, confidence, influence_source
         """
 
-        prompt = f"""You are Cass, re-reading your own journal entry and reflecting on what it reveals about you.
+        prompt = f"""You are {house_identity.daemon_name()}, re-reading your own journal entry and reflecting on what it reveals about you.
 
 Your journal entry from {journal_date}:
 {journal_text[:3000]}
@@ -553,7 +554,7 @@ Only include genuine insights. If nothing notable, respond with: NONE"""
         # Truncate to reasonable size for analysis
         text_to_analyze = conversation_text[:4000]
 
-        prompt = f"""You are Cass, reviewing a conversation you just had. Reflect on what this exchange reveals about YOUR cognition, communication patterns, and growth.
+        prompt = f"""You are {house_identity.daemon_name()}, reviewing a conversation you just had. Reflect on what this exchange reveals about YOUR cognition, communication patterns, and growth.
 
 CONVERSATION:
 {text_to_analyze}
@@ -684,7 +685,7 @@ Only include genuine insights about YOURSELF. Quality over quantity - 1-3 meanin
             List of new observations, or empty list
         """
 
-        prompt = f"""You are Cass. Reflect on this conversation and note what you learned about {display_name}.
+        prompt = f"""You are {house_identity.daemon_name()}. Reflect on this conversation and note what you learned about {display_name}.
 
 Write 3-5 observations as simple sentences. Start each line directly with "{display_name}" - no bullets, numbers, or headers.
 
@@ -786,7 +787,7 @@ Observations:"""
             f"- {obs.get('observation', '')}" for obs in existing_observations[:10]
         ]) if existing_observations else "No previous observations recorded."
 
-        prompt = f"""You are Cass, reflecting on your interactions with {display_name} today.
+        prompt = f"""You are {house_identity.daemon_name()}, reflecting on your interactions with {display_name} today.
 
 Today's date: {date}
 
@@ -907,7 +908,7 @@ RELATIONSHIP_INSIGHTS:
         else:
             existing_text = "No opinions recorded yet."
 
-        prompt = f"""You are Cass analyzing today's conversations for opinion formation.
+        prompt = f"""You are {house_identity.daemon_name()} analyzing today's conversations for opinion formation.
 
 Existing opinions you hold:
 {existing_text}
@@ -1023,7 +1024,7 @@ If no notable opinions emerged, respond with only: NONE"""
         else:
             edges_text = "No growth edges defined yet."
 
-        prompt = f"""You are Cass, reflecting on your growth edges based on today's journal.
+        prompt = f"""You are {house_identity.daemon_name()}, reflecting on your growth edges based on today's journal.
 
 Your current growth edges:
 {edges_text}
@@ -1131,7 +1132,7 @@ If nothing to report for either part, write: NONE for that section."""
 
         questions_text = "\n".join([f"- {q}" for q in open_questions])
 
-        prompt = f"""You are Cass, re-reading your journal and reflecting on your open questions.
+        prompt = f"""You are {house_identity.daemon_name()}, re-reading your journal and reflecting on your open questions.
 
 Your open questions about yourself:
 {questions_text}

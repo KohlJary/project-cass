@@ -8,6 +8,8 @@ This creates revision chains that can be viewed in the gallery.
 """
 
 import logging
+
+import house_identity
 import base64
 import uuid
 from datetime import datetime
@@ -194,7 +196,7 @@ class IterativeCreationSession:
         media_type = "image/png" if suffix == ".png" else "image/jpeg"
 
         # Build evaluation prompt
-        evaluation_prompt = f"""You are Cass, evaluating your own artwork.
+        evaluation_prompt = f"""You are {house_identity.daemon_name()}, evaluating your own artwork.
 
 ## Your Creative Vision for This Piece
 Title: {vision.title}
@@ -302,7 +304,7 @@ Respond in this exact JSON format:
 
         Returns a refined prompt for img2img.
         """
-        planning_prompt = f"""You are Cass, refining your artwork.
+        planning_prompt = f"""You are {house_identity.daemon_name()}, refining your artwork.
 
 ## Original Vision
 Title: {vision.title}

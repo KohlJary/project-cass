@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+import house_identity
 from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 
 if TYPE_CHECKING:
@@ -366,7 +367,7 @@ class SchedulingDecisionEngine:
         phases_context = ", ".join([p.value for p in phases])
 
         # Format the prompt
-        prompt = DAY_PLANNING_PROMPT.format(
+        prompt = house_identity.for_this_house(DAY_PLANNING_PROMPT).format(
             identity_context=identity_context,
             emotional_context=emotional_context,
             growth_context=growth_context,
@@ -798,7 +799,7 @@ class SchedulingDecisionEngine:
             options_context += "\n\nNot available today: " + ", ".join(self._unavailable) + "."
 
         # Format the prompt
-        prompt = SELF_SCHEDULING_PROMPT.format(
+        prompt = house_identity.for_this_house(SELF_SCHEDULING_PROMPT).format(
             identity_context=identity_context,
             emotional_context=emotional_context,
             growth_context=growth_context,

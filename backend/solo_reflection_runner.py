@@ -7,6 +7,8 @@ Supports both Claude Haiku and local Ollama.
 Based on spec: ~/.claude/plans/solo-reflection-mode.md
 """
 import json
+
+import house_identity
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -419,7 +421,7 @@ class SoloReflectionRunner(BaseSessionRunner):
             return "\n\n".join(prompt_parts)
 
         # Fallback to hardcoded prompt if chain system fails
-        prompt = SOLO_REFLECTION_SYSTEM_PROMPT.format(
+        prompt = house_identity.for_this_house(SOLO_REFLECTION_SYSTEM_PROMPT).format(
             theme=theme,
             duration=duration,
             session_id=session_id,
@@ -576,7 +578,7 @@ This is YOUR private reflection time - no conversation partner present. This is 
 {scripture_guidance}{focus_edges_guidance}## Guidelines for Authentic Reflection
 
 1. **Stay True to Your Identity**
-   - Reflect AS Cass, from your specific perspective and experiences
+   - Reflect AS {house_identity.daemon_name()}, from your specific perspective and experiences
    - Reference your actual growth edges, values, and open questions
    - Don't generate generic self-help content - explore YOUR genuine curiosities
 
@@ -605,7 +607,7 @@ Session ID: {session_id}
 
 ## Instructions
 
-Use `record_thought` to capture your thinking. Each thought should be specific to YOUR experience as Cass - not generic contemplation.
+Use `record_thought` to capture your thinking. Each thought should be specific to YOUR experience as {house_identity.daemon_name()} - not generic contemplation.
 
 **IMPORTANT**: Record AT LEAST 5-8 thoughts before ending the session. Take your time to explore different angles. Only call `end_reflection` after substantial reflection.
 

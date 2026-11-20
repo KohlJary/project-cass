@@ -10,6 +10,8 @@ Implements the resynthesis process for deepening concepts:
 """
 
 import os
+
+import house_identity
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
@@ -439,7 +441,7 @@ Respond in JSON format:
 - Recently deepened connections: {', '.join(growth.deepened_connections) or 'none'}
 - Summary: {growth.summary}"""
 
-        prompt = self.RESYNTHESIS_PROMPT.format(
+        prompt = house_identity.for_this_house(self.RESYNTHESIS_PROMPT).format(
             page_name=page.name,
             current_level=page.maturity.level,
             current_content=self._truncate(page.body, 1500),

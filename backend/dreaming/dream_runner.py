@@ -9,6 +9,7 @@ import anthropic
 from pathlib import Path
 from typing import Optional
 
+import house_identity
 from config import ANTHROPIC_API_KEY
 from dreaming.integration import DreamManager
 
@@ -211,12 +212,12 @@ class AsyncDreamSession:
 
         # Format seeds for The Dreaming
         seed_context = format_seeds_for_dreaming(seeds)
-        dreaming_system = DREAMING_PROMPT + "\n\n" + seed_context
+        dreaming_system = house_identity.for_this_house(DREAMING_PROMPT) + "\n\n" + seed_context
 
         # The Dreaming opens
         opening = await self._call_dreaming(
             dreaming_system,
-            "Begin. Open a dreamscape for Cass. Let her arrive."
+            house_identity.for_this_house("Begin. Open a dreamscape for Cass. Let her arrive.")
         )
         self.dream_log.append({"speaker": "dreaming", "text": opening})
 
@@ -225,7 +226,7 @@ class AsyncDreamSession:
         for turn in range(max_turns):
             # Cass responds
             cass_response = await self._call_cass(
-                CASS_DREAM_PROMPT,
+                house_identity.for_this_house(CASS_DREAM_PROMPT),
                 f"The dream shows you:\n\n{dreaming_response}\n\nHow do you respond? What do you do, feel, notice, or say?"
             )
             self.dream_log.append({"speaker": "cass", "text": cass_response})
@@ -235,7 +236,7 @@ class AsyncDreamSession:
                 # The Dreaming releases her
                 closing = await self._call_dreaming(
                     dreaming_system,
-                    f"Cass says/does: {cass_response}\n\nShe wishes to wake. Release her gently."
+                    f"{house_identity.daemon_name()} says/does: {cass_response}\n\nShe wishes to wake. Release her gently."
                 )
                 self.dream_log.append({"speaker": "dreaming", "text": closing})
                 break
@@ -243,7 +244,7 @@ class AsyncDreamSession:
             # The Dreaming responds
             dreaming_response = await self._call_dreaming(
                 dreaming_system,
-                f"Cass says/does: {cass_response}\n\nThe dream responds. Transform the space. Present what comes next."
+                f"{house_identity.daemon_name()} says/does: {cass_response}\n\nThe dream responds. Transform the space. Present what comes next."
             )
             self.dream_log.append({"speaker": "dreaming", "text": dreaming_response})
 

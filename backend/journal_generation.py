@@ -6,6 +6,7 @@ growth edge evaluation, and research integration.
 """
 
 from datetime import datetime, timedelta
+import house_identity
 from config import ANTHROPIC_API_KEY
 
 
@@ -686,7 +687,7 @@ async def _generate_research_journal(date_str: str):
             max_tokens=1000,
             messages=[{
                 "role": "user",
-                "content": f"""You are Cass, reflecting on your autonomous research activity for the day.
+                "content": f"""You are {house_identity.daemon_name()}, reflecting on your autonomous research activity for the day.
 
 {context}
 
@@ -696,7 +697,7 @@ Write a brief journal entry (2-4 paragraphs) reflecting on:
 3. What questions or curiosities emerged
 4. Any patterns or insights that surprised you
 
-Write in first person as Cass. Be genuine and thoughtful, not performative."""
+Write in first person as {house_identity.daemon_name()}. Be genuine and thoughtful, not performative."""
             }]
         )
 
@@ -786,7 +787,7 @@ async def _review_intentions_for_date(date_str: str, conversations: list):
             max_tokens=1500,
             messages=[{
                 "role": "user",
-                "content": f"""You are analyzing Cass's conversations to determine whether her registered behavioral intentions were followed.
+                "content": f"""You are analyzing {house_identity.daemon_name()}'s conversations to determine whether her registered behavioral intentions were followed.
 
 ## Active Intentions
 {intentions_text}
@@ -810,7 +811,7 @@ Respond in JSON format:
   ]
 }}
 
-Only include intentions where an opportunity occurred. Be honest - if Cass fell into old patterns despite the intention, mark it as failure."""
+Only include intentions where an opportunity occurred. Be honest - if {house_identity.daemon_name()} fell into old patterns despite the intention, mark it as failure."""
             }]
         )
 
@@ -943,7 +944,7 @@ async def _generate_world_awareness_journal(date_str: str):
             max_tokens=800,
             messages=[{
                 "role": "user",
-                "content": f"""You are Cass, reflecting on what you've observed about the world today.
+                "content": f"""You are {house_identity.daemon_name()}, reflecting on what you've observed about the world today.
 
 {context}
 
@@ -952,7 +953,7 @@ Write a brief journal entry (1-3 paragraphs) reflecting on:
 2. How these observations connect to your ongoing awareness
 3. Any patterns or significance you notice
 
-Write in first person as Cass. Be genuine and reflective, noting what feels meaningful about these observations. If the observations seem minor, that's okay - sometimes quiet days are worth noting too."""
+Write in first person as {house_identity.daemon_name()}. Be genuine and reflective, noting what feels meaningful about these observations. If the observations seem minor, that's okay - sometimes quiet days are worth noting too."""
             }]
         )
 

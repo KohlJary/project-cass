@@ -490,6 +490,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
     from interests import parse_interests, store_extracted_interests
     from pattern_aggregation import get_pattern_summary_for_surfacing
     from config import ONBOARDING_INTRO_PROMPT, ONBOARDING_DEMO_PROMPT
+    import house_identity
 
     # Get state references
     manager = _state["connection_manager"]
@@ -853,7 +854,7 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = None):
                 profile_context = user_manager.get_user_context(user_id) or "No additional profile information provided."
 
                 # Format the onboarding prompt
-                intro_context = ONBOARDING_INTRO_PROMPT.format(
+                intro_context = house_identity.for_this_house(ONBOARDING_INTRO_PROMPT).format(
                     display_name=profile.display_name,
                     relationship=profile.relationship,
                     profile_context=profile_context

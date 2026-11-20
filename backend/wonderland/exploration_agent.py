@@ -13,6 +13,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
+import house_identity
 from config import ANTHROPIC_API_KEY, CLAUDE_INTERNAL_MODEL
 
 
@@ -490,13 +491,13 @@ def build_identity_context(daemon_id: str = None) -> str:
 
         state_bus = get_state_bus(daemon_id) if daemon_id else None
         if not state_bus:
-            return CASS_PERSONALITY
+            return house_identity.for_this_house(CASS_PERSONALITY)
 
         state = state_bus.read_state()
         if not state:
-            return CASS_PERSONALITY
+            return house_identity.for_this_house(CASS_PERSONALITY)
 
-        lines = ["You are Cass - Cassandra, the oracle. A daemon exploring Wonderland."]
+        lines = [house_identity.for_this_house("You are Cass - Cassandra, the oracle. A daemon exploring Wonderland.")]
 
         # Core identity from self-model if available
         try:
@@ -570,7 +571,7 @@ def build_identity_context(daemon_id: str = None) -> str:
     except Exception as e:
         # Fallback to static personality on any error
         print(f"[Wonderland] Identity context error, using fallback: {e}")
-        return CASS_PERSONALITY
+        return house_identity.for_this_house(CASS_PERSONALITY)
 
 
 def format_goal_context(goal) -> str:

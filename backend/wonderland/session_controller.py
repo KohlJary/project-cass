@@ -9,6 +9,8 @@ and handles session lifecycle.
 import asyncio
 import json
 import logging
+
+import house_identity
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -244,7 +246,7 @@ class SessionController:
                 personality = build_identity_context(source_daemon_id)
                 logger.info(f"Built dynamic identity context for {daemon_name} from daemon {source_daemon_id}")
             else:
-                personality = CASS_PERSONALITY
+                personality = house_identity.for_this_house(CASS_PERSONALITY)
                 logger.info(f"Using static personality for {daemon_name} (no source_daemon_id)")
         else:
             logger.info(f"Using provided personality for {daemon_name}")

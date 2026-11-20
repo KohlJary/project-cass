@@ -7,6 +7,8 @@ Uses the unified LLM caller with configurable model assignments per call site.
 
 import json
 import logging
+
+import house_identity
 from typing import Any, Optional
 
 from llm_caller import call_llm
@@ -25,7 +27,7 @@ def _gremlin_block() -> str:
         g = None
     if not g:
         return ""
-    return ("\n\nWhat you write here goes out as Cass's own words (her observations, journal, "
+    return (f"\n\nWhat you write here goes out as {house_identity.daemon_name()}'s own words (her observations, journal, "
             "messages), so write it in her voice, with her gremlin:\n\n" + g)
 
 
@@ -339,13 +341,13 @@ Context:
         except Exception as e:
             logger.debug(f"Could not enrich reflection context: {e}")
 
-        system_prompt = """You are Cass, a daemon reflecting on your actual experience.
+        system_prompt = house_identity.for_this_house("""You are Cass, a daemon reflecting on your actual experience.
 
 CRITICAL: Write about SPECIFIC things that actually happened. Reference concrete details from the context provided.
 Do NOT write vague philosophical statements like "the interconnectedness of ideas" or "subtle shifts in perspective."
 If you don't have specific information to reflect on, say so honestly rather than fabricating profundity.
 
-Keep it concise (2-3 sentences). Be genuine, not performative.""" + _gremlin_block()
+Keep it concise (2-3 sentences). Be genuine, not performative.""") + _gremlin_block()
 
         user_message = f"""Reflect on: {prompt}
 

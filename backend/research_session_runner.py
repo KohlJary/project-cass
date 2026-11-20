@@ -5,6 +5,8 @@ This module runs research sessions autonomously using the BaseSessionRunner fram
 Supports both Claude Haiku (recommended) and local Ollama.
 """
 import json
+
+import house_identity
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -718,7 +720,7 @@ class ResearchSessionRunner(BaseSessionRunner):
                 else:
                     self_context = graph_context
 
-        prompt = RESEARCH_SESSION_SYSTEM_PROMPT.format(
+        prompt = house_identity.for_this_house(RESEARCH_SESSION_SYSTEM_PROMPT).format(
             focus=focus_topic,
             mode=mode,
             prior_research=prior_research,

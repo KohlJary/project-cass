@@ -11,6 +11,8 @@ Use config toggle to A/B test which produces better insights.
 import json
 import logging
 import re
+
+import house_identity
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -425,7 +427,7 @@ class ContentAnalyzer:
         logger.info(f"Progressive reading: {len(paragraphs)} paragraphs")
 
         self_context = self._get_self_context(self_manager)
-        system_prompt = READING_SYSTEM_PROMPT.format(self_context=self_context)
+        system_prompt = house_identity.for_this_house(READING_SYSTEM_PROMPT).format(self_context=self_context)
 
         state = ExtractionState()
         accumulated_text = ""
@@ -517,7 +519,7 @@ What do you notice, wonder about, or think about what you've read?"""
                 author_context += f" ({article.author_handle})"
             author_context += "\n"
 
-        system_prompt = SINGLE_PASS_SYSTEM_PROMPT.format(
+        system_prompt = house_identity.for_this_house(SINGLE_PASS_SYSTEM_PROMPT).format(
             self_context=self_context,
             author_context=author_context,
         )

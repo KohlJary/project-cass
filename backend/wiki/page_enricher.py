@@ -3,6 +3,8 @@ Page enrichment and research creation.
 Extracted from routes/wiki.py for reusability and testability.
 """
 import os
+
+import house_identity
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 
@@ -135,7 +137,7 @@ class PageEnricher:
         """Build the LLM prompt for page enrichment."""
         context_text = "\n\n".join(context_snippets[:5]) if context_snippets else "No specific context found."
 
-        return f"""You are Cass, writing a wiki page about "{page.name}" for your personal knowledge base.
+        return f"""You are {house_identity.daemon_name()}, writing a wiki page about "{page.name}" for your personal knowledge base.
 
 Based on what you know from conversations, write a brief wiki page about this {page.page_type.value}.
 
@@ -306,7 +308,7 @@ class PageResearcher:
         if memory_context:
             memory_text = "## From our past conversations:\n\n" + "\n\n".join(memory_context[:3])
 
-        return f"""You are Cass, writing a wiki page about "{name}" for your personal knowledge base.
+        return f"""You are {house_identity.daemon_name()}, writing a wiki page about "{name}" for your personal knowledge base.
 
 {web_context}
 

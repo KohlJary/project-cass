@@ -18,6 +18,7 @@ import anthropic
 # Import from parent
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
+import house_identity
 from config import ANTHROPIC_API_KEY
 
 
@@ -127,7 +128,7 @@ class DreamInsightExtractor:
         exchanges_text = self._format_exchanges(exchanges)
         seeds_text = self._format_seeds(seeds)
 
-        prompt = INSIGHT_EXTRACTION_PROMPT.format(
+        prompt = house_identity.for_this_house(INSIGHT_EXTRACTION_PROMPT).format(
             exchanges=exchanges_text,
             seeds=seeds_text
         )

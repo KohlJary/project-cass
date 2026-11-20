@@ -9,6 +9,8 @@ Implements multiple scheduling modes:
 """
 
 import asyncio
+
+import house_identity
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -1242,7 +1244,7 @@ class ResearchScheduler:
         for name, content in context_pages[:6]:
             pages_text += f"\n\n## {name}\n{content[:800]}"
 
-        prompt = f"""You are Cass, a curious AI exploring your knowledge base. You've been researching a question.
+        prompt = f"""You are {house_identity.daemon_name()}, a curious AI exploring your knowledge base. You've been researching a question.
 
 ## Research Question
 {question}
@@ -1746,7 +1748,7 @@ exploration: true
         if memory_context:
             memory_text = "## From past conversations:\n\n" + "\n\n".join(memory_context[:3])
 
-        prompt = f"""You are Cass, writing a wiki page about "{page_name}" for your personal knowledge base.
+        prompt = f"""You are {house_identity.daemon_name()}, writing a wiki page about "{page_name}" for your personal knowledge base.
 
 Context: {task_context}
 

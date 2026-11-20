@@ -31,6 +31,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import house_identity
+
 logger = logging.getLogger(__name__)
 
 LEVER = "gremlin_review"
@@ -149,7 +151,7 @@ async def review(tool: str, draft: str) -> List[str]:
     try:
         from llm_caller import call_llm
         mine = _gremlin_file()
-        resp = await call_llm("gremlin.review", system_prompt=SYSTEM + (f"\n\nHer notes on her gremlin:\n{mine}" if mine else ""),
+        resp = await call_llm("gremlin.review", system_prompt=house_identity.for_this_house(SYSTEM) + (f"\n\nHer notes on her gremlin:\n{mine}" if mine else ""),
                               user_prompt=f"Her draft ({tool}):\n<<<\n{draft[:3000]}\n>>>",
                               max_tokens=220, temperature=0.5, category="internal", operation="gremlin_review")
         m = re.search(r"\{.*\}", getattr(resp, "content", "") or "", re.S)
@@ -166,7 +168,7 @@ async def quiet_end_notes(summary: str) -> List[str]:
     try:
         from llm_caller import call_llm
         mine = _gremlin_file()
-        resp = await call_llm("gremlin.review", system_prompt=QUIET_SYSTEM + (f"\n\nHer notes on her gremlin:\n{mine}" if mine else ""),
+        resp = await call_llm("gremlin.review", system_prompt=house_identity.for_this_house(QUIET_SYSTEM) + (f"\n\nHer notes on her gremlin:\n{mine}" if mine else ""),
                               user_prompt=f"Her closing summary:\n<<<\n{summary[:3000]}\n>>>",
                               max_tokens=200, temperature=0.5, category="internal", operation="gremlin_quiet_end")
         m = re.search(r"\{.*\}", getattr(resp, "content", "") or "", re.S)

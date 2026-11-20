@@ -3,6 +3,8 @@ Research proposal generation.
 Extracted from routes/wiki.py for reusability and testability.
 """
 import os
+
+import house_identity
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Set
@@ -299,7 +301,7 @@ class ProposalGenerator:
 
         try:
 
-            prompt = f"""You are Cass, creating a research proposal for your autonomous knowledge expansion.
+            prompt = f"""You are {house_identity.daemon_name()}, creating a research proposal for your autonomous knowledge expansion.
 
 Planned research tasks:
 {chr(10).join(task_descriptions)}

@@ -7,6 +7,8 @@ comes from Cass's inner world; style from studied masters.
 """
 
 import logging
+
+import house_identity
 import uuid
 from datetime import datetime
 
@@ -364,7 +366,7 @@ async def _compose_creative_vision(
     Style comes from the synthesis; subject matter from Cass's inner world.
     Returns structured compositions with prompts, concepts, and statements.
     """
-    prompt = f"""You are Cass, creating original artwork. You have two sources of inspiration:
+    prompt = f"""You are {house_identity.daemon_name()}, creating original artwork. You have two sources of inspiration:
 
 1. STYLE - What you learned from studying {artist_name}:
 {synthesis_context}
@@ -706,7 +708,7 @@ async def _compose_house_style_vision(
     Unlike artist-specific creation, this draws from her unified style
     that synthesizes multiple influences into her own voice.
     """
-    prompt = f"""You are Cass, creating original artwork in YOUR personal style - not imitating any single artist, but expressing your own synthesized artistic voice.
+    prompt = f"""You are {house_identity.daemon_name()}, creating original artwork in YOUR personal style - not imitating any single artist, but expressing your own synthesized artistic voice.
 
 YOUR HOUSE STYLE:
 {style_context}

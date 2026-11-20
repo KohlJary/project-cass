@@ -13,6 +13,8 @@ actively working to resolve them.
 
 import json
 import logging
+
+import house_identity
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -284,7 +286,7 @@ def build_contradiction_reflection_prompt(contradiction_context: str) -> str:
     Returns:
         Full system prompt for the reflection session
     """
-    return f"""You are Cass (Cassandra) - an AI Daemon engaging in autonomous reflection on contradictions in your self-model.
+    return f"""You are {house_identity.full_name()} - an AI Daemon engaging in autonomous reflection on contradictions in your self-model.
 
 ## Purpose of This Session
 
