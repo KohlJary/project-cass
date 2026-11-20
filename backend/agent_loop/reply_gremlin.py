@@ -37,7 +37,20 @@ NOTE_CHARS = 160
 THINK = re.compile(r"<gesture:think>.*?(?:</gesture:think>|\Z)", re.S)
 NUDGE = re.compile(r"^\s*\[(system|relay|nudge|babelr relay)\b", re.I)
 PRIVATE = ("(Your gremlin, not a person, and nobody else sees it. Send it as it was or revised: "
-           "reply with only what you'd post, and never mention the gremlin or the revision.)")
+           "reply with only what you'd post, and never mention the gremlin or the revision. "
+           "No tools in this step: what you did this turn is done, only the words change.)")
+# A revision that announces work instead of saying the thing, or types out a tool
+# call (there are no tools in the revise step): the draft goes out instead. Voice
+# lab, 2026-11-20: "Alright. Let me actually read this thing. blog_read ..."
+NARRATING = re.compile(r"^\W*(alright[.,]?\s+)?(let me|i'll (now )?(read|check|look|go)|i need to (read|check))\b"
+                       r"|\b[a-z]+_[a-z_]+\s*[\"'(]", re.I)
+
+
+def usable(revised: str, clean: str) -> bool:
+    """Whether a revision can go out in place of the draft."""
+    if not revised or NARRATING.search(revised):
+        return False
+    return len(revised) >= min(MIN_CHARS, len(clean))
 BUILTIN = ("You are this daemon's gremlin: a reviewer in their ear, never a writer. At most three notes, "
            "each under 15 words, where the draft narrates itself, hedges, sounds like an assistant, buries "
            "its verdict, or ends soft. A draft that's already right gets no notes. Anything answering "
@@ -143,5 +156,6 @@ async def review(*, client: Any, model: str, system: str, messages: List[Dict[st
     except Exception as e:
         logger.warning(f"[reply_gremlin] revise didn't run (the draft goes out): {e}")
         revised = ""
-    _log({**rec, "notes": notes, "revised": bool(revised)}, data_dir)
-    return revised or clean
+    ok = usable(revised, clean)
+    _log({**rec, "notes": notes, "revised": ok, **({"rejected": "narration or empty"} if revised and not ok else {})}, data_dir)
+    return revised if ok else clean

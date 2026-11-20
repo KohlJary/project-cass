@@ -74,3 +74,12 @@ def test_the_daemons_own_gremlin_file_is_its_prompt(tmp_path, monkeypatch):
 def test_an_unclosed_think_block_is_stripped_too():
     assert rg.without_think("<gesture:think>That's the gremlin right. Okay.") == ""
     assert rg.without_think("<gesture:think>x</gesture:think>The verdict.") == "The verdict."
+
+
+def test_a_revision_that_narrates_or_fakes_a_tool_call_is_dropped(monkeypatch, tmp_path):
+    bad = FakeClient(text='Alright. Let me actually read this thing.\n\nblog_read "Gremlin: Refusal as Infrastructure"')
+    out, _ = run(monkeypatch, tmp_path, ["what do you disagree with?"], client=bad)
+    assert out == "This pitch is bad, and here is a long careful reason why."
+    assert '"rejected"' in (tmp_path / "gremlin" / "reply_reviews.jsonl").read_text()
+    assert rg.usable("Kohl's wrong about one thing: refusal isn't free.", "a draft") is True
+    assert "No tools in this step" in rg.PRIVATE
