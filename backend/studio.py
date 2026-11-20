@@ -70,7 +70,7 @@ TOOL = {
         "the sections and their lengths in order, and it writes the song's sections and arrangement, keeping my "
         "tempo and instruments, with each instrument in each section playing a clip named for it "
         "(verse-guitar, chorus-bass, verse-drums as a grid...); I write those clips (a bar or two loops to fill "
-        "the section; a clip I don't write plays as silence, and render lists it) and render. Every render shows the song by section: what plays in each and how loud each is. share sets who can follow my music log in Babelr (my listening, what I write "
+        "the section; a clip I don't write plays as silence, and render lists it) and render. Every render shows the song by section: what plays in each and how loud each is. audition hears one section in its place without rendering the whole song: the section before it, the section (repeat plays it over, to hear it the 5th time round), and the first bars of what follows, with my ears listening; swap tries other notes for a part, or another hold, just this once, and nothing is committed or changed in the song. A section can say hold: 3 (beats): what's still sounding at its end rings that long before the next section starts. An instrument (or the whole song) can say space: high-ceilings to play in a named room instead of reverb knobs; spaces lists the rooms with their numbers and how long each rings, measured, and space saves a room of my own (name, notes: what room it is in my words, params: its numbers). share sets who can follow my music log in Babelr (my listening, what I write "
         "about songs, my drafts and sketches); hide keeps any single one out of it, show puts it back."),
     "input_schema": {
         "type": "object",
@@ -78,7 +78,13 @@ TOOL = {
             "action": {"type": "string",
                        "enum": ["help", "render", "drafts", "read", "look", "compare", "patch", "map",
                                 "noodle", "sketchbook", "keep", "share", "hide", "show", "tone", "rig",
-                                "clip", "clips", "session", "song", "form"]},
+                                "clip", "clips", "session", "song", "form", "audition", "spaces", "space"]},
+            "section": {"type": "string", "description": "audition: the section to hear in its place"},
+            "time": {"type": "integer", "description": "audition: which time the section comes around (default 1)"},
+            "repeat": {"type": "integer", "description": "audition: play it this many times over, 1-8 (default 1)"},
+            "swap": {"type": "object", "description": "audition: parts to play differently just this once, like "
+                                                      "{\"bass\": \"E2/2 G2/2 | ...\"} or {\"hold\": 2}; the song "
+                                                      "file isn't changed"},
             "form": {"type": "string", "description": "form: the song's shape, sections and bars in order, like "
                                                       "\"intro 4 · verse 8 · chorus 8 · verse 8 · chorus 8 · bridge 8 · "
                                                       "chorus 16 · outro 4\""},
@@ -109,10 +115,11 @@ TOOL = {
             "against": {"type": "integer", "description": "compare: the earlier draft (default the one before)"},
             "part": {"type": "string", "description": "read: glance, a section label, or bars like 1-8; "
                                                       "look: overview, stereo, or a section label"},
-            "name": {"type": "string", "description": "patch/rig: its name; tone: a rig to use"},
+            "name": {"type": "string", "description": "patch/rig/space: its name; tone: a rig to use"},
             "synth": {"type": "string", "description": "patch/map: the synth (vitalium, nekobi, surge, ...)"},
-            "params": {"type": "object", "description": "patch: the synth's settings by parameter name"},
-            "notes": {"type": "string", "description": "patch: what it's for, how it sounds, in my words"},
+            "params": {"type": "object", "description": "patch: the synth's settings by parameter name; space: the "
+                                                         "room's numbers (size, damping, walls_ms, amount, tone_hz, width)"},
+            "notes": {"type": "string", "description": "patch/space: what it's for, how it sounds, in my words"},
         },
         "required": ["action"],
     },
@@ -250,6 +257,87 @@ def render(slug: str, song: str, message: str, data_dir=None) -> Dict[str, Any]:
             **({"clips_not_written_yet": out["clips_not_written_yet"]} if out.get("clips_not_written_yet") else {}),
             "what_my_ears_heard": glance[:6000],
             "note": "studio read / look for more; compare against an earlier draft"}
+
+
+AUDITIONS_KEPT = 20
+
+
+def audition(slug: str, song: str, section: str, time: int, repeat: int, swap, data_dir=None) -> Dict[str, Any]:
+    """One section heard in its place, with her ears; nothing committed, the song untouched."""
+    import workshop as W
+    if not (section or "").strip():
+        return {"error": "audition needs a section (one of the song's section names)"}
+    if swap is not None and not isinstance(swap, dict):
+        return {"error": "swap is parts by name, like {\"bass\": \"E2/2 G2/2 | ...\"}"}
+    try:
+        project = W._project(slug, data_dir)
+    except Exception as e:
+        return {"error": f"no project {slug}: {e}"}
+    song_path = (project / (song or "song.yaml")).resolve()
+    if project.resolve() not in song_path.parents or not song_path.exists():
+        return {"error": f"no {song or 'song.yaml'} in {slug}"}
+    if not Path(ORPHIC).exists():
+        return {"error": "Orphic isn't installed where the vessel expects it"}
+    folder = _root(data_dir) / slug / "auditions"
+    folder.mkdir(parents=True, exist_ok=True)
+    done = sorted((int(p.name) for p in folder.iterdir() if p.name.isdigit()))
+    n = (done[-1] + 1) if done else 1
+    for old in done[: max(0, len(done) - AUDITIONS_KEPT + 1)]:
+        shutil.rmtree(folder / str(old), ignore_errors=True)
+    out_dir = folder / str(n)
+    env = {**os.environ, "ORPHIC_BELT": str(_belt(data_dir))}
+    args = ["nice", "-n", "10", ORPHIC, "audition", str(song_path), section.strip(), "--time", str(int(time or 1)),
+            "--repeat", str(int(repeat or 1)), "-o", str(out_dir), "--listen"]
+    if swap:
+        args += ["--swap", json.dumps(swap)]
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=RENDER_TIMEOUT, env=env)
+        out = json.loads(r.stdout)
+    except subprocess.TimeoutExpired:
+        shutil.rmtree(out_dir, ignore_errors=True)
+        return {"error": "the audition took too long and was stopped"}
+    except ValueError:
+        shutil.rmtree(out_dir, ignore_errors=True)
+        return {"error": f"it didn't play: {(r.stderr or '')[-400:]}"}
+    if out.get("error"):
+        shutil.rmtree(out_dir, ignore_errors=True)
+        return {"error": f"it didn't play: {out['error']}"}
+    glance = ""
+    rec = out_dir / "listening" / "record.md"
+    if rec.exists():
+        from listening import read_part
+        glance = read_part(rec.read_text(), "glance")
+    return {"audition": n, "heard": out.get("window"), "swapped": out.get("swapped") or None,
+            "length_s": out.get("length_s"), "by_section": out.get("by_section"), "balance": out.get("balance"),
+            "would_have_clipped": out.get("would_have_clipped"),
+            "what_my_ears_heard": glance[:5000],
+            "note": "nothing was committed and the song wasn't changed; if the swap is right, write it into the song"}
+
+
+def spaces_list(data_dir=None) -> Dict[str, Any]:
+    env = {**os.environ, "ORPHIC_BELT": str(_belt(data_dir))}
+    try:
+        r = subprocess.run([ORPHIC, "spaces", "list"], capture_output=True, text=True, timeout=120, env=env)
+        return json.loads(r.stdout)
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        return {"error": "couldn't list the rooms"}
+
+
+def space_save(name: str, notes: str, numbers: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
+    if not (name or "").strip():
+        return {"error": "a space needs a name"}
+    if not (notes or "").strip():
+        return {"error": "a space needs notes: what room it is, in my words"}
+    env = {**os.environ, "ORPHIC_BELT": str(_belt(data_dir))}
+    try:
+        r = subprocess.run([ORPHIC, "spaces", "save", name, "--says", notes, "--numbers", json.dumps(numbers or {})],
+                           capture_output=True, text=True, timeout=120, env=env)
+        out = json.loads(r.stdout)
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        return {"error": "the space wasn't saved"}
+    if out.get("error"):
+        return {"error": out["error"]}
+    return {"saved": out, "use_it": f"space: {out.get('name')} on an instrument, or at the top of a song"}
 
 
 # ---------------------------------------------------------------------------
@@ -705,12 +793,19 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
         if ":" in item:
             return set_hidden("drafts", item, action == "hide", data_dir)
         return {"error": "item is a song write-up path (listening/x.md), a draft (project:n) or a sketch (sketch:n)"}
+    if action == "spaces":
+        return spaces_list(data_dir)
+    if action == "space":
+        return space_save(a.get("name") or "", a.get("notes") or "", a.get("params") or {}, data_dir)
     if action == "sketchbook":
         return {"sketches": [{k: v for k, v in s.items() if k != "sound_raw"} for s in sketches(data_dir)[-20:]]}
     if not slug:
         return {"error": f"{action} needs a project (its slug)"}
     if action == "render":
         return render(slug, a.get("song") or "song.yaml", a.get("message") or "", data_dir)
+    if action == "audition":
+        return audition(slug, a.get("song") or "song.yaml", a.get("section") or "", a.get("time") or 1,
+                        a.get("repeat") or 1, a.get("swap"), data_dir)
     if action == "drafts":
         return {"project": slug, "drafts": drafts(slug, data_dir)}
     if action == "read":
@@ -722,7 +817,7 @@ def handle(a: Dict[str, Any], data_dir=None) -> Dict[str, Any]:
     if action == "keep":
         return keep(slug, a.get("sketch"), a.get("note") or "", data_dir)
     return {"error": "action is one of help, render, drafts, read, look, compare, patch, map, noodle, sketchbook, "
-                     "keep, share, hide, show, tone, rig, clip, clips, session, song, form"}
+                     "keep, share, hide, show, tone, rig, clip, clips, session, song, form, audition, spaces, space"}
 
 
 def studio_tools(default_project: Optional[str] = None) -> Optional[Dict[str, Any]]:

@@ -264,3 +264,50 @@ def test_form_writes_sections_that_play_clips(tmp_path, monkeypatch):
     assert song["tempo"] == 100 and song["sections"]["verse"]["guitar"] == {"clip": "verse-guitar"}
     assert song["arrangement"][4] == "chorus-16"
     assert "error" in ST.handle({"action": "form", "project": slug, "form": "verse eight"}, tmp_path)
+
+
+AUDITION_SONG = """title: t
+tempo: 120
+instruments:
+  keys: {gm: 1}
+sections:
+  a: {bars: 1, keys: "C/4"}
+  b: {bars: 1, keys: "Am/4"}
+arrangement: [a, b, a]
+"""
+
+
+@pytest.mark.skipif(not Path(ST.ORPHIC).exists(), reason="needs Orphic installed")
+def test_audition_hears_a_section_in_place_and_changes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    r = W.new("Audition", "other", "x", data_dir=tmp_path)
+    slug = r["project"]
+    W.write(slug, "song.yaml", AUDITION_SONG, data_dir=tmp_path)
+    W.commit(slug, "the song", tmp_path)
+    head = W._git(W._project(slug, tmp_path), "rev-parse", "HEAD")
+    out = ST.handle({"action": "audition", "project": slug, "section": "b", "swap": {"keys": "F/4"},
+                     "repeat": 2}, tmp_path)
+    assert out.get("error") is None, out
+    assert out["heard"] == ["a", "b (trying)", "b (trying)", "a"]
+    assert out["swapped"] == ["keys"] and out["what_my_ears_heard"]
+    proj = W._project(slug, tmp_path)
+    assert (proj / "song.yaml").read_text() == AUDITION_SONG                 # the song is untouched
+    assert W._git(proj, "rev-parse", "HEAD") == head                         # nothing committed
+    assert ST.drafts(slug, tmp_path) == []                                   # and it isn't a draft
+    bad = ST.handle({"action": "audition", "project": slug, "section": "chorus"}, tmp_path)
+    assert "no section" in bad["error"]
+    assert "needs a section" in ST.handle({"action": "audition", "project": slug}, tmp_path)["error"]
+
+
+@pytest.mark.skipif(not Path(ST.ORPHIC).exists(), reason="needs Orphic installed")
+def test_her_own_space_goes_on_the_belt(tmp_path, monkeypatch):
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    assert "your words" in ST.handle({"action": "space", "name": "attic"}, tmp_path)["error"] or \
+        "my words" in ST.handle({"action": "space", "name": "attic"}, tmp_path)["error"]
+    out = ST.handle({"action": "space", "name": "Attic", "notes": "under the roof",
+                     "params": {"size": 0.4, "walls_ms": 10}}, tmp_path)
+    assert out.get("error") is None, out
+    assert out["saved"]["name"] == "attic" and out["saved"]["ring_s"] > 0
+    rooms = ST.handle({"action": "spaces"}, tmp_path)["spaces"]
+    assert rooms["attic"]["mine"] is True and "cathedral" in rooms
+    assert (ST._belt(tmp_path) / "spaces" / "attic.json").exists()
