@@ -343,9 +343,10 @@ async def run_conversation(
         await say({"type": "thinking", "status": f"Executing: {name}..."})
         return await box.execute(name, tool_input)
 
+    turn_messages = history_from(continuous_messages) + [_this_message(model_message, image, image_media_type)]
     outcome = await run_loop(
         spec=spec, client=client, model=model, system=system, tools=tools,
-        messages=history_from(continuous_messages) + [_this_message(model_message, image, image_media_type)],
+        messages=turn_messages,
         execute=execute, end_tool="hold_reply", nudges=0, also_callable=set(box.findable),
         session_live=_session_live if starter else (lambda: False),
     )
@@ -364,6 +365,16 @@ async def run_conversation(
         raw = f"{raw}\n{last}" if raw else last
     else:
         book.let_go(person.get("user_id"))
+        # The reply gremlin (lever reply_gremlin): one review, at most one revision; only
+        # what's sent is stored, never the draft.
+        from . import reply_gremlin
+        if reply_gremlin.enabled() and last:
+            sent = await reply_gremlin.review(
+                client=client, model=model, system=system, messages=turn_messages,
+                their=user_message if user_message is not None else (model_message or ""), draft=last)
+            if sent != last:
+                raw = raw[: len(raw) - len(last)] + sent if raw.endswith(last) else sent
+                last = sent
     clean, gestures = _gestures(last, agent_client)
     animations = []
     for s in outcome.steps:

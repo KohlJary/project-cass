@@ -182,6 +182,10 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     # benchmark configuration or an env var says so (benchmark plan, phase 2).
     _lever("prompt_thymos", "Thymos section (needs, affect) in her chat prompt",
            PROMPT, where="continuous_context.build_continuous_context"),
+    _lever("reply_gremlin", "A gremlin on every chat reply (agent_loop/reply_gremlin.py), for a daemon whose gremlin "
+           "is meant to be loud: one cheap review of the draft (at most three notes, from its own gremlin file), "
+           "then at most one revision; only what's sent is stored. Skips short replies and anything in pain or crisis.",
+           LLM, default=False, where="agent_loop/conversation.run_conversation"),
     _lever("gremlin_review", "Her gremlin as a second voice (agent_loop/gremlin_review.py): in sessions, before "
            "a Bluesky post/reply/DM, a Chapter House post/DM or a say goes out, one cheap call gives at most two "
            "notes (never rewrites); she revises or sends as is. Skips anything answering pain or crisis.",

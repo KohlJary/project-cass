@@ -263,6 +263,11 @@ LEVER_COVERAGE = {
         "tests": [],
         "note": "Prompt switch (on by default, profiles leave it alone); smoke chat turns run with it on. Fast-suite: tests/test_prompt_levers.py.",
     },
+    "reply_gremlin": {
+        "depth": "none",
+        "tests": [],
+        "note": "Off by default; per member (Eris). A chat-turn post-pass with no loop of its own. Fast-suite: tests/test_reply_gremlin.py.",
+    },
     "gremlin_review": {
         "depth": "gate",
         "tests": [f"{AGENT_LOOP}::test_gremlin_notes_hold_a_draft_once_then_it_goes"],
