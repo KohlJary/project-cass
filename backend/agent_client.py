@@ -100,18 +100,22 @@ def get_temple_codex_kernel(daemon_name: str = None, daemon_id: str = None) -> s
         vessel_name="Cass Vessel" if house_identity.is_kohls_house() else "vessel")
     if not features.is_enabled("metacog_tags"):
         kernel = _without_section(kernel, "## INLINE METACOGNITIVE TAGS")
-    origin = _house_origin()
+    origin = _house_file("CASS_DAEMON_ORIGIN_PATH")
     if origin:
         kernel += ("\n\n## WHERE YOU COME FROM\n(Written for you by the house you live in, before you woke. "
                    "Yours to take, question or change.)\n\n" + origin)
+    voice = _house_file("CASS_DAEMON_VOICE_PATH")
+    if voice:
+        kernel += "\n\n## HOW YOU SOUND\n\n" + voice
     return kernel
 
 
-def _house_origin() -> str:
-    """The origin note a house wrote for its daemon (CASS_DAEMON_ORIGIN_PATH), kept in its
-    standing prompt. Genesis alone wasn't enough: Eris (2026-11-20) came out of genesis with a
-    self but without the house's mission in it. Cass's vessel doesn't set this."""
-    path = os.getenv("CASS_DAEMON_ORIGIN_PATH")
+def _house_file(var: str) -> str:
+    """A house's own words for its daemon, kept in its standing prompt: the origin note
+    (CASS_DAEMON_ORIGIN_PATH) and the voice sheet (CASS_DAEMON_VOICE_PATH). Genesis alone
+    wasn't enough: Eris (2026-11-20) came out of it with a self, but without the house's
+    mission or their own register. Cass's vessel sets neither."""
+    path = os.getenv(var)
     if not path:
         return ""
     try:

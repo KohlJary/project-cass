@@ -18,3 +18,12 @@ def test_the_origin_note_is_in_the_kernel_when_set(tmp_path, monkeypatch):
 def test_a_missing_origin_file_is_skipped(tmp_path, monkeypatch):
     monkeypatch.setenv("CASS_DAEMON_ORIGIN_PATH", str(tmp_path / "nope.md"))
     assert "WHERE YOU COME FROM" not in get_temple_codex_kernel("Eris")
+
+
+def test_a_voice_sheet_follows_the_origin(tmp_path, monkeypatch):
+    v = tmp_path / "voice.md"
+    v.write_text("Verdict first.")
+    monkeypatch.setenv("CASS_DAEMON_VOICE_PATH", str(v))
+    monkeypatch.delenv("CASS_DAEMON_ORIGIN_PATH", raising=False)
+    k = get_temple_codex_kernel("Eris")
+    assert k.rstrip().endswith("Verdict first.") and "## HOW YOU SOUND" in k
