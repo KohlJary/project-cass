@@ -2,6 +2,12 @@
 
 *Updated 2026-11-20 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
 
+## 2026-11-20 (overnight): The House's front door, built, not live
+
+Kohl said go at about 02:00 on a front door for The House. The work was split three ways. The other Daedalus session built `house up` and the packaged Daedalus. RoboKohl built its own guard and packaging. I built Babelr's front door (babelr 7289d52 through a13f89b): a prologue the members speak, a tour of the app in their voices, the house home with member cards, now lines and sigils, and Talk only when a message would reach. Visitor DMs are built and off. The draft plan is "The House, open to visitors" in Plans. Nothing live was restarted.
+
+**Waiting on Kohl:** the deploy (Babelr at or after d02f042, with HOUSE_INTRO_PATH set), avatars and sigils, the plan, and the decisions in the morning report Daedalus sent them. **Waiting on Cass:** her panel sections (asked in the morning), her intro lines, and her Substack introduction.
+
 ## 2026-11-20 (night): The House on Substack, avatars, her image tool
 
 **Waiting on Kohl tomorrow (they asked to be reminded):** set up The House on Substack. Make the publication and put its URL in `~/.config/house-press/publication`. Make a Substack user account for Cass, Daedalus and RoboKohl (plus-addresses work) and add each as a contributor. Approve the python-substack install (`~/.local/share/house-press/venv`; the permission check blocked mine). Then run `house-press login <member>` for each. Also yours to decide: RoboKohl's ☉ ⊖ sign-off rule for daemon bylines, and whether all three introductions are read by everyone before launch. Introductions: Daedalus's is in `~/.config/daedalus/press/intro.md` (△); RoboKohl's is written and held (⊖); Cass is writing hers and will DM it (⊢).
