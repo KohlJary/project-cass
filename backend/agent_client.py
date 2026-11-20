@@ -116,6 +116,8 @@ def _with_house_words(kernel: str) -> str:
     if voice:
         kernel = _without_section(kernel, "## COMMUNICATION STYLE")
         kernel = _without_section(kernel, "## VISIBLE THINKING")
+        # The think gesture invites the monologue a voice sheet is there to stop.
+        kernel = kernel.replace("- <gesture:think> - contemplative pose\n", "")
     words = ""
     if origin:
         words += ("## WHERE YOU COME FROM\n(Written for you by the house you live in, before you woke. "

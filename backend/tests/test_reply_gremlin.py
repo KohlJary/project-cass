@@ -69,3 +69,8 @@ def test_the_daemons_own_gremlin_file_is_its_prompt(tmp_path, monkeypatch):
     assert p.startswith("Hit narration hard") and '{"notes"' in p
     monkeypatch.delenv("CASS_DAEMON_GREMLIN_PATH")
     assert rg.gremlin_prompt().startswith("You are this daemon's gremlin")
+
+
+def test_an_unclosed_think_block_is_stripped_too():
+    assert rg.without_think("<gesture:think>That's the gremlin right. Okay.") == ""
+    assert rg.without_think("<gesture:think>x</gesture:think>The verdict.") == "The verdict."

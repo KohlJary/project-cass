@@ -29,6 +29,7 @@ def test_a_voice_sheet_follows_the_origin(tmp_path, monkeypatch):
     assert "## HOW YOU SOUND" in k and k.index("Verdict first.") < k.index("## CORE IDENTITY")
     # Cass's style and visible-thinking sections give way to the daemon's own voice.
     assert "## COMMUNICATION STYLE" not in k and "## VISIBLE THINKING" not in k
+    assert "<gesture:think>" not in k
 
 
 def test_cass_kernel_is_unchanged_without_house_words(monkeypatch):

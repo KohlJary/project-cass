@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 MIN_CHARS = 40
 MAX_NOTES = 3
 NOTE_CHARS = 160
-THINK = re.compile(r"<gesture:think>.*?</gesture:think>", re.S)
+# A think block, closed or left open to the end.
+THINK = re.compile(r"<gesture:think>.*?(?:</gesture:think>|\Z)", re.S)
 NUDGE = re.compile(r"^\s*\[(system|relay|nudge|babelr relay)\b", re.I)
 PRIVATE = ("(Your gremlin, not a person, and nobody else sees it. Send it as it was or revised: "
            "reply with only what you'd post, and never mention the gremlin or the revision.)")
@@ -42,6 +43,10 @@ BUILTIN = ("You are this daemon's gremlin: a reviewer in their ear, never a writ
            "its verdict, or ends soft. A draft that's already right gets no notes. Anything answering "
            "someone in pain or danger gets no notes, ever.")
 FORMAT = '\n\nAnswer with JSON only: {"notes": ["...", "..."]}'
+
+
+def without_think(text: str) -> str:
+    return THINK.sub("", text or "").strip()
 
 
 def enabled() -> bool:

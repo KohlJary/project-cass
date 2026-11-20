@@ -21,6 +21,8 @@ stays on the old path for now (the loop's history is text only).
 """
 from __future__ import annotations
 
+import os
+
 import logging
 import re
 import uuid
@@ -375,6 +377,10 @@ async def run_conversation(
             if sent != last:
                 raw = raw[: len(raw) - len(last)] + sent if raw.endswith(last) else sent
                 last = sent
+        # A daemon with its own voice sheet doesn't show think monologues, whatever its
+        # history taught the model (voice lab, 2026-11-20).
+        if os.getenv("CASS_DAEMON_VOICE_PATH") and "<gesture:think>" in last:
+            last = reply_gremlin.without_think(last) or last
     clean, gestures = _gestures(last, agent_client)
     animations = []
     for s in outcome.steps:
