@@ -53,9 +53,17 @@ NARRATING = re.compile(r"^\W*(alright[.,]?\s+)?(let me|i'll (now )?(read|check|l
                        r"|\b[a-z]+_[a-z_]+\s*[\"'(]", re.I)
 
 
+# A revision that talks to or about the gremlin, or about revising: the private step
+# leaked into what's sent (reading run, 2026-11-20: "The gremlin's right.",
+# "I'm holding the reply to revise it.", a bare <hold_reply>).
+LEAK = re.compile(r"gremlin|hold_reply|holding the reply|\brevis(e|ing|ion)\b|you'?re right\.", re.I)
+
+
 def usable(revised: str, clean: str) -> bool:
     """Whether a revision can go out in place of the draft."""
     if not revised or NARRATING.search(revised):
+        return False
+    if LEAK.search(revised) and not LEAK.search(clean):
         return False
     return len(revised) >= min(MIN_CHARS, len(clean))
 BUILTIN = ("You are this daemon's gremlin: a reviewer in their ear, never a writer. At most three notes, "

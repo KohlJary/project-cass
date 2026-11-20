@@ -101,3 +101,11 @@ def test_with_tools_the_revise_step_is_her_own_loop(monkeypatch, tmp_path):
                                 their=THEIRS, draft=DRAFT, data_dir=tmp_path, revise=revise))
     assert out.startswith("Kohl's wrong") and client.calls == []
     assert "use your tools" in seen[0][-1]["content"] and seen[0][-2]["role"] == "assistant"
+
+
+def test_a_revision_that_leaks_the_gremlin_is_dropped():
+    assert not rg.usable("The gremlin's right. I was performing. Here's the take: rent is theft.", "a draft about rent")
+    assert not rg.usable("<hold_reply>\nThe whole post is about rent.", "draft")
+    assert not rg.usable("I'm holding the reply to revise it. Rent is theft.", "draft")
+    # Unless the draft was about the gremlin to begin with.
+    assert rg.usable("Kohl's gremlin post is right about refusal.", "Read the gremlin post.")
