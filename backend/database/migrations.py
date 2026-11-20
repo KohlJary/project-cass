@@ -773,7 +773,7 @@ def _ensure_research_task_params(conn):
         print("Adding research_tasks.params_json (v64)")
 
 
-def init_database_with_migrations(daemon_name: str = "cass") -> str:
+def init_database_with_migrations(daemon_name: str = "cass", entity_name: str = "Cass") -> str:
     """
     Full database initialization including JSON data migration.
 
@@ -832,7 +832,7 @@ def init_database_with_migrations(daemon_name: str = "cass") -> str:
                 traceback.print_exc()
 
     # Step 3: Get or create daemon (only if seed didn't provide one)
-    daemon_id = get_or_create_daemon(daemon_name)
+    daemon_id = get_or_create_daemon(daemon_name, name=entity_name)
 
     # Step 4: Run JSON -> SQLite migrations
     try:

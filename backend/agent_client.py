@@ -13,6 +13,7 @@ import anyio
 from typing import Any, AsyncIterator, List, Dict, Optional, Callable
 from dataclasses import dataclass, field
 import json
+import os
 
 try:
     from anthropic import Anthropic, AsyncAnthropic
@@ -59,7 +60,7 @@ from tool_selector import (
 # ============================================================================
 
 # Default daemon name
-DEFAULT_DAEMON_NAME = "Cass"
+DEFAULT_DAEMON_NAME = os.getenv("CASS_DAEMON_NAME", "Cass")  # `house up` names a new house's own
 
 
 def get_temple_codex_kernel(daemon_name: str = None, daemon_id: str = None) -> str:

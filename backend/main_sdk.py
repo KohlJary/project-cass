@@ -276,7 +276,10 @@ async def add_security_headers(request: Request, call_next):
 print("STARTUP: Importing database module...")
 from database import init_database_with_migrations, get_daemon_entity_name
 print("STARTUP: Running init_database_with_migrations...")
-_daemon_id = init_database_with_migrations("cass")
+# A house other than Kohl's names its own daemon (CASS_DAEMON_LABEL / CASS_DAEMON_NAME,
+# set by `house up`); unset, it's Cass, as it always was.
+_daemon_id = init_database_with_migrations(os.getenv("CASS_DAEMON_LABEL", "cass"),
+                                           os.getenv("CASS_DAEMON_NAME", "Cass"))
 print(f"STARTUP: Database initialized, daemon_id={_daemon_id}")
 _daemon_name = get_daemon_entity_name(_daemon_id)  # Entity name for system prompts
 print(f"STARTUP: daemon_name={_daemon_name}")
