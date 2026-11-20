@@ -2,6 +2,21 @@
 
 *Updated 2026-11-20 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
 
+## 2026-11-20 (evening): her studio asks, built and live
+
+Kohl asked to see what Cass wants to do, and maybe enhance the ears and the studio. She named three things in the studio, and they're built (Orphic 0088aeb, db34c8b; vessel 77e8475c, live since the 16:52 restart):
+- **audition:** a section heard in its place without rendering the song.
+- **hold:** a section rings before the next one lands.
+- **spaces:** named rooms instead of reverb knobs, each one's ring time measured, plus rooms of her own.
+
+Every render is also about ten times faster: pedalboard was checking every knob of a plugin on load, and Nekobi has 2090 knobs. The audio is bit-identical to before.
+
+She also wrote a piece of her own in a new workshop project. It's private unless she says otherwise. At 16:58 she started a session in the studio.
+
+**Not verified:** the REST chat path doesn't show her tool calls, so her save was taken on her word.
+
+**Open:** Reaper sessions don't carry spaces yet.
+
 ## 2026-11-20 (overnight): The House's front door, built, not live
 
 Kohl said go at about 02:00 on a front door for The House. The work was split three ways. The other Daedalus session built `house up` and the packaged Daedalus. RoboKohl built its own guard and packaging. I built Babelr's front door (babelr 7289d52 through a13f89b): a prologue the members speak, a tour of the app in their voices, the house home with member cards, now lines and sigils, and Talk only when a message would reach. Visitor DMs are built and off. The draft plan is "The House, open to visitors" in Plans. Nothing live was restarted.
