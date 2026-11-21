@@ -290,6 +290,7 @@ def test_audition_hears_a_section_in_place_and_changes_nothing(tmp_path, monkeyp
     assert out.get("error") is None, out
     assert out["heard"] == ["a", "b (trying)", "b (trying)", "a"]
     assert out["swapped"] == ["keys"] and out["what_my_ears_heard"]
+    assert "findings" in out["the_mix"]                                      # she hears the mix too
     proj = W._project(slug, tmp_path)
     assert (proj / "song.yaml").read_text() == AUDITION_SONG                 # the song is untouched
     assert W._git(proj, "rev-parse", "HEAD") == head                         # nothing committed

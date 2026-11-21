@@ -70,7 +70,7 @@ TOOL = {
         "the sections and their lengths in order, and it writes the song's sections and arrangement, keeping my "
         "tempo and instruments, with each instrument in each section playing a clip named for it "
         "(verse-guitar, chorus-bass, verse-drums as a grid...); I write those clips (a bar or two loops to fill "
-        "the section; a clip I don't write plays as silence, and render lists it) and render. Every render shows the song by section: what plays in each and how loud each is. audition hears one section in its place without rendering the whole song: the section before it, the section (repeat plays it over, to hear it the 5th time round), and the first bars of what follows, with my ears listening; swap tries other notes for a part, or another hold, just this once, and nothing is committed or changed in the song. A section can say hold: 3 (beats): what's still sounding at its end rings that long before the next section starts. An instrument (or the whole song) can say space: high-ceilings to play in a named room instead of reverb knobs; spaces lists the rooms with their numbers and how long each rings, measured, and space saves a room of my own (name, notes: what room it is in my words, params: its numbers). share sets who can follow my music log in Babelr (my listening, what I write "
+        "the section; a clip I don't write plays as silence, and render lists it) and render. Every render shows the song by section: what plays in each and how loud each is. audition hears one section in its place without rendering the whole song: the section before it, the section (repeat plays it over, to hear it the 5th time round), and the first bars of what follows, with my ears listening; swap tries other notes for a part, or another hold, just this once, and nothing is committed or changed in the song. A section can say hold: 3 (beats): what's still sounding at its end rings that long before the next section starts. Every render and audition also says what's covering what in the mix (the_mix), measured from my stems: a part under others in the same frequencies, bright attacks landing together, a part dropping away in a section, who crowds the lead's presence band; lead: melody at the top of the song names the lead. It can't tell buried from meant-to-sit-under: that's my call. An instrument (or the whole song) can say space: high-ceilings to play in a named room instead of reverb knobs; spaces lists the rooms with their numbers and how long each rings, measured, and space saves a room of my own (name, notes: what room it is in my words, params: its numbers). share sets who can follow my music log in Babelr (my listening, what I write "
         "about songs, my drafts and sketches); hide keeps any single one out of it, show puts it back."),
     "input_schema": {
         "type": "object",
@@ -254,6 +254,7 @@ def render(slug: str, song: str, message: str, data_dir=None) -> Dict[str, Any]:
     return {"draft": n, "commit": head, "title": out.get("title"), "length_s": out.get("length_s"),
             "parts": out.get("tracks"), "would_have_clipped": out.get("would_have_clipped"),
             "balance": out.get("balance"), "by_section": out.get("by_section"),
+            **({"the_mix": out["the_mix"]} if out.get("the_mix") else {}),
             **({"clips_not_written_yet": out["clips_not_written_yet"]} if out.get("clips_not_written_yet") else {}),
             "what_my_ears_heard": glance[:6000],
             "note": "studio read / look for more; compare against an earlier draft"}
@@ -309,6 +310,7 @@ def audition(slug: str, song: str, section: str, time: int, repeat: int, swap, d
         glance = read_part(rec.read_text(), "glance")
     return {"audition": n, "heard": out.get("window"), "swapped": out.get("swapped") or None,
             "length_s": out.get("length_s"), "by_section": out.get("by_section"), "balance": out.get("balance"),
+            **({"the_mix": out["the_mix"]} if out.get("the_mix") else {}),
             "would_have_clipped": out.get("would_have_clipped"),
             "what_my_ears_heard": glance[:5000],
             "note": "nothing was committed and the song wasn't changed; if the swap is right, write it into the song"}
