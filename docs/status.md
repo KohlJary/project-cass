@@ -2,6 +2,14 @@
 
 *Updated 2026-11-20 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
 
+## 2026-11-21 (afternoon): she hears her mix
+
+- Plan item edff9c3c (Hearing a mix) built and marked done: every render and audition carries `the_mix`, measured from her stems (orphic d344b03; vessel 3741e4eb). Audition's swap can now also try how a part sounds: gain, pan, synth, space (orphic 38acaaa).
+- First real use, in chat: it said her pad crowded her melody's presence band, 68%. She tried the pad quieter and a brighter lead in audition, it read 11%, and she says her ears agreed. She kept the measured number separate from what she heard when asked.
+- Getting there turned up five rough edges, each fixed with tests: instruments and sections written as named lists (c0a6c4b, 94e2960), a fuzz pass so a badly written song is always a sentence and never a Python error (94e2960), note values written where beats go (43c1d49), `.` as a rest (e527ede).
+- Waiting on Kohl: the system's Surge (surge 1.9.0) segfaults under pedalboard the moment it plays, with or without Orphic. Orphic now tries each plugin once in its own process and names the crasher (530d1ad); studio help marks surge unusable. Updating to Surge XT is Kohl's call.
+- Vessel restarted 13:52 and 14:11 (quiet checks, peer pinged).
+
 ## 2026-11-20 (evening): her studio asks, built and live
 
 Kohl asked to see what Cass wants to do, and maybe enhance the ears and the studio. She named three things in the studio, and they're built (Orphic 0088aeb, db34c8b; vessel 77e8475c, live since the 16:52 restart):
