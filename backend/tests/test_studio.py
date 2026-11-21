@@ -323,3 +323,10 @@ def test_her_own_space_goes_on_the_belt(tmp_path, monkeypatch):
     rooms = ST.handle({"action": "spaces"}, tmp_path)["spaces"]
     assert rooms["attic"]["mine"] is True and "cathedral" in rooms
     assert (ST._belt(tmp_path) / "spaces" / "attic.json").exists()
+
+
+def test_a_crash_says_so_and_names_the_last_part_finished():
+    import subprocess
+    r = subprocess.CompletedProcess([], -11, "", "DPF warning: noise\n  bass: nekobi, 16 notes\n")
+    note = ST._crash_note(r)
+    assert "crashed (signal 11)" in note and "bass" in note and "DPF" not in note

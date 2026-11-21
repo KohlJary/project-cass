@@ -116,7 +116,7 @@ TOOL = {
             "part": {"type": "string", "description": "read: glance, a section label, or bars like 1-8; "
                                                       "look: overview, stereo, or a section label"},
             "name": {"type": "string", "description": "patch/rig/space: its name; tone: a rig to use"},
-            "synth": {"type": "string", "description": "patch/map: the synth (vitalium, nekobi, surge, ...)"},
+            "synth": {"type": "string", "description": "patch/map: the synth (vitalium, nekobi, sfizz, kars, ...)"},
             "params": {"type": "object", "description": "patch: the synth's settings by parameter name; space: the "
                                                          "room's numbers (size, damping, walls_ms, amount, tone_hz, width)"},
             "notes": {"type": "string", "description": "patch/space: what it's for, how it sounds, in my words"},
@@ -178,13 +178,34 @@ def _song_doc() -> str:
         return ""
 
 
+def _crash_note(r) -> str:
+    """What to say when Orphic died without answering (a plugin crashing takes it down)."""
+    if r.returncode < 0:
+        done = [l.strip().split(":")[0] for l in (r.stderr or "").splitlines() if l.startswith("  ") and ":" in l]
+        return (f"Orphic crashed (signal {-r.returncode}) while playing"
+                + (f"; the last part it finished was {done[-1]}, so the next one is the likely cause" if done else "")
+                + ". Tell Daedalus.")
+    return (r.stderr or "the render failed")[-400:]
+
+
+def _crashed_synths() -> set:
+    """Synths Orphic found crash when they play (it tries each plugin once, in a process of its own)."""
+    try:
+        known = json.loads((Path.home() / ".cache" / "orphic" / "plays-safely.json").read_text())
+    except (OSError, ValueError):
+        return set()
+    return {Path(k.split("|")[0]).name.split(".")[0].lower() for k, ok in known.items() if not ok}
+
+
 def help_text(data_dir=None) -> Dict[str, Any]:
     maps = ORPHIC_HOME / "maps"
     synths = ["vitalium", "nekobi", "surge", "sfizz", "kars"]
+    crashed = _crashed_synths()
     belt = sorted(p.stem for p in _belt(data_dir).glob("*.json")) if _belt(data_dir).exists() else []
     return {
         "song_format": _song_doc(),
-        "synths": {s: ("mapped (studio map)" if (maps / s).exists() or (maps / s.capitalize()).exists()
+        "synths": {s: ("crashes when it plays on this machine; not usable until the plugin is fixed" if s in crashed
+                       else "mapped (studio map)" if (maps / s).exists() or (maps / s.capitalize()).exists()
                        else "not mapped yet") for s in synths},
         "general_midi": "gm: a program number 1-128 (1 piano, 5 electric piano, 34 fingered bass, 49 strings, "
                         "81 square lead, 89 new-age pad...); played by FluidSynth's FluidR3 set",
@@ -227,7 +248,7 @@ def render(slug: str, song: str, message: str, data_dir=None) -> Dict[str, Any]:
     try:
         out = json.loads(r.stdout)    # Orphic prints one JSON object: the result, or {"error": ...}
     except ValueError:
-        out = {"error": (r.stderr or "the render failed")[-600:]}
+        out = {"error": _crash_note(r)}
     if r.returncode != 0 or out.get("error"):
         shutil.rmtree(tmp, ignore_errors=True)
         return {"error": f"it didn't render: {out.get('error') or r.stderr[-400:]}",
@@ -299,7 +320,7 @@ def audition(slug: str, song: str, section: str, time: int, repeat: int, swap, d
         return {"error": "the audition took too long and was stopped"}
     except ValueError:
         shutil.rmtree(out_dir, ignore_errors=True)
-        return {"error": f"it didn't play: {(r.stderr or '')[-400:]}"}
+        return {"error": f"it didn't play: {_crash_note(r)}"}
     if out.get("error"):
         shutil.rmtree(out_dir, ignore_errors=True)
         return {"error": f"it didn't play: {out['error']}"}
