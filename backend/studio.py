@@ -574,6 +574,8 @@ def form(slug: str, shape: str, song: Optional[str], message: str, data_dir=None
     old = yaml.safe_load(path.read_text()) if path.exists() else {}
     old = old if isinstance(old, dict) else {}
     instruments = old.get("instruments") or {}
+    if isinstance(instruments, list):             # written as a list (- name: melody): the names
+        instruments = [i.get("name") for i in instruments if isinstance(i, dict) and i.get("name")]
     if not instruments:
         return {"error": f"{name} has no instruments yet: write them first (studio song), then the form"}
     sections, arrangement, lengths = {}, [], {}

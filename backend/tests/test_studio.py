@@ -266,6 +266,17 @@ def test_form_writes_sections_that_play_clips(tmp_path, monkeypatch):
     assert "error" in ST.handle({"action": "form", "project": slug, "form": "verse eight"}, tmp_path)
 
 
+
+def test_form_reads_instruments_written_as_a_list(tmp_path, monkeypatch):
+    import workshop as W
+    monkeypatch.setattr(ST, "enabled", lambda: True)
+    slug = W.new("Form List", "music", "x", tmp_path)["project"]
+    ST.handle({"action": "song", "project": slug, "message": "instruments",
+               "text": "tempo: 100\ninstruments:\n  - {name: melody, gm: 1}\n  - {name: bass, gm: 34}\n"}, tmp_path)
+    out = ST.handle({"action": "form", "project": slug, "form": "verse 4"}, tmp_path)
+    assert out.get("error") is None, out
+    assert sorted(out["clips_to_write"]) == ["verse-bass", "verse-melody"]
+
 AUDITION_SONG = """title: t
 tempo: 120
 instruments:
