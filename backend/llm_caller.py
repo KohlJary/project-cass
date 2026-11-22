@@ -29,6 +29,7 @@ record_usage() is for code that must keep its own client (chat).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -72,6 +73,7 @@ class LLMResponse:
         rejected: bool = False,
         error_kind: Optional[str] = None,
     ):
+        self.timed_out = False      # the provider's HTTP call timed out (set by _call_provider*)
         self.content = content
         self.provider = provider
         self.model_id = model_id
@@ -442,6 +444,37 @@ def _ollama_to_response(data: dict, model_id: str) -> LLMResponse:
     )
 
 
+def _exception_response(provider: str, model_id: str, e: Exception) -> LLMResponse:
+    resp = LLMResponse("", provider, model_id, error=f"{type(e).__name__}: {e}", error_kind=_error_kind(e))
+    resp.timed_out = isinstance(e, httpx.TimeoutException)
+    return resp
+
+
+# One patient retry for a local call that timed out where nothing else would run
+# (2026-11-21). Her journal, self- and user observations and opinions are
+# Ollama-first with no fallback on an exception, so an outage never starts paid
+# calls; a timeout there used to end the call with nothing. A timeout is usually
+# the GPU being busy (ComfyUI, ACE-Step) with the 8B model running partly on the
+# CPU, so the same model gets one more try, after a pause and with a longer
+# timeout. No other model is tried: that's Kohl's call (a0fcd6e6, fe0b70fa).
+OLLAMA_RETRY_WAIT_S = 10.0
+OLLAMA_RETRY_MIN_TIMEOUT_S = 180.0
+OLLAMA_RETRY_MAX_TIMEOUT_S = 300.0
+
+
+def _retry_timeout(resp: "LLMResponse", stop: bool, req: "_Request") -> Optional[float]:
+    """The longer timeout for the one retry, or None when this failure doesn't get one."""
+    if not (stop and resp.provider == "ollama" and resp.timed_out):
+        return None
+    return min(max(2 * float(req.timeout or 0), OLLAMA_RETRY_MIN_TIMEOUT_S), OLLAMA_RETRY_MAX_TIMEOUT_S)
+
+
+def _gave_up(call_site: str, resp: "LLMResponse") -> None:
+    if resp.timed_out:
+        logger.warning(f"[llm:{call_site}] Ollama timed out again after a retry; nothing was produced this "
+                       f"time (both attempts are in llm_call_failures)")
+
+
 async def _call_provider(provider: str, model_id: str, req: _Request) -> LLMResponse:
     try:
         if provider == "anthropic":
@@ -459,7 +492,7 @@ async def _call_provider(provider: str, model_id: str, req: _Request) -> LLMResp
             return _openai_to_response(completion, model_id)
         return LLMResponse("", provider, model_id, error=f"Unknown provider: {provider}")
     except Exception as e:
-        return LLMResponse("", provider, model_id, error=f"{type(e).__name__}: {e}", error_kind=_error_kind(e))
+        return _exception_response(provider, model_id, e)
 
 
 def _call_provider_sync(provider: str, model_id: str, req: _Request) -> LLMResponse:
@@ -479,7 +512,7 @@ def _call_provider_sync(provider: str, model_id: str, req: _Request) -> LLMRespo
             return _openai_to_response(completion, model_id)
         return LLMResponse("", provider, model_id, error=f"Unknown provider: {provider}")
     except Exception as e:
-        return LLMResponse("", provider, model_id, error=f"{type(e).__name__}: {e}", error_kind=_error_kind(e))
+        return _exception_response(provider, model_id, e)
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +611,22 @@ async def call_llm(
             _record_io(call_site, req, resp, started)
             return resp
         stop = _stop_on_exception(call_site, resp)
+        longer = _retry_timeout(resp, stop, req)
+        if longer is not None:
+            _record_failed(call_site, resp, started, ledger, fell_back=False)
+            logger.warning(f"[llm:{call_site}] Ollama timed out after {req.timeout:.0f}s; "
+                           f"retrying once in {OLLAMA_RETRY_WAIT_S:.0f}s with {longer:.0f}s")
+            await asyncio.sleep(OLLAMA_RETRY_WAIT_S)
+            req.timeout = longer
+            started = time.time()
+            resp = await _call_provider(provider, model_id, req)
+            _record_response(call_site, resp, started, ledger)
+            resp, ok = _finish(call_site, resp, accept)
+            if ok:
+                _record_io(call_site, req, resp, started)
+                return resp
+            stop = _stop_on_exception(call_site, resp)
+            _gave_up(call_site, resp)
         _record_failed(call_site, resp, started, ledger, fell_back=not stop and i + 1 < len(attempts))
         if stop:
             return resp
@@ -612,6 +661,22 @@ def call_llm_sync(
             _record_io(call_site, req, resp, started)
             return resp
         stop = _stop_on_exception(call_site, resp)
+        longer = _retry_timeout(resp, stop, req)
+        if longer is not None:
+            _record_failed(call_site, resp, started, ledger, fell_back=False)
+            logger.warning(f"[llm:{call_site}] Ollama timed out after {req.timeout:.0f}s; "
+                           f"retrying once in {OLLAMA_RETRY_WAIT_S:.0f}s with {longer:.0f}s")
+            time.sleep(OLLAMA_RETRY_WAIT_S)
+            req.timeout = longer
+            started = time.time()
+            resp = _call_provider_sync(provider, model_id, req)
+            _record_response(call_site, resp, started, ledger)
+            resp, ok = _finish(call_site, resp, accept)
+            if ok:
+                _record_io(call_site, req, resp, started)
+                return resp
+            stop = _stop_on_exception(call_site, resp)
+            _gave_up(call_site, resp)
         _record_failed(call_site, resp, started, ledger, fell_back=not stop and i + 1 < len(attempts))
         if stop:
             return resp

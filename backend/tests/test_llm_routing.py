@@ -834,3 +834,89 @@ def test_pinned_sites_are_never_recorded(monkeypatch, levers):
     with levers(llm_recording=True):
         sites = llm_caller._recording_sites()
     assert "chat" not in sites and "dreaming.cass_voice" not in sites and "title_generation" in sites
+
+
+# ---------------------------------------------------------------------------
+# An Ollama timeout where nothing else would run gets one patient retry (2026-11-21)
+# ---------------------------------------------------------------------------
+
+def _ollama_times_out(monkeypatch, then=None):
+    """Ollama times out; then, if given, answers with `then` on the next call."""
+    import httpx
+    seen = []
+
+    async def fake(base_url, endpoint, payload, timeout):
+        seen.append(timeout)
+        if then is not None and len(seen) > 1:
+            return {"response": then, "prompt_eval_count": 3, "eval_count": 4}
+        raise httpx.ReadTimeout("timed out")
+
+    def fake_sync(base_url, endpoint, payload, timeout):
+        return asyncio.run(fake(base_url, endpoint, payload, timeout))
+
+    monkeypatch.setattr(llm_caller, "_ollama_request", fake)
+    monkeypatch.setattr(llm_caller, "_ollama_request_sync", fake_sync)
+    monkeypatch.setattr(llm_caller, "OLLAMA_RETRY_WAIT_S", 0)
+    return seen
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_a_timeout_on_her_journal_retries_once_on_the_same_model(fake_llm, ollama_on, monkeypatch):
+    seen = _ollama_times_out(monkeypatch, then="Today I listened.")
+    resp = asyncio.run(llm_caller.call_llm("memory.journal_entry", user_prompt="x", timeout=120.0))
+    assert resp.success and resp.content == "Today I listened." and resp.provider == "ollama"
+    assert seen == [120.0, 240.0]                        # a longer timeout the second time
+    assert fake_llm.calls == []                          # no paid call
+    assert [f[3:5] for f in _failures("memory.journal_entry")] == [("exception", "ReadTimeout")]
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_a_second_timeout_gives_up_and_both_are_recorded(fake_llm, ollama_on, monkeypatch):
+    seen = _ollama_times_out(monkeypatch)
+    resp = asyncio.run(llm_caller.call_llm("self_observation_extraction", user_prompt="x", timeout=60.0))
+    assert not resp.success and resp.timed_out and fake_llm.calls == []
+    assert seen == [60.0, 180.0]
+    assert [f[3:6] for f in _failures("self_observation_extraction")] == [
+        ("exception", "ReadTimeout", 0), ("exception", "ReadTimeout", 0)]
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_the_sync_caller_retries_too(fake_llm, ollama_on, monkeypatch):
+    seen = _ollama_times_out(monkeypatch, then="ok")
+    resp = llm_caller.call_llm_sync("user_observation_extraction", user_prompt="x", timeout=200.0)
+    assert resp.success and seen == [200.0, 300.0]       # capped at the maximum
+
+
+@pytest.mark.unit
+@needs_sdk
+def test_no_retry_where_a_fallback_runs_or_ollama_is_down(fake_llm, ollama_on, monkeypatch):
+    # A site that falls back on an exception goes to its fallback, as before.
+    LLMConfigManager().set("wiki.enrich_page", ModelAssignment("ollama", "llama3.1:8b", "anthropic", HAIKU))
+    seen = _ollama_times_out(monkeypatch, then="never")
+    fake_llm.queue_text("# Page\n\nfrom Claude")
+    assert asyncio.run(llm_caller.call_llm("wiki.enrich_page", user_prompt="x")).provider == "anthropic"
+    assert len(seen) == 1
+    # Ollama refusing the connection isn't a timeout: no retry.
+    import httpx
+    tries = []
+
+    async def refused(*a, **k):
+        tries.append(1)
+        raise httpx.ConnectError("connection refused")
+    monkeypatch.setattr(llm_caller, "_ollama_request", refused)
+    resp = asyncio.run(llm_caller.call_llm("memory.journal_entry", user_prompt="x"))
+    assert not resp.success and not resp.timed_out and len(tries) == 1
+
+
+def test_the_nightly_journal_catches_up_a_night_that_failed():
+    from scheduler.handlers import daily_journal_handler, JOURNAL_CATCHUP_DAYS
+    asked = []
+
+    async def missing(days_to_check):
+        asked.append(days_to_check)
+        return []
+    asyncio.run(daily_journal_handler(generate_missing_journals_func=missing))
+    assert asked == [JOURNAL_CATCHUP_DAYS] and JOURNAL_CATCHUP_DAYS > 1

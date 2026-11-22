@@ -143,6 +143,11 @@ async def idle_summarization_handler(
         )
 
 
+# A night whose journal failed (an Ollama timeout, say) is tried again on the next
+# nights, not lost: days already journaled are skipped cheaply (2026-11-21).
+JOURNAL_CATCHUP_DAYS = 3
+
+
 async def daily_journal_handler(
     generate_missing_journals_func=None,
     generate_nightly_dream_func=None,
@@ -165,7 +170,7 @@ async def daily_journal_handler(
 
     if generate_missing_journals_func:
         try:
-            generated = await generate_missing_journals_func(days_to_check=1)
+            generated = await generate_missing_journals_func(days_to_check=JOURNAL_CATCHUP_DAYS)
             if generated:
                 logger.info(f"Generated journal for {generated[0]}")
                 results["journal_generated"] = True
