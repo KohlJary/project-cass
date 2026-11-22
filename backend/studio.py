@@ -435,7 +435,7 @@ def compare(slug: str, n: Optional[int], against: Optional[int], data_dir=None) 
         if ra["harmony"]["key"]["name"] != rb["harmony"]["key"]["name"]:
             lines.append(f"key heard: {ra['harmony']['key']['name']} -> {rb['harmony']['key']['name']}")
         la_, lb_ = ra["loudness"]["integrated_lufs"], rb["loudness"]["integrated_lufs"]
-        if abs(la_ - lb_) >= 1:
+        if la_ is not None and lb_ is not None and abs(la_ - lb_) >= 1:  # null: too quiet to measure
             lines.append(f"loudness: {la_} -> {lb_} LUFS")
         fa = " ".join(s["label"] for s in ra["form"]["sections"])
         fb = " ".join(s["label"] for s in rb["form"]["sections"])
