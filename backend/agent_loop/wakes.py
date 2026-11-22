@@ -256,7 +256,8 @@ class WakeBook:
                 w.pop("started_at", None)
         self._save(items)
 
-    def finish(self, wake_id: str, status: str, result: str = "", ended: Optional[str] = None) -> None:
+    def finish(self, wake_id: str, status: str, result: str = "", ended: Optional[str] = None,
+               summary: Optional[str] = None) -> None:
         items = self._load()
         for w in items:
             if w.get("id") == wake_id:
@@ -264,6 +265,8 @@ class WakeBook:
                 w["result"] = result[:500]
                 if ended:
                     w["ended"] = ended
+                if summary:
+                    w["summary"] = " ".join(str(summary).split())[:SUMMARY_KEPT]
                 w["finished_at"] = datetime.now().isoformat(timespec="seconds")
         self._save(items)
 
@@ -306,7 +309,8 @@ async def run_wake(w: Dict[str, Any], book: Optional[WakeBook] = None) -> Any:
     ok = bool(getattr(result, "success", False))
     data = getattr(result, "data", None) or {}
     book.finish(w["id"], DONE if ok else FAILED, getattr(result, "message", "") or "",
-                ended=data.get("status") if isinstance(data, dict) else None)
+                ended=data.get("status") if isinstance(data, dict) else None,
+                summary=data.get("summary") if isinstance(data, dict) else None)
     return result
 
 
@@ -545,6 +549,12 @@ def start_session_offer(turn_id: str, origin: Optional[Dict[str, Any]] = None):
 # in a session that had ended at its step cap two minutes in)
 # ---------------------------------------------------------------------------
 
+# What an ended session found, kept on its wake so her chat knows it (2026-11-21: a
+# listening session she started from a chat ran to its step cap, and back in the chat
+# she couldn't recall what it found; the block said only "it reached its step cap").
+SUMMARY_KEPT = 600
+SUMMARY_SHOWN = 400
+
 ENDED_WORDS = {"completed": "I ended it", "max_turns": "it reached its step cap", "interrupted": "it was interrupted",
                "error": "it failed"}
 
@@ -585,7 +595,9 @@ def sessions_block(book: Optional["WakeBook"] = None, now: Optional[datetime] = 
             except (KeyError, TypeError, ValueError):
                 used = None
             span = f"{used} of {w.get('minutes')} min" if used is not None else "?"
-            lines.append(f"- {what}: ran {began[11:16]}-{at('finished_at')} ({span}); {why}")
+            lines.append(f"- {what}: ran {began[11:16]}-{at('finished_at')} ({span}); {why}"
+                         + (f". What it found, in my words then: {w['summary'][:SUMMARY_SHOWN]}"
+                            if w.get("summary") else ""))
         elif st == CANCELLED:
             lines.append(f"- {what}: cancelled")
     if not lines:

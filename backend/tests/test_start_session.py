@@ -211,3 +211,25 @@ def test_goal_wake_asks_the_budget_and_the_menu(monkeypatch, tmp_path):
     assert WK.goal_wake("reflection", "x", "y", book=book, budget=_Budget(False))["error"].startswith("Not started")
     assert "no workshop session" in WK.goal_wake("workshop", "x", "y", book=book, budget=_Budget(True))["error"]
     assert book.pending() == []
+
+
+def test_her_chat_sees_what_an_ended_session_found(tmp_path, monkeypatch):
+    # 2026-11-21: a listening session she started from a chat ran to its step cap,
+    # and back in the chat she couldn't recall what it found.
+    from datetime import timedelta
+    book = WK.WakeBook(tmp_path / "wakes.json")
+    t0 = datetime.now()
+    book.start_now({"activity": "listening", "why": "a record"}, "c", ["listening"], now=t0)
+    [w] = book.take_due(t0)
+
+    class Reg:
+        async def execute(self, action, **kw):
+            return type("R", (), {"success": True, "message": "Listening session completed",
+                                  "data": {"status": "max_turns",
+                                           "summary": "The bass sits under the kick.\nPick up next: side B."}})()
+
+    import scheduler.actions as acts
+    monkeypatch.setattr(acts, "get_action_registry", lambda: Reg())
+    asyncio.run(WK.run_wake(w, book))
+    text = WK.sessions_block(book, now=datetime.now() + timedelta(minutes=1))
+    assert "reached its step cap" in text and "The bass sits under the kick. Pick up next: side B." in text

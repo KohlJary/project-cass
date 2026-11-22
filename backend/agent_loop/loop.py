@@ -294,8 +294,8 @@ def cap_warning(end_tool: str) -> str:
             f"insights, and what I'd pick up next), or call {EXTEND_TOOL} once for {EXTEND_STEPS} more steps.")
 
 
-def cap_summary_request() -> str:
-    return ("[LOOP] I've reached this session's step cap, so it ends here. In a few lines, in my own words "
+def cap_summary_request(limit: str = "step cap") -> str:
+    return (f"[LOOP] I've reached this session's {limit}, so it ends here. In a few lines, in my own words "
             "and without calling any tool: what I did, what I found, and on a last line starting "
             "\"Pick up next:\", what I'd pick up next time. This is kept as the session's summary.")
 
@@ -400,9 +400,15 @@ async def run_loop(
                 history.append({"role": "user", "content": cap_warning(end_tool)})
             if budget is not None and used() >= budget:
                 out.status, out.end_reason = "completed", "reached the token budget"
+                if session_like and out.completion is None and out.model_calls:
+                    await _summary_at_cap(out, client, model, system, tools, history, max_tokens,
+                                          limit="token budget")
                 break
             if deadline is not None and datetime.now().timestamp() > deadline:
                 out.status, out.end_reason = "completed", "reached the time limit"
+                if session_like and out.completion is None and out.model_calls:
+                    await _summary_at_cap(out, client, model, system, tools, history, max_tokens,
+                                          limit="time limit")
                 break
             for arrived in arrivals():
                 history.append({"role": "user", "content": arrived})
@@ -562,10 +568,13 @@ async def run_loop(
     return out
 
 
-async def _summary_at_cap(out: LoopOutcome, client, model, system, tools, history, max_tokens) -> None:
-    """One last call at the cap: her summary in her words, kept as the completion.
-    Tools stay offered (the history has calls), but any she makes is ignored."""
-    history.append({"role": "user", "content": cap_summary_request()})
+async def _summary_at_cap(out: LoopOutcome, client, model, system, tools, history, max_tokens,
+                          limit: str = "step cap") -> None:
+    """One last call at the cap (steps, token budget or time limit): her summary in
+    her words, kept as the completion. Tools stay offered (the history has calls),
+    but any she makes is ignored. (2026-11-21: a session that ran out of budget or
+    time ended with only her last words, so what it found could be lost.)"""
+    history.append({"role": "user", "content": cap_summary_request(limit)})
     try:
         reply = await client.create(model=model, system=system, tools=tools,
                                     messages=history, max_tokens=max_tokens)

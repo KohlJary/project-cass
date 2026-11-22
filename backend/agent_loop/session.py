@@ -95,7 +95,9 @@ def left_off(session_type: str, logs_dir=None, now: Optional[datetime] = None) -
     if best is None:
         return None
     started, rec = best
-    how = " It ran out of steps; I wrote this at the cap." if rec.get("summarized_at_cap") else ""
+    reason = str(rec.get("end_reason") or "")
+    ran_out = ("its token budget" if "budget" in reason else "time" if "time limit" in reason else "steps")
+    how = f" It ran out of {ran_out}; I wrote this at the cap." if rec.get("summarized_at_cap") else ""
     summary = " ".join(str(rec.get("summary") or "").split())[:600]
     return ("## WHERE I LEFT OFF\n\n"
             f"My last {session_type.replace('_', ' ')} session ({started:%A %-d %B, %H:%M}), I said I'd pick up: "

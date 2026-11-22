@@ -97,7 +97,7 @@ def test_no_end_tool_offered_means_no_nudge():
 def test_the_token_budget_ends_the_turn():
     client = StubClient([_call("list_observations", tokens=(600, 100)) for _ in range(5)])
     out, _ = _run(client, token_budget=1000)
-    assert out.model_calls == 2  # 700 after one step, 1400 after two
+    assert out.model_calls == 3  # 700 after one step, 1400 after two, then the call for her summary
     assert out.status == "completed" and out.end_reason == "reached the token budget"
 
 
@@ -107,8 +107,8 @@ def test_cache_tokens_count_toward_the_budget_and_are_kept():
                        10, 5, cache_read_tokens=900, cache_write_tokens=200)
     client = StubClient([reply] * 5)
     out, _ = _run(client, token_budget=1000)
-    assert out.model_calls == 4  # 305, 610, 915, then 1220 ends it
-    assert (out.cache_read_tokens, out.cache_write_tokens) == (3600, 800)
+    assert out.model_calls == 5  # 305, 610, 915, then 1220 ends it, then the call for her summary
+    assert (out.cache_read_tokens, out.cache_write_tokens) == (4500, 1000)
 
 
 def test_cache_reads_dont_cut_off_a_normal_session():
@@ -479,3 +479,58 @@ def test_a_social_session_runs_on_its_own_assignment_when_set():
     assert session_call_site("social") == "session.social"
     assert session_call_site("reflection") == "session.generic"
     assert session_call_site("no_such_type") == "session.generic"
+
+
+def test_at_the_token_budget_she_writes_her_summary_too():
+    # 2026-11-21: a session that ran out of budget ended on her last words, so what
+    # it found could be lost; it gets the same last call as the step cap.
+    from agent_loop.loop import cap_summary_request
+    client = StubClient([_call("list_observations", tokens=(600, 100)), _call("list_observations", tokens=(600, 100)),
+                         _text("Found two observations worth keeping.\nPick up next: the second one.")])
+    out, _ = _run(client, token_budget=1000)
+    assert out.end_reason == "reached the token budget" and out.summarized_at_cap
+    assert out.completion["summary"].startswith("Found two observations")
+    assert out.completion["pick_up_next"] == "the second one."
+    assert client.calls[-1]["messages"][-1]["content"] == cap_summary_request("token budget")
+    assert "token budget" in cap_summary_request("token budget")
+
+
+def test_at_the_time_limit_she_writes_her_summary_but_not_before_any_step():
+    import time
+    client2 = StubClient([_text("nothing")])
+    out2, _ = _run(client2, deadline=time.time() - 1)
+    assert out2.end_reason == "reached the time limit" and out2.model_calls == 0 and out2.completion is None
+
+    class Late(StubClient):
+        async def create(self, **kw):
+            r = await super().create(**kw)
+            self.deadline_passed = True
+            return r
+    client3 = Late([_call("list_observations"), _text("Read one thing.\nPick up next: the rest.")])
+    real = __import__("agent_loop.loop", fromlist=["datetime"]).datetime
+
+    class Clock(real):
+        @classmethod
+        def now(cls, tz=None):
+            return real(2030, 1, 1) if getattr(client3, "deadline_passed", False) else real(2020, 1, 1)
+    import agent_loop.loop as L
+    old = L.datetime
+    L.datetime = Clock
+    try:
+        out3, _ = _run(client3, deadline=real(2025, 1, 1).timestamp())
+    finally:
+        L.datetime = old
+    assert out3.end_reason == "reached the time limit" and out3.summarized_at_cap
+    assert out3.completion["pick_up_next"] == "the rest."
+
+
+def test_left_off_says_which_limit_ended_it(tmp_path):
+    import json
+    from datetime import datetime
+    from agent_loop.session import left_off
+    d = tmp_path / "research" / "2026-11-21"
+    d.mkdir(parents=True)
+    (d / "10.json").write_text(json.dumps({"started_at": "2026-11-21T10:00:00", "summary": "read",
+                                           "pick_up_next": "the rest", "summarized_at_cap": True,
+                                           "end_reason": "reached the token budget"}))
+    assert "ran out of its token budget" in left_off("research", tmp_path, datetime(2026, 11, 21, 12))
