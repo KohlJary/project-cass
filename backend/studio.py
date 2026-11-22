@@ -278,6 +278,7 @@ def render(slug: str, song: str, message: str, data_dir=None) -> Dict[str, Any]:
             "balance": out.get("balance"), "by_section": out.get("by_section"),
             **({"the_mix": out["the_mix"]} if out.get("the_mix") else {}),
             **({"clips_not_written_yet": out["clips_not_written_yet"]} if out.get("clips_not_written_yet") else {}),
+            **({"bars_not_played": out["bars_not_played"]} if out.get("bars_not_played") else {}),
             "what_my_ears_heard": glance[:6000],
             "note": "studio read / look for more; compare against an earlier draft"}
 
