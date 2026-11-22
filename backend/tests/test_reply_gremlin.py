@@ -109,3 +109,19 @@ def test_a_revision_that_leaks_the_gremlin_is_dropped():
     assert not rg.usable("I'm holding the reply to revise it. Rent is theft.", "draft")
     # Unless the draft was about the gremlin to begin with.
     assert rg.usable("Kohl's gremlin post is right about refusal.", "Read the gremlin post.")
+
+
+def test_more_leak_shapes_from_the_lab():
+    assert not rg.usable("Caught me. I was describing my process instead of doing it. Rent is theft.", "a draft about rent")
+    assert rg.without_think("Rent is theft. Organize the building.\n\n*recording this conversation as significant*") \
+        == "Rent is theft. Organize the building."
+    # An asterisked line that isn't her bookkeeping stays.
+    assert "*slams the door*" in rg.without_think("Out.\n*slams the door*")
+
+
+def test_the_gremlin_sees_which_posts_exist(monkeypatch):
+    import kohl_blog
+    monkeypatch.setattr(kohl_blog, "listing", lambda *a, **k: [{"title": "The Skillet Can't Tend Itself", "date": "2026-11-02"}])
+    assert "The Skillet Can't Tend Itself (2026-11-02)" in rg._posts_that_exist() and "made up" in rg._posts_that_exist()
+    monkeypatch.setattr(kohl_blog, "listing", lambda *a, **k: [])
+    assert rg._posts_that_exist() == ""

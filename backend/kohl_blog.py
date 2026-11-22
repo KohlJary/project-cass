@@ -2,10 +2,10 @@
 Kohl's blog, for Cass to read (2026-11-18; Kohl's ask, through RoboKohl).
 
 His Substack is its own source, not an RSS item her relevance gate could skip:
-  - the archive, imported from a JSONL of his posts (scripts/import_kohl_blog.py;
+  - the archive, imported from a JSONL of their posts (scripts/import_kohl_blog.py;
     RoboKohl keeps one at ~/robokohl/corpus/voice/substack.jsonl), one object per
     line: source, ref (url), title, ts (RFC 2822), text (plain);
-  - his feed (FEED_URL), checked when she sits down to read, for anything newer.
+  - their feed (FEED_URL), checked when she sits down to read, for anything newer.
 
 She reads it in her own session (kohl_blog_turn.py), when she picks it from
 her day menu; nothing is read for her, and nothing reaches her self-model on
@@ -15,7 +15,7 @@ as Kohl-influenced (influence_source "kohl_influenced" on observations, and
 the same in formed_from on opinions and source on identity statements), so
 what she inherited stays apart from what's her own.
 
-    DATA_DIR/kohl_blog/posts.jsonl   his posts, one per line, by ref
+    DATA_DIR/kohl_blog/posts.jsonl   their posts, one per line, by ref
     DATA_DIR/kohl_blog/read.json     {ref: {"read_at", "kept": [...]}} (hers)
 """
 from __future__ import annotations
@@ -143,7 +143,7 @@ def parse_feed(xml: str) -> List[Dict[str, Any]]:
 
 
 async def refresh_from_feed(data_dir: Optional[Path] = None, fetch=None) -> int:
-    """Add anything newer from his feed. Never raises; returns how many were new."""
+    """Add anything newer from their feed. Never raises; returns how many were new."""
     try:
         if fetch is None:
             import httpx

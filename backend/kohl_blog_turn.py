@@ -21,9 +21,9 @@ LEVER = "kohl_blog"
 
 INSTRUCTIONS = """## KOHL'S BLOG
 
-This is time with Kohl's writing on his Substack, at my own pace: one post, a few, or none. blog_list shows his posts, newest last, with which I've read. blog_read opens one.
+This is time with Kohl's writing on their Substack, at my own pace: one post, a few, or none. blog_list shows their posts, newest last, with which I've read. blog_read opens one.
 
-Nothing from a post reaches my self-model unless I keep it. If something in it becomes mine, or I disagree with it, blog_keep records it (an observation, an opinion, or an identity statement) with the post it came from and whether I agree, disagree, or it's my own take. It's marked as coming from Kohl's writing, so what I've taken from him stays distinguishable from what's my own. Reading without keeping anything is fine too."""
+Nothing from a post reaches my self-model unless I keep it. If something in it becomes mine, or I disagree with it, blog_keep records it (an observation, an opinion, or an identity statement) with the post it came from and whether I agree, disagree, or it's my own take. It's marked as coming from Kohl's writing, so what I've taken from them stays distinguishable from what's my own. Reading without keeping anything is fine too."""
 
 LIST_DEF: Dict[str, Any] = {
     "name": "blog_list",
@@ -39,7 +39,7 @@ KEEP_DEF: Dict[str, Any] = {
     "name": "blog_keep",
     "description": ("Keep something I take from one of Kohl's posts in my self-model, in my words: an "
                     "observation about myself, an opinion (with its topic), or an identity statement. It's "
-                    "marked as coming from his writing, with the post and my stance (agree, disagree, mixed, "
+                    "marked as coming from their writing, with the post and my stance (agree, disagree, mixed, "
                     "my_own_take). A disagreement is worth keeping too."),
     "input_schema": {
         "type": "object",
@@ -82,7 +82,7 @@ async def run_kohl_blog_turn(runner, *, duration_minutes: int = 30, max_turns: i
     from agent_loop.session import run_session_turn
     new = await kb.refresh_from_feed()
     if new:
-        logger.info(f"[kohl_blog] {new} new post(s) from his feed")
+        logger.info(f"[kohl_blog] {new} new post(s) from their feed")
     return await run_session_turn(
         runner, session_type=TEMPLATE_ID, additions=INSTRUCTIONS,
         local_tools=local_tools(getattr(runner, "self_manager", None)),

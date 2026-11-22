@@ -56,7 +56,11 @@ NARRATING = re.compile(r"^\W*(alright[.,]?\s+)?(let me|i'll (now )?(read|check|l
 # A revision that talks to or about the gremlin, or about revising: the private step
 # leaked into what's sent (reading run, 2026-11-20: "The gremlin's right.",
 # "I'm holding the reply to revise it.", a bare <hold_reply>).
-LEAK = re.compile(r"gremlin|hold_reply|holding the reply|\brevis(e|ing|ion)\b|you'?re right\.", re.I)
+LEAK = re.compile(r"gremlin|hold_reply|holding the reply|\brevis(e|ing|ion)\b|you'?re right\."
+                  r"|caught me\b|describing my process|let me redo", re.I)
+# A line that's only a stage direction about her own bookkeeping, e.g. a trailing
+# "*recording this conversation as significant*" (voice lab, 2026-11-22): cut, not sent.
+STAGE = re.compile(r"^[ \t]*\*[^*\n]*\b(record|recording|marking|noting|saving|keeping|logging)\b[^*\n]*\*[ \t]*$\n?", re.I | re.M)
 
 
 def usable(revised: str, clean: str) -> bool:
@@ -74,7 +78,7 @@ FORMAT = '\n\nAnswer with JSON only: {"notes": ["...", "..."]}'
 
 
 def without_think(text: str) -> str:
-    return THINK.sub("", text or "").strip()
+    return STAGE.sub("", THINK.sub("", text or "")).strip()
 
 
 def enabled() -> bool:
@@ -134,10 +138,26 @@ def _log(rec: Dict[str, Any], data_dir: Optional[Path] = None) -> None:
         logger.warning(f"[reply_gremlin] couldn't log a review: {e}")
 
 
+def _posts_that_exist() -> str:
+    """Kohl's posts, by title and date, so a made-up one is checkable: the gremlin
+    can't know a "Nov 18 landlord licensing piece" doesn't exist unless it sees the
+    list (voice lab, 2026-11-22). Empty when there's no blog here."""
+    try:
+        import kohl_blog
+        posts = kohl_blog.listing()
+    except Exception:
+        return ""
+    if not posts:
+        return ""
+    lines = "\n".join(f"- {p['title']} ({p.get('date') or 'undated'})" for p in posts[-60:])
+    return ("\n\nKohl's posts that exist (title, date). A post of Kohl's the draft names, dates or "
+            f"quotes that isn't here is made up:\n{lines}")
+
+
 async def _notes(their: str, draft: str) -> List[str]:
     from llm_caller import call_llm
     resp = await call_llm("gremlin.review", system_prompt=gremlin_prompt(),
-                          user_prompt=f"What they said:\n{their[:3000]}\n\nThe draft reply:\n{draft[:4000]}",
+                          user_prompt=f"What they said:\n{their[:3000]}\n\nThe draft reply:\n{draft[:4000]}{_posts_that_exist()}",
                           max_tokens=240, temperature=0.5, category="internal", operation="reply_gremlin")
     return notes_from(getattr(resp, "content", "") or "")
 
@@ -150,7 +170,7 @@ async def review(*, client: Any, model: str, system: str, messages: List[Dict[st
     why = skip_reason(their, draft)
     if why == "off":
         return draft
-    clean = THINK.sub("", draft).strip()
+    clean = without_think(draft)
     rec: Dict[str, Any] = {"draft": hashlib.sha256(clean.encode()).hexdigest()[:16]}
     if why:
         _log({**rec, "skipped": why}, data_dir)
@@ -174,7 +194,7 @@ async def review(*, client: Any, model: str, system: str, messages: List[Dict[st
                 model=model, system=system, tools=[], max_tokens=1500,
                 messages=back + [{"role": "user", "content": notes_line + PRIVATE}])
             text = reply.text
-        revised = THINK.sub("", text or "").strip()
+        revised = without_think(text)
     except Exception as e:
         logger.warning(f"[reply_gremlin] revise didn't run (the draft goes out): {e}")
         revised = ""
