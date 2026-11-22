@@ -325,7 +325,9 @@ class GestureParser:
 
     # <feel:dimension> or <feel:dimension:delta> - Thymos affect modulation
     FEEL_PATTERN = re.compile(r'<feel:(\w+)(?::([+-]?\d*\.?\d+))?>')
-    FEEL_TAG_PATTERN = re.compile(r'<feel:\w+(?::[+-]?\d*\.?\d+)?>')
+    # Closing and self-closing forms are stripped too (Eris, 2026-11-20: a stray
+    # </feel:awe> reached Babelr).
+    FEEL_TAG_PATTERN = re.compile(r'</?feel:\w+(?::[+-]?\d*\.?\d+)?\s*/?>')
 
     # Valid Thymos affect dimensions
     VALID_AFFECT_DIMENSIONS = {
