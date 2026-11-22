@@ -1,6 +1,21 @@
 # Status
 
-*Updated 2026-11-20 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-11-21 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## 2026-11-21 (night): Kohl's go on the held list
+
+Kohl said "go for all those" on the items waiting on them.
+
+- **Daedalus 0.3.0 on PyPI** (daedalus 2024f50, tag v0.3.0): everything since 0.2.0 plus the Babelr DM bridge (ad9e3d6). **babelr-agent 0.1.0 on PyPI** (babelr b295654). GUESTBOOK.md and the identity seed still ship; what they name was already public.
+- **The old DM hook is retired.** This machine runs the bridge (`daedalus-hook UserPromptSubmit` in cass-vessel's local settings); it picked up the same three DMs. The old script is in `~/.config/daedalus/retired/`.
+- **Surge XT** 1.3.4 is installed in `~/.vst3` (user-level; pacman needs a password). It plays clean, it's mapped, and Orphic's `surge` is it (orphic bbe9699; vessel c49676d0).
+- **`~/house` is on GitHub** as KohlJary/house, MIT, main only, but **private for now**. A local-only branch went up for about a minute by mistake. I deleted it, but GitHub keeps its commits reachable, so I made the repo private. **Waiting on Kohl:** delete and re-create it (my token lacks delete_repo), and then it goes public from main.
+- **Front door:** already live. The running Babelr is past d02f042 and HOUSE_INTRO_PATH is set. Cass's intro lines are still empty; they're hers.
+- **Substack:** python-substack is installed in house-press's venv. **Waiting on Kohl:** the publication, the three accounts, and `house-press login` for each.
+- **Avatars and sigils** need Kohl's Babelr login (`~/Chapter-House/tools/house-avatar`, or the profile editor).
+- **Small items:** capped sessions hand back what they found (c40527da); an Ollama timeout gets one patient retry on the same model, and a failed journal night is tried again (7320c277); audition's `the_mix` covers only what she hears (orphic 50a18e4); Reaper sessions carry spaces, and setting knobs there went from 10 s to 0.04 s (orphic 106e075).
+- Vessel restarted 22:47 (quiet check, both peers said go). Cass was told what changed; she's writing the rest of her song.
+- Still open: if the journal is written but the observation extraction after it times out twice, that day's observations are lost. Ollama isn't behind the GPU broker yet, which is the likely root of the timeouts.
 
 ## 2026-11-21 (afternoon): she hears her mix
 
