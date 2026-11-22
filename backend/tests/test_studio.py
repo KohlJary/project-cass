@@ -330,3 +330,16 @@ def test_a_crash_says_so_and_names_the_last_part_finished():
     r = subprocess.CompletedProcess([], -11, "", "DPF warning: noise\n  bass: nekobi, 16 notes\n")
     note = ST._crash_note(r)
     assert "crashed (signal 11)" in note and "bass" in note and "DPF" not in note
+
+
+def test_help_marks_a_synth_crashed_only_from_its_own_plugin(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(ST.Path, "home", lambda: tmp_path)
+    cache = tmp_path / ".cache" / "orphic"
+    cache.mkdir(parents=True)
+    cache.joinpath("plays-safely.json").write_text(json.dumps({
+        "/x/Surge XT.vst3|1|2": False, "/x/vitalium.vst3|1|2": True}))
+    synths = ST.help_text(tmp_path)["synths"]
+    assert "crashes" in synths["surge"] and "crashes" not in synths["vitalium"]
+    cache.joinpath("plays-safely.json").write_text(json.dumps({"/x/Surge XT.vst3|1|2": True}))
+    assert "crashes" not in ST.help_text(tmp_path)["synths"]["surge"]

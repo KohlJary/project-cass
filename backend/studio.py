@@ -116,7 +116,7 @@ TOOL = {
             "part": {"type": "string", "description": "read: glance, a section label, or bars like 1-8; "
                                                       "look: overview, stereo, or a section label"},
             "name": {"type": "string", "description": "patch/rig/space: its name; tone: a rig to use"},
-            "synth": {"type": "string", "description": "patch/map: the synth (vitalium, nekobi, sfizz, kars, ...)"},
+            "synth": {"type": "string", "description": "patch/map: the synth (vitalium, nekobi, surge, sfizz, kars, ...)"},
             "params": {"type": "object", "description": "patch: the synth's settings by parameter name; space: the "
                                                          "room's numbers (size, damping, walls_ms, amount, tone_hz, width)"},
             "notes": {"type": "string", "description": "patch/space: what it's for, how it sounds, in my words"},
@@ -204,7 +204,8 @@ def help_text(data_dir=None) -> Dict[str, Any]:
     belt = sorted(p.stem for p in _belt(data_dir).glob("*.json")) if _belt(data_dir).exists() else []
     return {
         "song_format": _song_doc(),
-        "synths": {s: ("crashes when it plays on this machine; not usable until the plugin is fixed" if s in crashed
+        "synths": {s: ("crashes when it plays on this machine; not usable until the plugin is fixed"
+                       if any(c.startswith(s) for c in crashed)
                        else "mapped (studio map)" if (maps / s).exists() or (maps / s.capitalize()).exists()
                        else "not mapped yet") for s in synths},
         "general_midi": "gm: a program number 1-128 (1 piano, 5 electric piano, 34 fingered bass, 49 strings, "
