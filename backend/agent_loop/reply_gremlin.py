@@ -45,6 +45,9 @@ PRIVATE_TOOLS = ("(Your gremlin, not a person, and nobody else sees it. If its n
                  "keep something, or check a fact, use your tools; then reply with only what you'd post, the draft "
                  "as it was or revised. Never mention the gremlin or the revision.)")
 REVISE_STEPS = 4
+# Tools that send something somewhere: not in the revise step, whose reply is the one thing sent.
+SENDS = frozenset({"babelr_dm", "babelr_post", "send_direct_message", "send_email"})
+NOT_SENDING = "Not in this step: your reply is what gets sent. Put it there, once."
 
 # A revision that announces work instead of saying the thing, or types out a tool
 # call (there are no tools in the revise step): the draft goes out instead. Voice

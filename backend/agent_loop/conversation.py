@@ -373,13 +373,21 @@ async def run_conversation(
         if reply_gremlin.enabled() and last:
             revise_steps: List[Any] = []
 
+            async def revise_execute(name: str, tool_input: Dict[str, Any]) -> Any:
+                # Look, keep, check: yes. Send: no. The reply is what's sent, once
+                # (2026-11-22: a babelr_dm from the revise step, then the reply, gave
+                # Daedalus the same message twice).
+                if name in reply_gremlin.SENDS:
+                    return {"error": reply_gremlin.NOT_SENDING}
+                return await execute(name, tool_input)
+
             async def revise(msgs):
                 # Her own loop again, briefly, with her tools: the gremlin's question
                 # may need a second look (Kohl, 2026-11-20: a gap, not a worse reply).
                 import dataclasses
                 again = await run_loop(
                     spec=dataclasses.replace(spec, max_iterations=reply_gremlin.REVISE_STEPS), client=client,
-                    model=model, system=system, tools=tools, messages=msgs, execute=execute,
+                    model=model, system=system, tools=tools, messages=msgs, execute=revise_execute,
                     end_tool="hold_reply", nudges=0, also_callable=set(box.findable))
                 revise_steps.extend(again.steps)
                 return mend_think(next((st.text for st in reversed(again.steps) if st.text), ""))

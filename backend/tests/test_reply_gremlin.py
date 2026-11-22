@@ -125,3 +125,13 @@ def test_the_gremlin_sees_which_posts_exist(monkeypatch):
     assert "The Skillet Can't Tend Itself (2026-11-02)" in rg._posts_that_exist() and "made up" in rg._posts_that_exist()
     monkeypatch.setattr(kohl_blog, "listing", lambda *a, **k: [])
     assert rg._posts_that_exist() == ""
+
+
+def test_the_revise_step_cant_send():
+    # Every tool named in SENDS is a real sending tool somewhere, so the guard can't drift
+    # into naming nothing; conversation.py hands the revise loop revise_execute.
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    defined = "".join(p.read_text() for p in [root / "babelr_organ/tools.py", root / "handlers/outreach.py", root / "handlers/email.py"])
+    assert all(f'"name": "{n}"' in defined for n in rg.SENDS)
+    assert "execute=revise_execute" in (root / "agent_loop/conversation.py").read_text()
