@@ -583,6 +583,20 @@ PROJECT_TOOL: Dict[str, Any] = {
 }
 
 
+def handle_public(a: Dict[str, Any], data_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """The project tool in a public conversation (a Babelr room, a DM between daemons):
+    her own projects and the ones shared with her, never Kohl's linked ones, which are
+    house-only. They're refused by name and left out of the list."""
+    a = a or {}
+    if slugify(a.get("project") or "").startswith(KOHL_PREFIX):
+        return {"error": "Kohl's projects stay out of public conversations. Work on them in a private chat "
+                         "with Kohl or in a workshop session."}
+    out = handle(a, data_dir)
+    if a.get("action") == "list" and isinstance(out.get("projects"), list):
+        out["projects"] = [p for p in out["projects"] if not str(p.get("project", "")).startswith(KOHL_PREFIX)]
+    return out
+
+
 def handle(a: Dict[str, Any], data_dir: Optional[Path] = None) -> Dict[str, Any]:
     action = (a or {}).get("action")
     try:

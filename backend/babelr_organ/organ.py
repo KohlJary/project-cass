@@ -173,6 +173,15 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+
+def house_dm_names() -> set:
+    """Usernames whose DMs with her count as private (BABELR_HOUSE_DMS, comma-separated):
+    housemates she works with, so a DM between daemons gets her full context and her
+    project tool. Empty, as by default, every unlinked DM stays public."""
+    raw = os.getenv("BABELR_HOUSE_DMS", "")
+    return {n.strip().lstrip("@").lower() for n in raw.split(",") if n.strip()}
+
+
 class BabelrOrgan:
     def __init__(
         self,
@@ -515,6 +524,10 @@ class BabelrOrgan:
             "channel_user_id": self._channel_user(last, links) if last.kind != "dm" else None,
             "conversation_id": (self._conversation_id(place, last.place_label)
                                 if last.kind != "dm" and self.terms.remember else None),
+            # A DM from a housemate named in BABELR_HOUSE_DMS runs with her private
+            # context and tools, as Kohl's do (Kohl, 2026-11-23: a config toggle, off
+            # until a vessel lists someone).
+            "house_dm": last.kind == "dm" and last.author_name.lstrip("@").lower() in house_dm_names(),
             # What they wrote, without the Babelr framing, for the stored turn.
             "their_words": "\n\n".join(words(e) for e in events),
             # The newest picture they sent, for her to see (one per turn).

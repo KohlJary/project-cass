@@ -71,19 +71,29 @@ def blog_tools() -> Dict[str, Any]:
         return {}
 
 
-def workshop_tools(person: Dict[str, Any]) -> Dict[str, Any]:
-    """Her `project` tool in a private chat, the same one her workshop sessions have: her
-    projects and Kohl's linked ones, with the same guards (Kohl, 2026-11-19: she said she
-    couldn't see the code in his projects; the tool was only in workshop sessions). Not in
-    public chat (a Babelr room, Discord), where what she reads could end up in front of others."""
-    if (person.get("scope") or "private") == "public":
+# What makes a public turn about project work, so `project` is offered there (Kohl, 2026-11-23).
+PROJECT_WORDS = re.compile(r"\b(projects?|commit(s|ted)?|shar(e|ed|ing)|sync|workshop|repo(sitory)?)\b", re.I)
+
+
+def workshop_tools(person: Dict[str, Any], words: str = "") -> Dict[str, Any]:
+    """Her `project` tool, the same one her workshop sessions have: her projects and
+    Kohl's linked ones, with the same guards (Kohl, 2026-11-19: she said she couldn't
+    see the code in his projects; the tool was only in workshop sessions).
+
+    In a public turn (a Babelr room, a DM with someone who isn't a linked person, which
+    is every DM between daemons) it's offered when the talk is about project work, and
+    Kohl's linked projects stay out of it (workshop.handle_public). Kohl, 2026-11-23:
+    "you should definitely be able to share projects between yourselves"."""
+    public = (person.get("scope") or "private") == "public"
+    if public and not PROJECT_WORDS.search(words or ""):
         return {}
     try:
         import features
         if not features.is_enabled("workshop"):
             return {}
         import workshop as W
-        return {"project": (W.PROJECT_TOOL, lambda a: W.handle(a))}
+        run = W.handle_public if public else W.handle
+        return {"project": (W.PROJECT_TOOL, lambda a: run(a))}
     except Exception as e:
         logger.warning(f"[agent_loop] workshop tools for chat: {e}")
         return {}
@@ -294,7 +304,7 @@ async def run_conversation(
         tool_names.append("start_session")
     blog = blog_tools()    # Kohl's blog, here too (Kohl, 2026-11-18: she said she couldn't see it)
     tool_names.extend(blog)
-    projects = workshop_tools(person)
+    projects = workshop_tools(person, model_message)
     from house_wiki import wiki_tools   # what we're building (plan the-house-wiki, phase 2)
     projects.update(wiki_tools())
     tool_names.extend(projects)

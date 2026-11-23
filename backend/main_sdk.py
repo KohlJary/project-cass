@@ -1648,7 +1648,8 @@ def make_babelr_wake_callback():
                 conversation_id=conversation_id,
                 user_id=channel_user,
                 system_addendum=BABELR_PUBLIC_GUIDANCE,
-                context_scope="private" if channel_user else "public",
+                # A housemate's DM (BABELR_HOUSE_DMS) is private: her context, her project tool.
+                context_scope="private" if (channel_user or context.get("house_dm")) else "public",
                 channel="babelr",  # a room: others read it, even with Kohl's context
                 memory_metadata={"source": "babelr", "place": place},
                 generate_title=False,
