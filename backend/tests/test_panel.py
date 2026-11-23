@@ -47,3 +47,13 @@ def test_answers_are_checked_and_kept(tmp_path):
 def test_kohls_projects_never_show(kohls):  # noqa: F811
     home, data = kohls
     assert "Kohl's project" in W.handle({"action": "show", "project": "kohl-babelr"}, data)["error"]
+
+
+def test_showing_a_project_says_how_to_show_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("CASS_DAEMON_LABEL", "eris")
+    _essay(tmp_path)
+    P.set_answers({"work": "yes"}, "house", None, tmp_path)
+    out = W.handle({"action": "show", "project": "substack-intro"}, tmp_path)
+    assert "[[work:eris/substack-intro]]" in out["to_show_it"]
+    assert "[[work:eris/substack-intro/intro-draft.md]]" in out["refs"]
+    assert "to_show_it" not in W.handle({"action": "hide", "project": "substack-intro"}, tmp_path)
