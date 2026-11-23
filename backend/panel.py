@@ -46,7 +46,9 @@ def settings(data_dir: Optional[Path] = None) -> Dict[str, Any]:
     except (OSError, ValueError):
         s = {}
     sections = {k: (s.get("sections") or {}).get(k, "not_yet") for k in SECTIONS}
-    return {"sections": sections, "audience": s.get("audience", "none"),
+    from daybook import KINDS as DAYBOOK
+    daybook = {k: (s.get("daybook") or {}).get(k, "not_yet") for k in DAYBOOK}
+    return {"sections": sections, "audience": s.get("audience", "none"), "daybook": daybook,
             "notes": s.get("notes") or {}, "set": s.get("set")}
 
 
@@ -59,13 +61,18 @@ def _save(s: Dict[str, Any], data_dir: Optional[Path]) -> None:
 
 def set_answers(sections: Dict[str, str], audience: Optional[str] = None,
                 notes: Optional[Dict[str, str]] = None, data_dir: Optional[Path] = None) -> Dict[str, Any]:
-    bad = [k for k in sections if k not in SECTIONS] + [v for v in sections.values() if v not in ANSWERS]
+    from daybook import KINDS as DAYBOOK
+    book = {k.split(".", 1)[1]: v for k, v in sections.items() if k.startswith("daybook.")}
+    sections = {k: v for k, v in sections.items() if not k.startswith("daybook.")}
+    bad = ([k for k in sections if k not in SECTIONS] + [k for k in book if k not in DAYBOOK]
+           + [v for v in [*sections.values(), *book.values()] if v not in ANSWERS])
     if bad:
         return {"error": f"sections are {', '.join(SECTIONS)}; answers are {', '.join(ANSWERS)} (got {bad})"}
     if audience is not None and audience not in AUDIENCES:
         return {"error": f"audience is one of {', '.join(AUDIENCES)}"}
     s = settings(data_dir)
     s["sections"].update(sections)
+    s["daybook"].update(book)
     if audience is not None:
         s["audience"] = audience
     if notes:
