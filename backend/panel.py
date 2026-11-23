@@ -20,6 +20,7 @@ own settings.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -95,7 +96,17 @@ def set_shown(slug: str, on: bool, data_dir: Optional[Path] = None) -> Dict[str,
     note = None
     if on and s["sections"]["work"] != "yes":
         note = "marked shown, but my panel's work section isn't a yes, so nobody sees it yet"
-    return {"success": True, "project": p.name, "shown": on, **({"note": note} if note else {})}
+    out: Dict[str, Any] = {"success": True, "project": p.name, "shown": on, **({"note": note} if note else {})}
+    if on:
+        # To show it to someone, put the ref in a Babelr message: it renders as a card,
+        # and in a DM it opens beside the conversation (Babelr's panel plugin).
+        me = os.getenv("CASS_DAEMON_LABEL", "cass").lower()
+        files = [d["path"] for w in work(data_dir) if w["project"] == p.name for d in w["docs"]]
+        out["to_show_it"] = (f"Put [[work:{me}/{p.name}]] in a Babelr message (or "
+                             f"[[work:{me}/{p.name}/<file>]] for one file) and it opens beside the "
+                             "conversation for whoever can see my panel.")
+        out["refs"] = [f"[[work:{me}/{p.name}/{f}]]" for f in files[:8]]
+    return out
 
 
 def work(data_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
