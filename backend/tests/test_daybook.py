@@ -69,3 +69,29 @@ def test_answers_are_checked(tmp_path):
     tmp_path = tmp_path / "her"
     assert "error" in P.set_answers({"daybook.diary": "yes"}, None, None, tmp_path)
     assert "error" in P.set_answers({"daybook.journals": "sure"}, None, None, tmp_path)
+
+
+def test_coming_up_names_queued_work_and_says_why_only_on_her_yes(tmp_path, monkeypatch):
+    tmp_path = tmp_path / "her"
+    tmp_path.mkdir()
+    monkeypatch.setattr("record.build", lambda days, data_dir=None, now=None: {"entries": []})
+    (tmp_path / "phase_queues.json").write_text(json.dumps([
+        {"target_phase": "night", "work_unit": {"name": "Memory Maintenance", "status": "planned",
+                                                "focus": None, "motivation": "spell"}},
+        {"target_phase": "evening", "work_unit": {"name": "Wonderland Reflection", "status": "planned",
+                                                  "estimated_duration_minutes": 30,
+                                                  "focus": "the Threshold", "motivation": "mine"}},
+        {"target_phase": "morning", "work_unit": {"name": "Done already", "status": "completed"}},
+    ]))
+    up = D.build(7, tmp_path, NOW)["coming_up"]
+    assert [i["name"] for i in up] == ["Wonderland Reflection", "Memory Maintenance"]
+    assert up[0]["starts_hour"] == 18 and "focus" not in up[0]
+    P.set_answers({"daybook.sessions": "yes"}, None, None, tmp_path)
+    assert D.build(7, tmp_path, NOW)["coming_up"][0]["focus"] == "the Threshold"
+
+
+def test_coming_up_is_empty_without_a_queue(tmp_path, monkeypatch):
+    tmp_path = tmp_path / "her"
+    tmp_path.mkdir()
+    monkeypatch.setattr("record.build", lambda days, data_dir=None, now=None: {"entries": []})
+    assert D.build(7, tmp_path, NOW)["coming_up"] == []

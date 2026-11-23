@@ -13,6 +13,10 @@ Two layers, because they rest on two different yeses:
     dreams      her dreams, the exchanges as written
     self_model  new self-observations, stances formed or revised, growth edges touched
 
+Also what's coming up: the work her scheduler has queued for later today (her
+phase queues, phase_queues.json), by name and day phase. Why she queued it (focus,
+motivation) only after her yes to sessions, like the sessions themselves.
+
 Read with the record token (routes/daybook.py). Reads only; nothing here writes.
 """
 from __future__ import annotations
@@ -127,6 +131,33 @@ def _self_model(c: sqlite3.Connection, since: str) -> List[Dict[str, Any]]:
     return out
 
 
+PHASE_START = {"morning": 6, "afternoon": 12, "evening": 18, "night": 22}
+
+
+def _coming_up(dd: Path, with_why: bool) -> List[Dict[str, Any]]:
+    """Queued, not yet started work, soonest phase first (empty when nothing is queued)."""
+    try:
+        raw = json.loads((dd / "phase_queues.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    out = []
+    for q in raw if isinstance(raw, list) else []:
+        wu = (q or {}).get("work_unit") or {}
+        if wu.get("status") not in (None, "planned", "queued", "pending"):
+            continue
+        phase = str(q.get("target_phase") or "")
+        item = {"name": wu.get("name") or "Work", "phase": phase,
+                "starts_hour": PHASE_START.get(phase),
+                "minutes": wu.get("estimated_duration_minutes"),
+                "category": wu.get("category") or "", "description": wu.get("description") or ""}
+        if with_why:
+            item["focus"] = wu.get("focus") or ""
+            item["motivation"] = wu.get("motivation") or ""
+        out.append(item)
+    order = list(PHASE_START)
+    return sorted(out, key=lambda i: order.index(i["phase"]) if i["phase"] in order else 99)
+
+
 def build(days: int = 7, data_dir: Optional[Path] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
     dd = _data_dir(data_dir)
     now = now or datetime.now()
@@ -158,4 +189,5 @@ def build(days: int = 7, data_dir: Optional[Path] = None, now: Optional[datetime
     entries.sort(key=lambda e: str(e.get("at") or ""))
     kinds = {**record.KIND_WORDS, **KINDS}
     return {"daemon": os.getenv("CASS_DAEMON_NAME", "Cass"), "days": days, "answers": said,
-            "kinds": kinds, "entries": entries, "unavailable": unavailable}
+            "kinds": kinds, "entries": entries, "unavailable": unavailable,
+            "coming_up": _coming_up(dd, said.get("sessions") == "yes")}
