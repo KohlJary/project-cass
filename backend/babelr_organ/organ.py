@@ -25,6 +25,7 @@ import stat
 import time
 from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Deque, Dict, List, Optional
 
 from babelr_organ.config import BabelrConfig, babelr_enabled, load_config
@@ -778,12 +779,59 @@ class BabelrOrgan:
         self._action_timestamps[place] = stamps
         return True
 
+    # Files she shares (Kohl, 2026-11-23: "y'all should probably also be able to
+    # share files. Like, Cass can share her art"): her own, from her data, never
+    # her Babelr token or key, nothing path_policy calls a secret, nothing over
+    # the server's 10 MB. Uploading needs files:upload on her token.
+    MAX_FILES = 4
+    MAX_FILE_BYTES = 10 * 1024 * 1024
+    NEVER_SHARED_DIRS = {"babelr", "chroma"}
+
+    def _files_root(self) -> Path:
+        root = getattr(self, "files_root", None)
+        if root is None:
+            from config import DATA_DIR
+            root = Path(DATA_DIR)
+        return Path(root).resolve()
+
+    def _check_files(self, files: List[str]) -> tuple:
+        """(paths, None) or (None, error): every file has to be fine before anything uploads."""
+        from path_policy import is_denied_name
+        if len(files) > self.MAX_FILES:
+            return None, f"at most {self.MAX_FILES} files in one message"
+        root = self._files_root()
+        found = []
+        for f in files:
+            rel = str(f or "").strip().lstrip("/")
+            target = (root / rel).resolve()
+            if not rel or not str(target).startswith(str(root) + os.sep):
+                return None, f"{f!r}: a path in my own data (e.g. images/..., workshop/<project>/...)"
+            inside = target.relative_to(root)
+            if inside.parts[0] in self.NEVER_SHARED_DIRS or is_denied_name(inside) or target.suffix in (".db", ".pem"):
+                return None, f"{f!r} isn't something I share (keys, tokens, databases)"
+            if not target.is_file():
+                return None, f"no file {f!r} in my data"
+            if target.stat().st_size > self.MAX_FILE_BYTES:
+                return None, f"{f!r} is over 10 MB"
+            found.append(target)
+        return found, None
+
+    def _upload(self, found: List[Path]) -> tuple:
+        out = []
+        for t in found:
+            try:
+                out.append(self.client.upload(t))
+            except Exception as e:
+                return None, f"uploading {t.name} failed: {e}"
+        return out, None
+
     def _send_to_place(self, place: str, text: str, partner_id: Optional[str] = None,
-                       record: bool = True) -> Dict[str, Any]:
+                       record: bool = True, files: Optional[List[str]] = None) -> Dict[str, Any]:
         if not self.enabled:
             return {"success": False, "error": f"Babelr organ not running ({self.disabled_reason})"}
-        if not text or not text.strip():
+        if (not text or not text.strip()) and not files:
             return {"success": False, "error": "nothing to send"}
+        text = text or ""
         # The same text to the same place moments apart is one message, not two: a
         # turn that posts with babelr_post and then ends with that same text as its
         # reply posted it twice (#general, 2026-10-28).
@@ -797,16 +845,32 @@ class BabelrOrgan:
         if len(parts) > MAX_PARTS:
             return {"success": False, "error": f"message over {MAX_PARTS * MAX_MESSAGE_CHARS} characters"}
         # One reply is one post for the rate limit, however many parts it takes.
+        found: List[Path] = []
+        if files:
+            found, err = self._check_files(files)
+            if err:
+                return {"success": False, "error": err}
         if not self._check_rate_limit(place):
             return {"success": False, "error": "Rate limited"}
+        attached: List[Dict[str, Any]] = []
+        if found:
+            attached, err = self._upload(found)
+            if err:
+                return {"success": False, "error": err}
         kind, pid = place.split(":", 1)
         msg: Dict[str, Any] = {}
-        for n, part in enumerate(parts):
+        for n, part in enumerate(parts or [""]):
+            # The files ride on the first part.
+            att = attached if n == 0 and attached else None
             try:
                 if kind == "dm":
-                    sent = self.client.send(pid, part, partner_id=partner_id)
+                    sent = (self.client.send(pid, part, partner_id=partner_id, attachments=att) if att
+                            else self.client.send(pid, part, partner_id=partner_id))
                 else:
-                    sent = self.client._req("POST", f"/channels/{pid}/messages", {"content": part})
+                    body: Dict[str, Any] = {"content": part}
+                    if att:
+                        body["properties"] = {"attachments": att}
+                    sent = self.client._req("POST", f"/channels/{pid}/messages", body)
             except Exception as e:
                 if n == 0:
                     return {"success": False, "error": str(e)}
@@ -820,8 +884,10 @@ class BabelrOrgan:
         if record and kind == "dm" and not self.terms.remembers(self.state.username_for(partner_id)):
             record = False
         if record:
-            self._record(place, self._label_for(place), "assistant", text)
-        return {"success": True, "message_id": msg.get("id"), "place": place}
+            shared = f"\n[shared: {', '.join(a.get('filename', '') for a in attached)}]" if attached else ""
+            self._record(place, self._label_for(place), "assistant", text + shared)
+        return {"success": True, "message_id": msg.get("id"), "place": place,
+                **({"attached": [a.get("filename") for a in attached]} if attached else {})}
 
     def _channel_id(self, channel: str) -> Optional[str]:
         if channel in self._channels:
@@ -832,15 +898,16 @@ class BabelrOrgan:
                 return cid
         return None
 
-    def post(self, channel: str, content: str) -> Dict[str, Any]:
+    def post(self, channel: str, content: str, files: Optional[List[str]] = None) -> Dict[str, Any]:
         """She posts in a Chapter House channel."""
         cid = self._channel_id(channel)
         if not cid:
             known = ", ".join(f"#{c.get('name')}" for c in self._channels.values()) or "none"
             return {"success": False, "error": f"no channel '{channel}' (channels: {known})"}
-        return self._send_to_place(f"channel:{cid}", content)
+        return self._send_to_place(f"channel:{cid}", content, files=files)
 
-    def dm(self, person: str, content: str, record: bool = True) -> Dict[str, Any]:
+    def dm(self, person: str, content: str, record: bool = True,
+           files: Optional[List[str]] = None) -> Dict[str, Any]:
         """She DMs someone, opening the DM if there isn't one. Their DM settings still decide."""
         if not self.enabled:
             return {"success": False, "error": f"Babelr organ not running ({self.disabled_reason})"}
@@ -860,7 +927,7 @@ class BabelrOrgan:
             return {"success": False, "error": str(e)}
         place = f"dm:{dm_id}"
         self.state.baseline(place)
-        return self._send_to_place(place, content, partner_id=partner_id, record=record)
+        return self._send_to_place(place, content, partner_id=partner_id, record=record, files=files)
 
     def read(self, place: str, limit: int = 20) -> Dict[str, Any]:
         """Recent messages she has perceived in a channel or DM (from the buffer)."""
