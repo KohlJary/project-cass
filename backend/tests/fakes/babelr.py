@@ -119,8 +119,13 @@ class FakeAgent:
         self.server.dm_messages[dm_id] = []
         return {"id": dm_id, "participants": [CASS, partner]}
 
-    def send(self, dm_id: str, text: str, partner_id: Optional[str] = None) -> dict:
-        self.server.calls.append(("POST", f"/dms/{dm_id}/messages", None))
+    def upload(self, path) -> dict:
+        self.server.calls.append(("POST", "/upload", str(path)))
+        name = str(path).rsplit("/", 1)[-1]
+        return {"url": f"/uploads/u-{name}", "filename": name, "contentType": "image/png"}
+
+    def send(self, dm_id: str, text: str, partner_id: Optional[str] = None, attachments=None) -> dict:
+        self.server.calls.append(("POST", f"/dms/{dm_id}/messages", {"attachments": attachments} if attachments else None))
         entry = {"id": self.server._id("dmmsg"), "author": CASS, "published": self.server._stamp(), "text": text}
         self.server.dm_messages[dm_id].append(entry)
         self.server.dm_list[dm_id]["lastMessage"] = {"id": entry["id"], "published": entry["published"]}

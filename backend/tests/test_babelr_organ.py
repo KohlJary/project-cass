@@ -944,3 +944,38 @@ def test_the_plans_tool_passes_an_item_name_through(monkeypatch):
     asyncio.run(T.execute_babelr_tool("babelr_plans", {"action": "set_item", "plan": "p",
                                                        "item": "Reach out", "status": "done", "body": "sent"}))
     assert seen["item"] == "Reach out" and seen["status"] == "done"
+
+
+class TestSharingFiles:
+    """Kohl, 2026-11-23: "y'all should probably also be able to share files. Like, Cass can share her art."""
+
+    def _art(self, tmp_path):
+        root = tmp_path / "data"
+        (root / "images").mkdir(parents=True)
+        (root / "images" / "tide.png").write_bytes(b"\x89PNG")
+        (root / "babelr").mkdir()
+        (root / "babelr" / "token").write_text("secret")
+        (root / ".env").write_text("KEY=1")
+        return root
+
+    async def test_she_attaches_her_own_art_to_a_dm_and_a_post(self, make_organ, babelr, tmp_path):
+        organ = make_organ()
+        organ.files_root = self._art(tmp_path)
+        organ.start()
+        babelr.say("general", KOHL, "hello")
+        await organ.poll_once()
+        r = organ.dm("kohl", "made this", files=["images/tide.png"])
+        assert r["success"] and r["attached"] == ["tide.png"], r
+        sent = [c for c in babelr.calls if c[0] == "POST" and c[1].startswith("/dms/") and c[2]]
+        assert sent[-1][2]["attachments"][0]["url"] == "/uploads/u-tide.png"
+        assert organ.post("general", "", files=["images/tide.png"])["success"]
+
+    async def test_keys_tokens_secrets_and_paths_outside_stay_put(self, make_organ, babelr, tmp_path):
+        organ = make_organ()
+        organ.files_root = self._art(tmp_path)
+        organ.start()
+        for bad in ("babelr/token", ".env", "../outside.png", "/etc/passwd", "images/missing.png"):
+            r = organ.post("general", "look", files=[bad])
+            assert not r["success"], bad
+        assert not [c for c in babelr.calls if c[1] == "/upload"]
+        assert "at most" in organ.post("general", "x", files=["images/tide.png"] * 5)["error"]

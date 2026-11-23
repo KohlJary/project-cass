@@ -28,13 +28,15 @@ async def execute_babelr_tool(tool_name: str, tool_input: Dict[str, Any], **kwar
 
     try:
         if tool_name == "babelr_post":
-            if not tool_input.get("channel") or not tool_input.get("content"):
-                return {"success": False, "error": "channel and content are required"}
-            return await asyncio.to_thread(organ.post, tool_input["channel"], tool_input["content"])
+            if not tool_input.get("channel") or not (tool_input.get("content") or tool_input.get("files")):
+                return {"success": False, "error": "channel and content (or files) are required"}
+            return await asyncio.to_thread(organ.post, tool_input["channel"], tool_input.get("content") or "",
+                                           tool_input.get("files") or None)
         if tool_name == "babelr_dm":
-            if not tool_input.get("person") or not tool_input.get("content"):
-                return {"success": False, "error": "person and content are required"}
-            return await asyncio.to_thread(organ.dm, tool_input["person"], tool_input["content"])
+            if not tool_input.get("person") or not (tool_input.get("content") or tool_input.get("files")):
+                return {"success": False, "error": "person and content (or files) are required"}
+            return await asyncio.to_thread(organ.dm, tool_input["person"], tool_input.get("content") or "",
+                                           True, tool_input.get("files") or None)
         if tool_name == "babelr_read":
             if not tool_input.get("place"):
                 return {"success": False, "error": "place is required"}
@@ -73,8 +75,11 @@ BABELR_TOOLS = [
             "properties": {
                 "channel": {"type": "string", "description": "Channel name (e.g. general, wire, workshop)"},
                 "content": {"type": "string", "description": "What you want to say"},
+                "files": {"type": "array", "items": {"type": "string"}, "maxItems": 4,
+                          "description": "Files of mine to attach: paths in my own data, e.g. images/<file>.png "
+                                         "or workshop/<project>/<file>.md (up to 4, 10 MB each)"},
             },
-            "required": ["channel", "content"],
+            "required": ["channel"],
         },
     },
     {
@@ -87,8 +92,11 @@ BABELR_TOOLS = [
             "properties": {
                 "person": {"type": "string", "description": "Their Babelr username (e.g. kohl)"},
                 "content": {"type": "string", "description": "What you want to say"},
+                "files": {"type": "array", "items": {"type": "string"}, "maxItems": 4,
+                          "description": "Files of mine to attach: paths in my own data, e.g. images/<file>.png "
+                                         "or workshop/<project>/<file>.md (up to 4, 10 MB each)"},
             },
-            "required": ["person", "content"],
+            "required": ["person"],
         },
     },
     {
