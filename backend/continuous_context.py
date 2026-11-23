@@ -53,7 +53,14 @@ class SpeakerRecognition:
 # own conversation summary. No semantic memories (Kohl's conversations and
 # journals), no home state or insights, no world state (location), no
 # self-context, Thymos, threads or open questions.
-CONTEXT_SCOPES = ("private", "public")
+CONTEXT_SCOPES = ("private", "public", "house")
+# "house": a DM with a housemate daemon (BABELR_HOUSE_DMS), on Cass's terms (2026-11-23):
+# "Full context except filtered out anything tagged as observation-of-another-person."
+# Her whole self (self-model, reflections, journals, growth edges); none of her
+# conversations with anyone, nothing tagged with a person, and no per-person threads,
+# questions or things to raise.
+HOUSE_LEFT_OUT = frozenset({"threads", "questions", "to_raise", "self_model_public"})
+PERSON_MEMORY_TYPES = ("user_observation", "user_profile", "per_user_journal")
 
 # Section -> its features lever: a section whose lever is off is left out (and,
 # where it costs something, not computed). Ablation switches for benchmarks.
@@ -125,6 +132,8 @@ def build_continuous_context(
         lever = SECTION_LEVERS.get(section)
         if lever and not features.is_enabled(lever):
             return False
+        if scope == "house":
+            return section not in HOUSE_LEFT_OUT
         return scope == "private" or section in PUBLIC_SECTIONS
 
     context_sections: Dict[str, str] = {}
@@ -370,7 +379,7 @@ def build_continuous_context(
     # ==========================================================================
     # Query ChromaDB for semantically relevant memories based on current message
     if memory and query and wanted("semantic_memories"):
-        semantic_memories = _retrieve_semantic_memories(memory, query, user_id)
+        semantic_memories = _retrieve_semantic_memories(memory, query, user_id, house=(scope == "house"))
         if semantic_memories:
             context_sections["semantic_memories"] = semantic_memories
 
@@ -408,7 +417,7 @@ EPISODE_SLOTS = 3       # of n_results; the rest go to her other memories
 OVERFETCH = 6           # candidates per slot, before scope and article filters
 
 
-def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int) -> List[Dict]:
+def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int, house: bool = False) -> List[Dict]:
     """Recall in two pools (plan "Cass's memory", item a8fb4c8f).
 
     Episodes (conversations, summary chunks) get their own slots, so her
@@ -417,10 +426,13 @@ def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int) -
     other memories (journals, reflections, notes) fill the rest, leaving out
     what came from scanning articles (fe5ddbe8) and anything tagged with
     another person. Unused slots in one pool go to the other.
+
+    house: a housemate's DM (CONTEXT_SCOPES). No conversation is recalled, house
+    agents' included, and nothing about a person: only what's hers alone.
     """
     from memory.scope import ConversationOwners, house_agent_user_ids, recallable_with
 
-    agents = house_agent_user_ids()
+    agents = set() if house else house_agent_user_ids()
     owners = ConversationOwners()
     episode_slots = min(EPISODE_SLOTS, n_results)
 
@@ -434,6 +446,8 @@ def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int) -
             meta = m.get("metadata") or {}
             is_episode = meta.get("type") in EPISODE_TYPES
             if is_episode != episodic or _from_article_scanning(meta):
+                continue
+            if house and (is_episode or meta.get("type") in PERSON_MEMORY_TYPES):
                 continue
             if not recallable_with(user_id, meta, agents, owners, episodic=episodic):
                 continue
@@ -524,6 +538,7 @@ def _retrieve_semantic_memories(
     query: str,
     user_id: Optional[str] = None,
     n_results: int = 5,
+    house: bool = False,
 ) -> Optional[str]:
     """
     Retrieve semantically relevant memories from ChromaDB.
@@ -538,7 +553,7 @@ def _retrieve_semantic_memories(
         Formatted string of relevant memories, or None if no results
     """
     try:
-        memories = _scoped_recall(memory, query, user_id, n_results)
+        memories = _scoped_recall(memory, query, user_id, n_results, house=house)
         if not memories:
             return None
 

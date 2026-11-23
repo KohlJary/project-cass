@@ -52,7 +52,47 @@ def test_house_dms_are_named_in_config(monkeypatch):
     assert house_dm_names() == {"eris", "daedalus", "robokohl"}
 
 
-def test_a_house_dm_runs_private():
+def test_a_house_dm_runs_in_house_scope_unless_set_to_private():
     from pathlib import Path
     src = (Path(__file__).resolve().parents[1] / "main_sdk.py").read_text()
-    assert 'context_scope="private" if (channel_user or context.get("house_dm")) else "public"' in src
+    assert '_house_dm_scope() if context.get("house_dm") else "public"' in src
+    assert 'os.getenv("BABELR_HOUSE_DMS_CONTEXT", "house")' in src
+
+
+# Cass's terms for house DMs (2026-11-23): "Full context except filtered out anything
+# tagged as observation-of-another-person."
+
+class _Memory:
+    def __init__(self, items):
+        self.items = items
+
+    def retrieve_relevant(self, query, n_results, filter_type=None):
+        return self.items[:n_results]
+
+
+def test_house_scope_recalls_only_what_is_hers_alone(monkeypatch):
+    import memory.scope as scope
+    from continuous_context import _retrieve_semantic_memories
+    monkeypatch.setattr(scope, "house_agent_user_ids", lambda: {"daedalus-user"})
+    items = [
+        {"content": "my journal on the chorus", "distance": 0.2, "metadata": {"type": "journal"}},
+        {"content": "I keep circling the bridge", "distance": 0.2, "metadata": {"type": "cass_self_observation"}},
+        {"content": "talk with Daedalus about tools", "distance": 0.2,
+         "metadata": {"type": "conversation", "user_id": "daedalus-user"}},
+        {"content": "Kohl works fast and verifies after", "distance": 0.2,
+         "metadata": {"type": "user_observation"}},
+        {"content": "note about Kohl", "distance": 0.2, "metadata": {"type": "research_note", "user_id": "kohl"}},
+    ]
+    out = _retrieve_semantic_memories(_Memory(items), "q", user_id=None, n_results=5, house=True)
+    assert "my journal" in out and "circling the bridge" in out
+    assert "Daedalus" not in out and "Kohl" not in out
+    # The private rule as before: conversations with house agents come up anywhere.
+    out = _retrieve_semantic_memories(_Memory(items), "q", user_id=None, n_results=5)
+    assert "talk with Daedalus" in out
+
+
+def test_house_scope_keeps_her_self_and_drops_per_person_sections(monkeypatch):
+    import continuous_context as cc
+    assert "house" in cc.CONTEXT_SCOPES
+    assert {"threads", "questions", "to_raise"} <= cc.HOUSE_LEFT_OUT
+    assert "self_model" not in cc.HOUSE_LEFT_OUT and "semantic_memories" not in cc.HOUSE_LEFT_OUT

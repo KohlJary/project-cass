@@ -1592,6 +1592,11 @@ def make_babelr_wake_callback():
     her "Babelr: ..." conversations. Her `remember: false` term keeps every
     path out of history and memory (the old, unstored turn)."""
 
+    def _house_dm_scope() -> str:
+        """How much of her a housemate's DM gets: "house" (default) or "private"."""
+        v = os.getenv("BABELR_HOUSE_DMS_CONTEXT", "house").strip().lower()
+        return v if v in ("house", "private") else "house"
+
     async def babelr_wake_callback(events, context):
         if not agent_client:
             logger.warning("[Babelr] Wake callback: agent_client not available")
@@ -1648,8 +1653,10 @@ def make_babelr_wake_callback():
                 conversation_id=conversation_id,
                 user_id=channel_user,
                 system_addendum=BABELR_PUBLIC_GUIDANCE,
-                # A housemate's DM (BABELR_HOUSE_DMS) is private: her context, her project tool.
-                context_scope="private" if (channel_user or context.get("house_dm")) else "public",
+                # A housemate's DM (BABELR_HOUSE_DMS): her own context, nobody else's
+                # ("house"), or everything (BABELR_HOUSE_DMS_CONTEXT=private).
+                context_scope=("private" if channel_user else
+                               _house_dm_scope() if context.get("house_dm") else "public"),
                 channel="babelr",  # a room: others read it, even with Kohl's context
                 memory_metadata={"source": "babelr", "place": place},
                 generate_title=False,

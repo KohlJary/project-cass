@@ -146,7 +146,7 @@ async def run_chat_turn(
         adds context of its own (HA home state, the Discord channel line).
         Defaults to user_message.
     include_memory: False skips semantic retrieval (POST /chat's flag).
-    context_scope: "private" or "public" (continuous_context.CONTEXT_SCOPES).
+    context_scope: "private", "public" or "house" (continuous_context.CONTEXT_SCOPES).
         Discord uses "public": its replies are posted where others read them.
     system_addendum: appended to the continuous system prompt (Discord's
         "you are on Discord" guidance).
