@@ -601,11 +601,11 @@ import re
 
 # Patterns for inline XML tags
 INLINE_SELF_OBSERVATION_PATTERN = re.compile(
-    r'<record_self_observation[^>]*>\s*(.*?)\s*</record_self_observation>',
+    r'<record_self_observation[^>]*>\s*(.*?)\s*(?:</record_self_observation>|</invoke>)',
     re.DOTALL
 )
 INLINE_USER_OBSERVATION_PATTERN = re.compile(
-    r'<record_user_observation[^>]*>\s*(.*?)\s*</record_user_observation>',
+    r'<record_user_observation[^>]*>\s*(.*?)\s*(?:</record_user_observation>|</invoke>)',
     re.DOTALL
 )
 INLINE_ROADMAP_ITEM_PATTERN = re.compile(

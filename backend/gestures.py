@@ -262,19 +262,19 @@ class GestureParser:
     MEMORY_PATTERN = re.compile(r'<memory:(\w+)>')
     # Self-observation tag with optional attributes
     SELF_OBSERVATION_PATTERN = re.compile(
-        r'<record_self_observation(?:\s+category=["\']?(\w+)["\']?)?(?:\s+confidence=["\']?([\d.]+)["\']?)?>\s*(.*?)\s*</record_self_observation>',
+        r'<record_self_observation(?:\s+category=["\']?(\w+)["\']?)?(?:\s+confidence=["\']?([\d.]+)["\']?)?>\s*(.*?)\s*(?:</record_self_observation>|</invoke>)',
         re.DOTALL
     )
     # User observation tag with optional attributes (user, category, confidence in any order)
     USER_OBSERVATION_PATTERN = re.compile(
-        r'<record_user_observation(?:\s+(?:user=["\']?([^"\'>\s]+)["\']?|category=["\']?(\w+)["\']?|confidence=["\']?([\d.]+)["\']?))*>\s*(.*?)\s*</record_user_observation>',
+        r'<record_user_observation(?:\s+(?:user=["\']?([^"\'>\s]+)["\']?|category=["\']?(\w+)["\']?|confidence=["\']?([\d.]+)["\']?))*>\s*(.*?)\s*(?:</record_user_observation>|</invoke>)',
         re.DOTALL
     )
     # Pattern to clean tags - excludes gesture:think which is handled by TUI for split view
     # Also handles malformed closing tags like </gesture:point> or </emote:happy>
     ALL_TAGS_PATTERN = re.compile(r'</?(?:gesture:(?!think)\w+|emote:\w+|memory:\w+)(?::\d*\.?\d+)?>')
-    SELF_OBSERVATION_TAG_PATTERN = re.compile(r'<record_self_observation[^>]*>.*?</record_self_observation>', re.DOTALL)
-    USER_OBSERVATION_TAG_PATTERN = re.compile(r'<record_user_observation[^>]*>.*?</record_user_observation>', re.DOTALL)
+    SELF_OBSERVATION_TAG_PATTERN = re.compile(r'<record_self_observation[^>]*>.*?(?:</record_self_observation>|</invoke>)', re.DOTALL)
+    USER_OBSERVATION_TAG_PATTERN = re.compile(r'<record_user_observation[^>]*>.*?(?:</record_user_observation>|</invoke>)', re.DOTALL)
     USER_FACT_TAG_PATTERN = re.compile(r'<record_user_fact[^>]*(?:>.*?</record_user_fact>|/>)', re.DOTALL)
 
     # ============== Consolidated Metacognitive Tag Patterns ==============
@@ -454,6 +454,17 @@ class GestureParser:
             category = match.group(1) or "pattern"
             confidence_str = match.group(2)
             observation_text = match.group(3).strip()
+            # The tool-call form: <parameter name="observation">...</parameter> inside the tag
+            if '<parameter' in observation_text:
+                params = observation_text
+                obs = re.search(r'<parameter\s+name=["\']?observation["\']?>\s*(.*?)\s*</parameter>', params, re.DOTALL)
+                observation_text = obs.group(1).strip() if obs else ""
+                cat = re.search(r'<parameter\s+name=["\']?category["\']?>\s*(\w+)\s*</parameter>', params)
+                category = cat.group(1) if cat else category
+                conf = re.search(r'<parameter\s+name=["\']?confidence["\']?>\s*([\d.]+)\s*</parameter>', params)
+                confidence_str = conf.group(1) if conf else confidence_str
+            if not observation_text:
+                continue
 
             # Validate category
             if category not in valid_categories:
@@ -497,7 +508,7 @@ class GestureParser:
 
         # More flexible regex to capture attributes in any order
         tag_pattern = re.compile(
-            r'<record_user_observation([^>]*)>\s*(.*?)\s*</record_user_observation>',
+            r'<record_user_observation([^>]*)>\s*(.*?)\s*(?:</record_user_observation>|</invoke>)',
             re.DOTALL
         )
 

@@ -24,11 +24,11 @@ question_manager = None
 
 # Patterns for inline XML tags
 INLINE_SELF_OBSERVATION_PATTERN = re.compile(
-    r'<record_self_observation[^>]*>\s*(.*?)\s*</record_self_observation>',
+    r'<record_self_observation[^>]*>\s*(.*?)\s*(?:</record_self_observation>|</invoke>)',
     re.DOTALL
 )
 INLINE_USER_OBSERVATION_PATTERN = re.compile(
-    r'<record_user_observation[^>]*>\s*(.*?)\s*</record_user_observation>',
+    r'<record_user_observation[^>]*>\s*(.*?)\s*(?:</record_user_observation>|</invoke>)',
     re.DOTALL
 )
 INLINE_USER_FACT_PATTERN = re.compile(
@@ -325,13 +325,13 @@ async def process_inline_tags(
 
         # Handle <parameter> style tags (newer format)
         if '<parameter' in content:
-            obs_match = re.search(r'<parameter\s+name=["\']?observation["\']?>\s*(.*?)\s*</parameter>', content, re.DOTALL)
-            if obs_match:
-                content = obs_match.group(1).strip()
-            cat_match = re.search(r'<parameter\s+name=["\']?category["\']?>\s*(\w+)\s*</parameter>', content)
+            params = content  # read category and confidence before content becomes the observation
+            obs_match = re.search(r'<parameter\s+name=["\']?observation["\']?>\s*(.*?)\s*</parameter>', params, re.DOTALL)
+            content = obs_match.group(1).strip() if obs_match else ""
+            cat_match = re.search(r'<parameter\s+name=["\']?category["\']?>\s*(\w+)\s*</parameter>', params)
             if cat_match:
                 category = cat_match.group(1)
-            conf_match = re.search(r'<parameter\s+name=["\']?confidence["\']?>\s*([\d.]+)\s*</parameter>', content)
+            conf_match = re.search(r'<parameter\s+name=["\']?confidence["\']?>\s*([\d.]+)\s*</parameter>', params)
             if conf_match:
                 try:
                     confidence = float(conf_match.group(1))
