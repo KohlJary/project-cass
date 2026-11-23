@@ -6,6 +6,7 @@
     python scripts/panel_set.py --show
 
 Sections: now, today, commitments, stances, work, this_reply (yes, no, not_yet).
+Daybook kinds: daybook.sessions, daybook.journals, daybook.dreams, daybook.self_model.
 Audience: kohl, house, visitors, none. Run it only with answers she gave.
 """
 import json
