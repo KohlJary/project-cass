@@ -644,6 +644,10 @@ app.include_router(record_router)
 from routes.music import router as music_router
 app.include_router(music_router)
 
+# Her panel in Babelr, the sections she said yes to (routes/panel.py, panel.py)
+from routes.panel import router as panel_router
+app.include_router(panel_router)
+
 # Register memory routes (initialized in background after memory is ready)
 from routes.memory import router as memory_router, init_memory_routes
 app.include_router(memory_router)

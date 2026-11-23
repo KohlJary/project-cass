@@ -560,13 +560,15 @@ PROJECT_TOOL: Dict[str, Any] = {
                     "(message), log, run (command; software projects, sandboxed, no network), publish "
                     "(to my GitHub, private unless I say public), profile (my GitHub name and bio, in my words), "
                     "share (project, with: a housemate daemon; they get a working copy and our commits sync), "
-                    "unshare (project, with), join (a project a housemate shared with me), sync (pull theirs, push mine)."),
+                    "unshare (project, with), join (a project a housemate shared with me), sync (pull theirs, push mine), "
+                    "show (project: on my Babelr panel, if my panel's work section is a yes; for the audience I "
+                    "chose), hide (project: off my panel again)."),
     "input_schema": {
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["new", "list", "status", "files", "read", "write", "edit",
                                                   "commit", "log", "run", "publish", "profile",
-                                                  "share", "unshare", "join", "sync"]},
+                                                  "share", "unshare", "join", "sync", "show", "hide"]},
             "project": {"type": "string"}, "name": {"type": "string"},
             "kind": {"type": "string", "enum": list(KINDS)}, "vision": {"type": "string"},
             "path": {"type": "string"}, "content": {"type": "string"},
@@ -609,6 +611,9 @@ def handle(a: Dict[str, Any], data_dir: Optional[Path] = None) -> Dict[str, Any]
             return run(slug, a.get("command") or "", data_dir)
         if action == "publish":
             return publish(slug, a.get("visibility") or "private", data_dir)
+        if action in ("show", "hide"):
+            import panel
+            return panel.set_shown(slug, action == "show", data_dir)
         import house_share
         if action == "join":
             return house_share.join(root(data_dir), slug)
@@ -622,6 +627,6 @@ def handle(a: Dict[str, Any], data_dir: Optional[Path] = None) -> Dict[str, Any]
                 return house_share.share(p, slugify(slug), a.get("with") or "", meta(p, data_dir).get("name") or slug)
             return house_share.unshare(slugify(slug), a.get("with") or "")
         return {"error": "action is one of: new, list, status, files, read, write, edit, commit, log, run, publish, "
-                         "profile, share, unshare, join, sync"}
+                         "profile, share, unshare, join, sync, show, hide"}
     except (ValueError, RuntimeError, OSError) as e:
         return {"error": str(e)}
