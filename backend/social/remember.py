@@ -25,7 +25,7 @@ from social.config import platform_dir
 
 logger = logging.getLogger(__name__)
 
-PLATFORM_NAMES = {"bluesky": "Bluesky", "tumblr": "Tumblr"}
+PLATFORM_NAMES = {"bluesky": "Bluesky", "tumblr": "Tumblr", "babelr": "Babelr", "mastodon": "Mastodon"}
 
 
 def document(platform: str, kind: str, text: str, answering: Optional[Dict[str, Any]] = None,

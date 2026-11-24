@@ -668,9 +668,27 @@ class BabelrOrgan:
                     self._reply_status, last, "failed", f"couldn't post: {result.get('error')}"[:120])
                 self._watch.setdefault(last.place, {})[last.message_id] = last
                 return
+        await asyncio.to_thread(self._keep_people, events, reply)
         # Answered, or she chose to say nothing: either way, nothing pending.
         await asyncio.to_thread(self._reply_status, last, "done")
         self._watch.get(last.place, {}).pop(last.message_id, None)
+
+    def _keep_people(self, events: List[BabelrEvent], reply: Optional[str]) -> None:
+        """Everyone she was answering, kept in her PeopleDex with the exchange
+        (babelr_organ/people.py, her yes 2026-11-24). Never fails her turn."""
+        if not self.terms.remember:
+            return
+        try:
+            from babelr_organ.people import keep_exchange, load_filings
+            kept = keep_exchange(
+                events, reply, place_label=events[-1].place_label, my_username=self.my_username,
+                links=self._links(), filings=load_filings(self.config.people_path),
+                remembers=self.terms.remembers,
+                display_names=self.state.data.get("display_names", {}))
+            if kept:
+                logger.info(f"[Babelr] Kept in her PeopleDex: {', '.join('@' + k for k in kept)}")
+        except Exception as e:
+            logger.warning(f"[Babelr] Couldn't keep people from this turn: {e}")
 
     def _reply_status(self, event: BabelrEvent, state: str, detail: str = "") -> None:
         """Babelr's agent reply status on the message she's answering. A

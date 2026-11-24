@@ -38,7 +38,7 @@ class OrganState:
         except (OSError, ValueError) as e:
             logger.warning(f"[Babelr] {self.path} unreadable ({e}); starting fresh cursors")
             self.data = {}
-        for key in ("places", "conversations", "people"):
+        for key in ("places", "conversations", "people", "display_names"):
             self.data.setdefault(key, {})
         self.data.setdefault("deferred", [])
         self.data.setdefault("requests_seen", [])
@@ -101,6 +101,8 @@ class OrganState:
         actor_id = (author or {}).get("id")
         if username and actor_id:
             self.data["people"][username.lower()] = actor_id
+        if username and (author or {}).get("displayName"):
+            self.data["display_names"][username.lower()] = author["displayName"]
 
     def username_for(self, actor_id: Optional[str]) -> Optional[str]:
         for username, aid in self.data["people"].items():

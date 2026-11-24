@@ -12,6 +12,10 @@ from typing import Iterable, List, Optional
 def _dex(daemon_id: Optional[str], dex):
     if dex is None:
         from peopledex import PeopleDexManager
+        if daemon_id is None:
+            # Moments are kept per daemon; without one, add_moment keeps nothing.
+            from database import get_daemon_id
+            daemon_id = get_daemon_id()
         dex = PeopleDexManager(daemon_id=daemon_id)
     return dex
 
@@ -28,8 +32,33 @@ def find(platform: str, handle: str, dex) -> Optional[str]:
     return None
 
 
+def _existing(person: dict, dex) -> Optional[str]:
+    """Someone she already has an entry for, under another name or platform:
+    by the vessel user they're linked to, or (only when the caller says so,
+    for someone filed as house) by their exact primary name among entries of
+    that type. Never by a partial name: "Claude" could be anyone."""
+    user_id = person.get("user_id")
+    if user_id:
+        e = dex.get_entity_by_user(user_id)
+        if e:
+            return e.id
+    name = (person.get("name") or "").strip()
+    if person.get("match_name") and name:
+        from peopledex import EntityType
+        etype = EntityType(person.get("entity_type") or "person")
+        exact = [e for e in dex.search_entities(name, etype, limit=20)
+                 if (e.primary_name or "").strip().lower() == name.lower()]
+        if len(exact) == 1:
+            return exact[0].id
+    return None
+
+
 def keep(platform: str, people: Iterable[dict], daemon_id: Optional[str] = None, dex=None) -> List[str]:
-    """people: {"handle", "name"}. Returns the handles newly added."""
+    """people: {"handle", "name"}, and optionally "entity_type" ("person" or
+    "daemon"), "user_id" (a linked vessel user) and "match_name" (find an
+    existing entry by exact name; for someone filed as house). An existing
+    entry found that way gets this platform's handle added. Returns the
+    handles newly added (new entries)."""
     dex = _dex(daemon_id, dex)
     from peopledex import AttributeType, EntityType
 
@@ -41,7 +70,13 @@ def keep(platform: str, people: Iterable[dict], daemon_id: Optional[str] = None,
         seen.add(handle.lower())
         if find(platform, handle, dex):
             continue
-        entity_id = dex.create_entity(EntityType.PERSON, person.get("name") or handle)
+        entity_id = _existing(person, dex)
+        if entity_id:
+            dex.add_attribute(entity_id, AttributeType.HANDLE, handle, attribute_key=platform,
+                              is_primary=False, source_type=platform)
+            continue
+        entity_id = dex.create_entity(EntityType(person.get("entity_type") or "person"),
+                                      person.get("name") or handle)
         dex.add_attribute(entity_id, AttributeType.HANDLE, handle, attribute_key=platform,
                           is_primary=True, source_type=platform)
         added.append(handle)
@@ -49,7 +84,8 @@ def keep(platform: str, people: Iterable[dict], daemon_id: Optional[str] = None,
 
 
 def note_exchange(platform: str, handle: str, theirs: str, mine: str,
-                  daemon_id: Optional[str] = None, dex=None) -> bool:
+                  daemon_id: Optional[str] = None, dex=None, person: Optional[dict] = None,
+                  where: Optional[str] = None) -> bool:
     """A public exchange with someone, kept as a moment on their PeopleDex entry
     (Cass, 2026-11-16: "If I talk with someone, that texture matters"). Their
     words and hers, as they were posted. Returns whether it was kept."""
@@ -58,12 +94,12 @@ def note_exchange(platform: str, handle: str, theirs: str, mine: str,
         return False
     try:
         dex = _dex(daemon_id, dex)
-        keep(platform, [{"handle": handle}], dex=dex)
+        keep(platform, [dict(person or {}, handle=handle)], dex=dex)
         entity_id = find(platform, handle, dex)
         if not entity_id:
             return False
         from social.remember import PLATFORM_NAMES
-        where = PLATFORM_NAMES.get(platform, platform)
+        where = where or PLATFORM_NAMES.get(platform, platform)
         said = f"@{handle} wrote: \"{theirs.strip()}\"\nI replied: \"{mine.strip()}\"" if theirs \
             else f"I replied to @{handle}: \"{mine.strip()}\""
         return dex.add_moment(entity_id, f"On {where}, {said}", category="connection") is not None

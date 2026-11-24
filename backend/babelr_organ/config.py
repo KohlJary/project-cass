@@ -59,6 +59,11 @@ class BabelrConfig:
         return self.dir / "terms.json"
 
     @property
+    def people_path(self) -> Path:
+        """Her PeopleDex filings for Babelr (babelr_organ/people.py)."""
+        return self.dir / "people.json"
+
+    @property
     def links_path(self) -> Path:
         """{"<babelr username>": "<cass user id>"}: whose DMs are their chat
         with her (the shared chat turn, their continuous conversation). Written
