@@ -402,6 +402,7 @@ TOOL_REGISTRY = {
     "babelr_read": "babelr",
     "babelr_react": "babelr",
     "find_memes": "babelr",
+    "meme_sources": "babelr",
     "babelr_boundaries": "babelr",
     "babelr_plans": "babelr",
 
