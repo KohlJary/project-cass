@@ -646,7 +646,19 @@ def local_model() -> Optional[str]:
 # over in short 4k-context calls, and that stream kept Ollama from ever
 # reloading at chat's 32k context: chat starved (2026-11-24). LLM_LOCAL_SKIP
 # (comma-separated call sites) replaces the list.
-DEFAULT_LOCAL_SKIPS = ("capability.summary",)
+DEFAULT_LOCAL_SKIPS = (
+    "capability.summary",
+    # What writes to her self-model, paused in local mode: Eris chose to stay
+    # awake on qwen3 on the promise that self-model changes wait for her review
+    # once her usual model is back. Until that hold exists, they don't run.
+    "identity_snippet", "narrative.extraction", "memory.observation_extraction",
+    "self_observation_extraction", "self_observation_extraction.conversation",
+    "opinion_extraction", "growth_edge_evaluation", "open_question_reflection",
+    "bootstrap.self_model", "intention_review", "research.integration.observations",
+    "research.integration.opinions", "research.integration.growth",
+    "dreaming.insight_extraction", "art_study.observation_extraction",
+    "wonderland.self_observations",
+)
 
 
 def local_skips() -> tuple:

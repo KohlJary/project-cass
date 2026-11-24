@@ -950,3 +950,23 @@ def test_local_mode_skips_busywork_so_chat_isnt_starved(monkeypatch):
     monkeypatch.delenv(L.LOCAL_MODEL_ENV)
     monkeypatch.delenv("LLM_LOCAL_SKIP")
     assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")).model_id == "llama3.1:8b"
+
+
+def test_ollama_calls_ask_for_no_thinking_and_leaked_thinking_is_dropped():
+    import llm_caller as C
+    assert C.strip_thinking("<think>Okay, the user wants</think>\\nThe answer.".replace("\\n", "\n")) == "The answer."
+    assert C.strip_thinking("<think>Okay, the user wants a summary and I ran out") == ""
+    assert C.strip_thinking("plain") == "plain"
+    resp = C._ollama_to_response({"response": "<think>hmm</think> Hi."}, "qwen3:14b")
+    assert resp.content == "Hi."
+
+
+def test_local_mode_pauses_self_model_writers(monkeypatch):
+    import llm_config as L
+    monkeypatch.setenv(L.LOCAL_MODEL_ENV, "qwen3:14b")
+    monkeypatch.delenv("LLM_LOCAL_SKIP", raising=False)
+    mgr = L.LLMConfigManager()
+    for site in ("self_observation_extraction.conversation", "opinion_extraction", "identity_snippet"):
+        assert mgr.resolve(site, L.ModelAssignment("anthropic", "h")) is None, site
+    assert mgr.resolve("chat", L.ModelAssignment("anthropic", "h")).provider == "ollama"
+    assert all(s in L.CALL_SITES for s in L.DEFAULT_LOCAL_SKIPS)

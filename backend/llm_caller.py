@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 import uuid
 from typing import Any, Optional
@@ -397,6 +398,10 @@ class _Request:
             payload["options"] = options
         if self.json_mode:
             payload["format"] = "json"
+        # No thinking out loud: qwen3 put its reasoning inside /api/generate's answer, and
+        # summaries, gists and self-observations stored it ("<think> Okay, the user wants",
+        # 2026-11-24). Models without thinking ignore it; ollama_extra can still turn it on.
+        payload["think"] = False
         payload.update(self.ollama_extra)
         return endpoint, payload
 
@@ -443,10 +448,19 @@ def _openai_to_response(completion, model_id: str) -> LLMResponse:
     )
 
 
+_THINK = re.compile(r"<think>.*?(</think>|$)", re.S)
+
+
+def strip_thinking(text: str) -> str:
+    """A model's reasoning, if it leaks into the answer, isn't the answer."""
+    return _THINK.sub("", text or "").strip() if "<think>" in (text or "") else (text or "")
+
+
 def _ollama_to_response(data: dict, model_id: str) -> LLMResponse:
     text = data.get("response")
     if text is None:
         text = (data.get("message") or {}).get("content", "")
+    text = strip_thinking(text)
     return LLMResponse(
         content=text or "", provider="ollama", model_id=model_id,
         input_tokens=data.get("prompt_eval_count", 0) or 0,
