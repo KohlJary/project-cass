@@ -501,3 +501,51 @@ class TestRefreshAndConsumeUsesFocus:
         assert result.success
         assert harness["pipeline_headlines"] == chosen
         assert result.data["headlines_available"] == 1
+
+
+class TestGateBeforeRead:
+    """Her relevance gate runs before an RSS article is fetched or read (2026-11-23)."""
+
+    def _run(self, monkeypatch, score):
+        import asyncio
+        import types
+        import rss
+        import world.article_consumer as ac
+        import world.content_analyzer as ca
+        from scheduler.actions import rss_handlers
+
+        item = types.SimpleNamespace(id="i1", feed_id=None, title="t", summary="s",
+                                     link="http://x", author=None, published_at=None)
+        marked = {}
+        calls = {"fetch": 0, "read": 0}
+        monkeypatch.setattr(rss, "list_unprocessed_items", lambda **k: [item])
+        monkeypatch.setattr(rss, "mark_item_processed", lambda i, skip_reason=None: marked.setdefault(i, skip_reason))
+
+        class Consumer:
+            def __init__(self, *a, **k): pass
+            def relevance(self, h): return score
+            def consume_headlines(self, *a, **k):
+                calls["fetch"] += 1
+                return []
+
+        class Analyzer:
+            def __init__(self, *a, **k): pass
+            def analyze(self, *a, **k):
+                calls["read"] += 1
+
+        monkeypatch.setattr(ac, "ArticleConsumer", Consumer)
+        monkeypatch.setattr(ca, "ContentAnalyzer", Analyzer)
+        r = asyncio.run(rss_handlers.process_items_action(
+            {"daemon_id": "cass", "use_triage": False, "limit": 5}))
+        return r, marked, calls
+
+    def test_irrelevant_item_is_never_fetched_or_read(self, monkeypatch):
+        r, marked, calls = self._run(monkeypatch, 0.0)
+        assert calls == {"fetch": 0, "read": 0}
+        assert marked["i1"].startswith("passed_by: relevance 0.00")
+        assert r.data["passed_by"] == 1
+
+    def test_relevant_item_still_goes_to_her(self, monkeypatch):
+        r, marked, calls = self._run(monkeypatch, 0.9)
+        assert calls["fetch"] == 1
+        assert r.data["passed_by"] == 0

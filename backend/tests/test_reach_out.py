@@ -545,7 +545,11 @@ class TestDreamShare:
 class TestNightlyHandler:
     def test_daily_journal_handler_runs_reach_out_after_dream(self, partner, daemon_id, levers, fake_llm, no_email, monkeypatch):
         from scheduler.handlers import daily_journal_handler
-        _say(PARTNER, NOW - timedelta(days=3))
+        # The handler runs on the real clock (no `now`), so the partner's last
+        # message is dated from it. Dated from NOW, the gap grew past the
+        # silence threshold as the calendar moved, and the silence note took
+        # the night instead of the share.
+        _say(PARTNER, datetime.now() - timedelta(days=3))
         dream_id = _store_dream(daemon_id)
 
         async def fake_dream(**kwargs):
@@ -553,6 +557,9 @@ class TestNightlyHandler:
 
         import identity_snippets
         monkeypatch.setattr(identity_snippets, "trigger_snippet_regeneration", _noop_async)
+        # Quiet hours read the wall clock; pin them off or this fails whenever CI
+        # runs inside them (it did, 2026-11-24 05:00 UTC).
+        monkeypatch.setattr("quiet_hours.is_quiet_hours", lambda user_id: False)
         fake_llm.queue_text("yes")
         fake_llm.queue_text("A dream I want to think about with you.")
         with levers(reach_out=True):
@@ -560,7 +567,7 @@ class TestNightlyHandler:
                 generate_nightly_dream_func=fake_dream, self_manager=SimpleNamespace(), data_dir="/tmp/x"))
         assert result.success
         assert result.data["dream_id"] == dream_id
-        assert result.data["reach_out"]["share"] == "sent"
+        assert result.data["reach_out"].get("share") == "sent", result.data["reach_out"]
 
     def test_daily_journal_handler_with_lever_off(self, partner, daemon_id, fake_llm, no_email, monkeypatch):
         from scheduler.handlers import daily_journal_handler
