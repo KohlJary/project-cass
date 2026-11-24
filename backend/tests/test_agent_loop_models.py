@@ -251,6 +251,7 @@ def test_ollama_client_runs_the_turn_with_num_ctx(fake):
     first, last = fake.calls[0].kwargs, fake.calls[-1].kwargs
     assert first["endpoint"] == "chat" and first["model"] == "qwen3:14b"
     assert first["options"]["num_ctx"] == 16384
+    assert first["think"] is False   # else qwen3 thinks away num_predict: empty replies
     assert first["tools"][0]["function"]["name"] == "recall_memories"
     tool_msg = next(m for m in last["messages"] if m["role"] == "tool")
     assert tool_msg["tool_name"] == "recall_memories" and "tide pools at dusk" in tool_msg["content"]

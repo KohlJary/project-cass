@@ -344,6 +344,10 @@ class OllamaModelClient:
     async def create(self, *, model, system, tools, messages, max_tokens) -> ModelReply:
         payload: Dict[str, Any] = {"model": model, "messages": ollama_messages(system, messages),
                                    "stream": False,
+                                   # Thinking models (qwen3) otherwise spend num_predict thinking
+                                   # and return empty content: the empty-reply bug (llm_caller has
+                                   # had this since #125; this client was missed).
+                                   "think": False,
                                    "options": {"num_ctx": self.num_ctx, "num_predict": max_tokens}}
         if tools:
             payload["tools"] = _function_tools(tools)
