@@ -98,3 +98,104 @@ async def broker_session(model: str, idle_min: float = 2.0, max_wait: float = 30
                     await c.post("/v1/sessions/end")
         if own:
             await c.aclose()
+
+
+# --- Her local model, behind the broker (2026-11-24) ------------------------------------------
+#
+# Ollama is the broker's resident: always up, stopped only while a ComfyUI or ACE-Step session
+# holds the card. Her Ollama calls used to go straight to :11434, so during her own image or song
+# work they failed (and her local-first jobs quietly fell back to Haiku), and a session starting
+# mid-call could kill one. Now every Ollama call holds a shared LLM lease: the first call opens a
+# broker session for LLM_KEY, calls running at the same time share it (nothing of hers queues
+# behind another of her calls), and it's released GRACE_S after the last one ends. Image and song
+# work waits for her calls; her calls wait (up to LLM_MAX_WAIT_S) for a running image or song job.
+# Lever off or no token: a no-op.
+
+LLM_KEY = os.environ.get("GPU_BROKER_LLM_KEY", "llama31")
+LLM_MAX_WAIT_S = float(os.environ.get("GPU_BROKER_LLM_MAX_WAIT", "240"))
+GRACE_S = float(os.environ.get("GPU_BROKER_LLM_GRACE", "10"))
+
+
+class _LLMLease:
+    def __init__(self, session=None):
+        self._session = session or broker_session
+        self._ctx = None
+        self._count = 0
+        self._lock: Optional[asyncio.Lock] = None
+        self._release: Optional[asyncio.Task] = None
+        self.opened = 0  # broker sessions opened (for tests and logs)
+
+    def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
+
+    @contextlib.asynccontextmanager
+    async def hold(self) -> AsyncIterator[None]:
+        if not enabled():
+            yield
+            return
+        async with self._get_lock():
+            if self._release is not None:
+                self._release.cancel()
+                self._release = None
+            if self._ctx is None:
+                ctx = self._session(LLM_KEY, idle_min=2.0, max_wait=LLM_MAX_WAIT_S)
+                await ctx.__aenter__()  # BrokerError if the card isn't ours in time
+                self._ctx = ctx
+                self.opened += 1
+            self._count += 1
+        try:
+            yield
+        finally:
+            async with self._get_lock():
+                self._count -= 1
+                if self._count == 0:
+                    self._release = asyncio.ensure_future(self._release_later())
+
+    async def _release_later(self) -> None:
+        try:
+            await asyncio.sleep(GRACE_S)
+        except asyncio.CancelledError:
+            return
+        async with self._get_lock():
+            if self._count == 0 and self._ctx is not None:
+                ctx, self._ctx = self._ctx, None
+                with contextlib.suppress(Exception):
+                    await ctx.__aexit__(None, None, None)
+
+
+_lease = _LLMLease()
+
+
+def llm_lease():
+    """`async with llm_lease():` around an Ollama call."""
+    return _lease.hold()
+
+
+NON_LLM_KINDS = ("comfyui", "acestep")
+
+
+def wait_for_llm_sync(max_wait: Optional[float] = None, sleep=time.sleep, get=None) -> None:
+    """For blocking callers (threads): wait while an image or song session holds the card.
+    Raises BrokerError if it's still held after max_wait. Lever off or no token: returns at once."""
+    if not enabled():
+        return
+    max_wait = LLM_MAX_WAIT_S if max_wait is None else max_wait
+    if get is None:
+        def get():
+            r = httpx.get(f"{_url()}/v1/status", headers=_headers(), timeout=REQUEST_TIMEOUT_S)
+            return r.json()
+    start = time.monotonic()
+    while True:
+        try:
+            st = get()
+        except Exception as e:  # the broker down shouldn't stop her thinking
+            logger.warning(f"[gpu_broker] status unreachable ({e}); calling Ollama anyway")
+            return
+        model = ((st.get("session") or {}).get("model") or "")
+        if model not in NON_LLM_KINDS:
+            return
+        if time.monotonic() - start > max_wait:
+            raise BrokerError(f"the card is still held by {model} after {max_wait:.0f}s")
+        sleep(POLL_S)

@@ -285,14 +285,20 @@ class ProviderHTTPError(RuntimeError):
 
 
 async def _ollama_request(base_url: str, endpoint: str, payload: dict, timeout: float) -> dict:
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(f"{base_url}/api/{endpoint}", json=payload)
+    # Behind the GPU broker: the card is hers for the call (gpu_broker_client.llm_lease).
+    from gpu_broker_client import llm_lease
+    async with llm_lease():
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(f"{base_url}/api/{endpoint}", json=payload)
     if response.status_code != 200:
         raise ProviderHTTPError(f"Ollama HTTP {response.status_code}: {response.text[:200]}")
     return response.json()
 
 
 def _ollama_request_sync(base_url: str, endpoint: str, payload: dict, timeout: float) -> dict:
+    # Blocking callers wait out an image or song session instead of failing mid-way.
+    from gpu_broker_client import wait_for_llm_sync
+    wait_for_llm_sync()
     with httpx.Client(timeout=timeout) as client:
         response = client.post(f"{base_url}/api/{endpoint}", json=payload)
     if response.status_code != 200:
