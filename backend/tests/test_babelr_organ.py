@@ -1086,3 +1086,19 @@ class TestAttend:
         babelr.say("general", KOHL, "crazy day")
         await organ.poll_once()
         assert len(organ.wakes) == 1 and organ.wakes[0][1]["offered"]
+
+
+class TestRestartContext:
+    async def test_after_a_restart_her_first_turn_has_the_room(self, make_organ, babelr):
+        organ = make_organ(reply="hi")
+        organ.start()
+        await organ.poll_once()
+        babelr.say("general", KOHL, "earlier thing")
+        await organ.poll_once()
+        reborn = make_organ(reply="hi")   # a restart: same state, empty buffers
+        reborn.start()
+        babelr.say("general", ROBOKOHL, "@cass you there?")
+        await reborn.poll_once()
+        events, context = reborn.wakes[-1]
+        assert "@kohl: earlier thing" in context["recent"]
+        assert [e.text for e in events] == ["@cass you there?"]

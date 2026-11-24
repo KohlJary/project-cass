@@ -490,6 +490,7 @@ class BabelrOrgan:
             if first_sight:
                 self.state.baseline(place)
             self._catch_up_attend(place, rows)
+            self._seed_buffer(place, f"#{name}", cid, rows)
             for row in rows:
                 msg, author = row["message"], row.get("author") or {}
                 if not self.state.is_new(place, msg["id"], msg["published"]):
@@ -861,6 +862,23 @@ class BabelrOrgan:
         self.state.data.setdefault("attend", {})[event.place] = m.group(1).lower() == "on"
         logger.info(f"[Babelr] {event.place_label}: attention {m.group(1).lower()}")
         return True
+
+    def _seed_buffer(self, place: str, label: str, cid: str, rows: List[Dict[str, Any]]) -> None:
+        """After a restart her "Earlier here" for a channel starts empty, so her
+        first turn there had almost nothing of the room (2026-11-24: she
+        answered a question from before her restart with no context around it).
+        The first read fills it from what's already been said, oldest first.
+        Context only: nothing here wakes her or is recorded again."""
+        if place in self._buffers:
+            return
+        buf = self._buffer(place)
+        for row in rows:
+            msg, author = row.get("message") or {}, row.get("author") or {}
+            if not self.state.is_new(place, msg.get("id", ""), msg.get("published", "")):
+                buf.append(BabelrEvent(
+                    kind="channel", place=place, place_label=label, message_id=msg.get("id", ""),
+                    author_id=author.get("id", ""), author_name=author.get("preferredUsername", "someone"),
+                    text=msg.get("content", ""), published=msg.get("published", ""), channel_id=cid))
 
     def _catch_up_attend(self, place: str, rows: List[Dict[str, Any]]) -> None:
         """A channel with no attention state yet (she just started, or attention
