@@ -16,6 +16,7 @@ from .budget import TaskCategory
 from .handlers import (
     github_metrics_handler,
     idle_summarization_handler,
+    place_days_handler,
     daily_journal_handler,
     autonomous_research_handler,
     goal_refinement_handler,
@@ -91,6 +92,18 @@ def register_system_tasks(
             estimated_cost_usd=0.05,
         ))
         logger.info("Registered: idle_summarization (every hour, idle-only)")
+
+    # House place day lines - every hour (place_days.py, her lately block)
+    if is_enabled("job_place_days") and not heartbeat_owns("place_days"):
+        scheduler.register_system_task(create_task(
+            name="place_days",
+            category=TaskCategory.SYSTEM,
+            priority=TaskPriority.LOW,
+            handler=place_days_handler,
+            interval_seconds=60 * 60,  # 1 hour
+            estimated_cost_usd=0.01,
+        ))
+        logger.info("Registered: place_days (every hour)")
 
     # Daily journal - 00:05 daily (5 minutes after midnight)
     if (managers.get("generate_missing_journals") and is_enabled("job_daily_journal")
@@ -171,6 +184,12 @@ def get_system_task_config() -> Dict[str, Dict[str, Any]]:
             "description": "Summarize idle conversations",
             "interval": "every hour (when idle)",
             "estimated_cost": "$0.01-0.10",
+            "category": "system",
+        },
+        "place_days": {
+            "description": "A line in her voice per house channel's day, for her lately block",
+            "interval": "every hour",
+            "estimated_cost": "$0.00-0.01",
             "category": "system",
         },
         "daily_journal": {

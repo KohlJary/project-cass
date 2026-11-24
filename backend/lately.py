@@ -49,7 +49,7 @@ BYPRODUCT_JOURNALS = ("spell",)
 # last few things she did, so the block never pretends she has no life.
 FALLBACK_LINES = 5
 
-KINDS = ("session", "reflection", "dream", "journal", "painting", "song", "bluesky")
+KINDS = ("session", "reflection", "dream", "journal", "painting", "song", "bluesky", "place")
 
 
 @dataclass
@@ -286,6 +286,15 @@ def _bluesky(since: Optional[datetime], n: int, data_dir: Optional[Path] = None)
     return out[:n]
 
 
+def _places(since: Optional[datetime], n: int, data_dir: Optional[Path] = None) -> List[Event]:
+    """The house places she was in, a line per place per day, in her words
+    (place_days.py; her yes and her shape, 2026-11-24: "the texture of what
+    mattered in that channel today, not a comprehensive record")."""
+    from place_days import lines_since
+    return [Event(f"place:{r['key']}", r["when"], f"in {r['label']}", r["line"])
+            for r in lines_since(since, data_dir)[:n]]
+
+
 def _safe(part: Callable[[], List[Event]], name: str) -> List[Event]:
     try:
         return part()
@@ -304,6 +313,7 @@ def events(daemon_id: str, since: Optional[datetime], n: int = MAX_LINES,
             found += _safe(lambda fn=fn: fn(conn, daemon_id, since, n), name)
     found += _safe(lambda: _songs(since, n, library), "songs")
     found += _safe(lambda: _bluesky(since, n, data_dir), "bluesky")
+    found += _safe(lambda: _places(since, n, data_dir), "places")
     found.sort(key=lambda e: e.when, reverse=True)
     return found[:n]
 
@@ -369,6 +379,18 @@ def lately_open(daemon_id: str, event_id: str, library=None, data_dir: Optional[
             return {"error": "I don't have that song any more."}
         return {"id": event_id, "kind": "song", "when": c.created_at, "title": c.title,
                 "what I asked for": c.prompt, "lyrics": c.lyrics, "why": c.purpose}
+    if kind == "place":
+        from place_days import day_messages, load
+        rec = load(data_dir).get(key)
+        if not rec:
+            return {"error": "I don't have that day on record."}
+        from datetime import date as _date
+        msgs = day_messages(rec["conversation_id"], _date.fromisoformat(rec["date"]))
+        return {"id": event_id, "kind": "place", "where": rec["label"], "date": rec["date"],
+                "my line": rec["line"],
+                "what was said (newest last)": [
+                    ("Me: " if m["role"] == "assistant" else "") + _short(m["content"], 300)
+                    for m in msgs[-40:]]}
     if kind == "bluesky":
         from social.limits import posted
         rec = next((r for r in posted("bluesky", data_dir) if r.get("at") == key

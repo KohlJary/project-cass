@@ -74,6 +74,8 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            BACKGROUND, INTEGRATION, where="scheduler/system_tasks.py"),
     _lever("job_idle_summarization", "Synkratos job: LLM-summarize idle conversations hourly",
            BACKGROUND, LLM, where="scheduler/system_tasks.py"),
+    _lever("job_place_days", "Synkratos job: hourly, a line in her voice per house channel's day (place_days.py)",
+           BACKGROUND, LLM, where="scheduler/system_tasks.py"),
     _lever("job_daily_journal", "Synkratos job: nightly journal + dream (00:05 local, for the day just ended)",
            BACKGROUND, LLM, where="scheduler/system_tasks.py"),
     _lever("job_goal_refinement", "Synkratos job: daily scan for under-specified goals (no LLM)",

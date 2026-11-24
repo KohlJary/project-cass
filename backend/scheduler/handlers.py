@@ -73,6 +73,18 @@ async def github_metrics_handler(github_metrics_manager) -> HandlerResult:
         )
 
 
+async def place_days_handler() -> HandlerResult:
+    """A line per house place per day for her lately block (place_days.py).
+    Cost: one summarizer call per house place with new messages since the last run."""
+    try:
+        from place_days import write_lines
+        written = await write_lines()
+        return HandlerResult(success=True, message=f"{len(written)} place day line(s) written",
+                             data={"written": written})
+    except Exception as e:
+        return HandlerResult(success=False, message=f"place days failed: {e}")
+
+
 async def idle_summarization_handler(
     conversation_manager,
     memory,

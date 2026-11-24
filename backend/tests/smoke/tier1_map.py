@@ -64,6 +64,11 @@ LEVER_COVERAGE = {
         "tests": [f"{CYCLES}::test_job_idle_summarization"],
         "note": "",
     },
+    "job_place_days": {
+        "depth": "runs",
+        "tests": ["tests/smoke/test_place_days_job.py::test_place_days_job_runs_one_cycle"],
+        "note": "one cycle: a house channel's day becomes her line, read by her lately block",
+    },
     "job_daily_journal": {
         "depth": "runs",
         "tests": [f"{CYCLES}::test_job_daily_journal_writes_dream",
