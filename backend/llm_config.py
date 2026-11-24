@@ -662,8 +662,13 @@ DEFAULT_LOCAL_SKIPS = (
 
 
 def local_skips() -> tuple:
-    raw = os.environ.get("LLM_LOCAL_SKIP")
-    return tuple(s.strip() for s in raw.split(",") if s.strip()) if raw is not None else DEFAULT_LOCAL_SKIPS
+    """Unset or blank: the defaults. "none": skip nothing. Else the listed sites."""
+    raw = (os.environ.get("LLM_LOCAL_SKIP") or "").strip()
+    if not raw:
+        return DEFAULT_LOCAL_SKIPS
+    if raw.lower() == "none":
+        return ()
+    return tuple(s.strip() for s in raw.split(",") if s.strip())
 
 
 def resolve_model(call_site: str, default: Optional[ModelAssignment] = None) -> Optional[ModelAssignment]:

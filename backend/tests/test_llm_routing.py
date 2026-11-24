@@ -945,8 +945,12 @@ def test_local_mode_skips_busywork_so_chat_isnt_starved(monkeypatch):
     mgr = L.LLMConfigManager()
     monkeypatch.setenv(L.LOCAL_MODEL_ENV, "qwen3:14b")
     assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")) is None
-    monkeypatch.setenv("LLM_LOCAL_SKIP", "")
+    monkeypatch.setenv("LLM_LOCAL_SKIP", "")  # blank (compose passes unset as blank): the defaults
+    assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")) is None
+    monkeypatch.setenv("LLM_LOCAL_SKIP", "none")
     assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")).model_id == "qwen3:14b"
+    monkeypatch.setenv("LLM_LOCAL_SKIP", "capability.summary")  # the trial: only the busywork
+    assert mgr.resolve("opinion_extraction", L.ModelAssignment("anthropic", "h")).model_id == "qwen3:14b"
     monkeypatch.delenv(L.LOCAL_MODEL_ENV)
     monkeypatch.delenv("LLM_LOCAL_SKIP")
     assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")).model_id == "llama3.1:8b"
