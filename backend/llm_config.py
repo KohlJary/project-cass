@@ -641,6 +641,15 @@ def local_model() -> Optional[str]:
     return (os.environ.get(LOCAL_MODEL_ENV) or "").strip() or None
 
 
+def cost_estimate(usd: float) -> float:
+    """What work estimated at `usd` (priced as hosted calls) costs here: nothing
+    in local mode, where every call runs on the local model and nothing falls
+    back to a hosted one (Kohl, 2026-11-24: "local doesn't spend budget, it
+    should reflect that"). The budget gate, her day menu and the planner's
+    budget filter all read estimates through this."""
+    return 0.0 if local_model() else (usd or 0.0)
+
+
 def ollama_num_ctx() -> int:
     """The one context size every Ollama call asks for, so they share a runner.
     A call without one got Ollama's 4096 default and lost the front of its prompt

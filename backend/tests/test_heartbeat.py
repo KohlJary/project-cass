@@ -504,3 +504,13 @@ class TestMigration:
         assert row["status"] == "ok", row["error"]
         assert row["trigger"] == "cron 0 9 * * *"
         assert row["budget_class"] == "system"
+
+
+def test_templates_cost_nothing_in_local_mode(monkeypatch):
+    from scheduling.templates import WorkUnitTemplate
+    t = WorkUnitTemplate(id="j", name="Journal", description="", estimated_cost_usd=0.20)
+    assert t.cost() == 0.20 and t.instantiate().estimated_cost_usd == 0.20
+    monkeypatch.setenv("LLM_LOCAL_MODEL", "qwen3:14b")
+    assert t.cost() == 0.0
+    assert t.instantiate().estimated_cost_usd == 0.0
+    assert t.to_dict()["estimated_cost_usd"] == 0.0

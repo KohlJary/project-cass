@@ -19,12 +19,11 @@ time, the ledger's clock, since 2026-11-17 (it was UTC). Rules:
   refused for budget (Kohl's rule), and chat spend is not charged to the
   autonomous budget (BudgetManager.sync_from_token_tracker leaves chat out).
 - Work with no budget class, or an estimate of 0, is admitted.
-- In local mode (llm_config.local_model(), LLM_LOCAL_MODEL set) work is
-  admitted without an estimate check: the estimates price hosted calls, and a
-  local call costs nothing. Measured spend is still charged row by row, so a
-  call that does reach a hosted model (a local skip) is still counted. Eris's
-  journal was refused on 2026-11-24 at 07:30, on qwen3, because her Haiku calls
-  before 03:06 had used the day's system share.
+- Estimates are read through llm_config.cost_estimate: in local mode
+  (LLM_LOCAL_MODEL set) every estimate is 0, since nothing reaches a hosted
+  model, so the work is free and admitted, and unmeasured mode charges
+  nothing for it. Eris's journal was refused on 2026-11-24 at 07:30, on qwen3,
+  because her Haiku calls before 03:06 had used the day's system share.
 - Everything else asks BudgetManager.can_spend(category, estimate).
 """
 from __future__ import annotations
@@ -44,12 +43,12 @@ class Decision:
     reason: str = ""
 
 
-def _local_mode() -> bool:
+def _estimate(work: Work) -> float:
     try:
-        from llm_config import local_model
-        return bool(local_model())
+        from llm_config import cost_estimate
+        return cost_estimate(work.estimated_cost_usd)
     except Exception:
-        return False
+        return work.estimated_cost_usd
 
 
 class BudgetGate:
@@ -59,17 +58,16 @@ class BudgetGate:
     def check(self, work: Work) -> Decision:
         if work.budget_class == CONVERSATION:
             return Decision(True, "conversation")
-        if work.budget_class is None or work.estimated_cost_usd <= 0:
+        estimate = _estimate(work)
+        if work.budget_class is None or estimate <= 0:
             return Decision(True, "free")
-        if _local_mode():
-            return Decision(True, "local model")
         if self.budget is None:
             # No ledger wired: refuse spend we can't count rather than run blind.
             return Decision(False, "no budget manager")
-        if self.budget.can_spend(work.budget_class, work.estimated_cost_usd):
+        if self.budget.can_spend(work.budget_class, estimate):
             return Decision(True, "within budget")
         return Decision(False, f"over budget for {work.budget_label} "
-                               f"(estimate ${work.estimated_cost_usd:.2f})")
+                               f"(estimate ${estimate:.2f})")
 
     def charge(self, work: Work, category, usd: float) -> float:
         """Charge one measured ledger row's counted spend, in the budget bucket
@@ -86,7 +84,7 @@ class BudgetGate:
         estimate (Synkratos's rule). Returns what was charged."""
         if work.budget_class in (None, CONVERSATION) or self.budget is None:
             return 0.0
-        charged = cost_usd if cost_usd is not None else work.estimated_cost_usd
+        charged = cost_usd if cost_usd is not None else _estimate(work)
         if charged > 0:
             self.budget.record_spend(work.budget_class, charged)
         return charged

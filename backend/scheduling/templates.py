@@ -34,6 +34,11 @@ class WorkUnitTemplate:
     # None: always. When it says no, the planner names it as unavailable.
     available: Optional[Callable[[], bool]] = None
 
+    def cost(self) -> float:
+        """The estimate as it stands here: 0 in local mode (llm_config.cost_estimate)."""
+        from llm_config import cost_estimate
+        return cost_estimate(self.estimated_cost_usd)
+
     def is_available(self) -> bool:
         return self.available is None or bool(self.available())
 
@@ -65,7 +70,7 @@ class WorkUnitTemplate:
             template_id=self.id,
             preferred_time_windows=list(self.preferred_time_windows),
             estimated_duration_minutes=duration_override or self.default_duration_minutes,
-            estimated_cost_usd=self.estimated_cost_usd,
+            estimated_cost_usd=self.cost(),
             priority=priority_override or self.priority,
             requires_idle=self.requires_idle,
             focus=focus,
@@ -81,7 +86,7 @@ class WorkUnitTemplate:
             "runner_key": self.runner_key,
             "action_sequence": self.action_sequence,
             "default_duration_minutes": self.default_duration_minutes,
-            "estimated_cost_usd": self.estimated_cost_usd,
+            "estimated_cost_usd": self.cost(),
             "preferred_time_windows": [w.to_dict() for w in self.preferred_time_windows],
             "priority": self.priority.value,
             "requires_idle": self.requires_idle,
