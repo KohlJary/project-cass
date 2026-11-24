@@ -67,6 +67,8 @@ def slugify(name: str) -> str:
 def _git(path: Path, *args: str, check: bool = True) -> str:
     env = {**os.environ, "GIT_AUTHOR_NAME": AUTHOR[0], "GIT_AUTHOR_EMAIL": AUTHOR[1],
            "GIT_COMMITTER_NAME": AUTHOR[0], "GIT_COMMITTER_EMAIL": AUTHOR[1]}
+    if os.environ.get(READS_ENV):  # lent repos belong to the host's user, not this one
+        env.update({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"})
     r = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, env=env, timeout=30)
     if check and r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).strip()[:400])
@@ -79,6 +81,12 @@ KOHL_PREFIX = "kohl-"
 KOHL_DIR = ".kohl"             # registry and what she's touched, beside the projects
 KOHL_EMAIL_ENV = "WORKSHOP_KOHL_EMAIL"
 RESCAN_HOURS = 24
+# Repos the house lends this daemon to read (Kohl, 2026-11-24: "Eris should probably
+# have access to cass-vessel, read at the very least"): clean clones the host keeps
+# under the member folder, mounted read-only. Each shows as kohl-<name>; reading
+# works, and anything that would change it is refused (the mount refuses it too).
+READS_ENV = "HOUSE_READS_DIR"
+CHANGING = ("write", "edit", "commit", "run", "publish", "share", "unshare", "sync")
 FILES_CAP = 3000
 
 
@@ -181,10 +189,52 @@ def _kohl_fresh(data_dir: Optional[Path]) -> None:
 
 
 def _kohls(p: Path, data_dir: Optional[Path]) -> Optional[Dict[str, str]]:
-    """Kohl's project at p (a link in her workshop), when that lever's on."""
-    if not p.is_symlink() or not _kohl_on():
+    """Kohl's project at p (a link in her workshop): linked when that lever's on, or lent to read."""
+    if not p.is_symlink():
+        return None
+    lent = _reads(data_dir).get(p.name)
+    if lent:
+        return lent
+    if not _kohl_on():
         return None
     return _registry(data_dir)["projects"].get(p.name)
+
+
+def _reads(data_dir: Optional[Path]) -> Dict[str, Dict[str, Any]]:
+    try:
+        return json.loads((_kohl_dir(data_dir) / "reads.json").read_text()).get("projects", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def link_reads(data_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Link each repo the house lent (HOUSE_READS_DIR) in as kohl-<name>, read-only."""
+    lent_dir = os.environ.get(READS_ENV)
+    base = root(data_dir)
+    found: Dict[str, Dict[str, Any]] = {}
+    if lent_dir and Path(lent_dir).is_dir():
+        for repo in sorted(Path(lent_dir).iterdir()):
+            if repo.is_dir() and (repo / ".git").exists():
+                found[slugify(KOHL_PREFIX + repo.name)] = {"path": str(repo.resolve()),
+                                                           "name": f"Kohl's {repo.name} (lent to read)",
+                                                           "read_only": True}
+    base.mkdir(parents=True, exist_ok=True)
+    for slug, rec in found.items():
+        link = base / slug
+        if link.is_symlink() and os.readlink(link) != rec["path"]:
+            link.unlink()
+        if not link.exists() and not link.is_symlink():
+            link.symlink_to(rec["path"], target_is_directory=True)
+    for old in _reads(data_dir):
+        if old not in found and (base / old).is_symlink():
+            (base / old).unlink()
+    _kohl_dir(data_dir).mkdir(parents=True, exist_ok=True)
+    (_kohl_dir(data_dir) / "reads.json").write_text(json.dumps({"projects": found}, indent=2))
+    return {"lent": sorted(found)}
+
+
+def read_only(slug: str, data_dir: Optional[Path] = None) -> bool:
+    return bool(_reads(data_dir).get(slugify(slug or ""), {}).get("read_only"))
 
 
 def _touched_path(p: Path, data_dir: Optional[Path]) -> Path:
@@ -280,6 +330,8 @@ def list_projects(data_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     base = root(data_dir)
     if base.exists():
         _kohl_fresh(data_dir)
+    if os.environ.get(READS_ENV):
+        link_reads(data_dir)
     for p in (sorted(base.iterdir()) if base.exists() else []):
         if p.name.startswith(".") or not ((p / META).is_file() or _kohls(p, data_dir)):
             continue
@@ -555,7 +607,8 @@ PROJECT_TOOL: Dict[str, Any] = {
                     "checkouts, readable and writable (commit takes only what I changed; no run or publish "
                     "there; secrets stay closed). Some of Kohl's are private and house-only (robokohl, kannon, "
                     "chapter-house, hearthweave-app, and any without a GitHub remote): nothing from those goes "
-                    "out in public. action: new (name, kind, vision), list, status "
+                    "out in public. Some of Kohl's are lent to me to read only (their names say so): read, "
+                    "files, status and log work there, changes don't. action: new (name, kind, vision), list, status "
                     "(project), files, read (path), write (path, content), edit (path, old, new), commit "
                     "(message), log, run (command; software projects, sandboxed, no network), publish "
                     "(to my GitHub, private unless I say public), profile (my GitHub name and bio, in my words), "
@@ -607,6 +660,8 @@ def handle(a: Dict[str, Any], data_dir: Optional[Path] = None) -> Dict[str, Any]
         if action == "profile":
             return set_profile(a.get("name"), a.get("bio"), data_dir)
         slug = a.get("project") or ""
+        if action in CHANGING and read_only(slug, data_dir):
+            return {"error": f"{slug} is lent to me to read; I can read it, its files and its log, not change it"}
         if action == "status":
             return status(slug, data_dir)
         if action == "files":

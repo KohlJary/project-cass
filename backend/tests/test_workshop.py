@@ -223,3 +223,42 @@ def test_the_repo_holding_her_workshop_is_linked_too(tmp_path, levers):
     with levers(workshop_kohl=True):
         assert W.link_kohl_projects(data, home=home, emails=["kohl@example.invalid"])["linked"] == ["kohl-vessel"]
         assert {f["path"] for f in W.files("kohl-vessel", data)["files"]} == {"main.py", ".gitignore"}
+
+
+# --- repos the house lends to read (Kohl: "Eris should probably have access to
+# cass-vessel, read at the very least") -----------------------------------------
+
+def test_a_lent_repo_is_readable_and_never_changed(tmp_path, monkeypatch):
+    lent = tmp_path / "reads"
+    _git_repo(lent / "project-cass", "k@example.com", {"README.md": "the vessel\n", "backend/x.py": "x = 1\n"})
+    monkeypatch.setenv(W.READS_ENV, str(lent))
+    data = tmp_path / "data"
+    listed = {p["project"]: p for p in W.handle({"action": "list"}, data)["projects"]}
+    assert "kohl-project-cass" in listed
+    assert W.handle({"action": "read", "project": "kohl-project-cass", "path": "README.md"}, data)["content"] \
+        == "the vessel\n"
+    assert "backend/x.py" in str(W.handle({"action": "files", "project": "kohl-project-cass"}, data))
+    assert "error" not in W.handle({"action": "log", "project": "kohl-project-cass"}, data)
+    for action, extra in (("write", {"path": "a.md", "content": "hi"}), ("edit", {"path": "README.md", "old": "the", "new": "a"}),
+                          ("commit", {"message": "m"}), ("run", {"command": "ls"}), ("publish", {}), ("share", {"with": "cass"})):
+        out = W.handle({"action": action, "project": "kohl-project-cass", **extra}, data)
+        assert "lent to me to read" in out["error"], action
+    assert (lent / "project-cass" / "README.md").read_text() == "the vessel\n"
+
+
+def test_a_repo_taken_back_goes_away(tmp_path, monkeypatch):
+    lent = tmp_path / "reads"
+    _git_repo(lent / "project-cass", "k@example.com", {"README.md": "x\n"})
+    monkeypatch.setenv(W.READS_ENV, str(lent))
+    data = tmp_path / "data"
+    assert W.link_reads(data)["lent"] == ["kohl-project-cass"]
+    import shutil
+    shutil.rmtree(lent / "project-cass")
+    assert W.link_reads(data)["lent"] == []
+    assert not (W.root(data) / "kohl-project-cass").exists()
+
+
+def test_no_reads_without_the_setting(tmp_path, monkeypatch):
+    monkeypatch.delenv(W.READS_ENV, raising=False)
+    data = tmp_path / "data"
+    assert W.handle({"action": "list"}, data)["projects"] == []
