@@ -2312,8 +2312,9 @@ class CassAgentClient:
         cache_creation_tokens = getattr(response.usage, 'cache_creation_input_tokens', 0) or 0
 
 
-        # Total input is: input_tokens + cache_read_tokens (cache_creation is already included in input_tokens)
-        total_input = input_tokens + cache_read_tokens
+        # Total input: the API's input_tokens is only the uncached part; cache reads and
+        # cache writes are counted separately, so all three make up what she sent.
+        total_input = input_tokens + cache_read_tokens + cache_creation_tokens
 
         return AgentResponse(
             text=clean_text,

@@ -25,7 +25,14 @@ COST_PER_1M_TOKENS = {
         "claude-opus-4-5-20251101": {"input": 15.0, "output": 75.0},
         "claude-sonnet-4-20250514": {"input": 3.0, "output": 15.0},
         "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
-        "claude-haiku-4-5-20251001": {"input": 0.80, "output": 4.0},
+        # Current prices (claude-api model table, 2026-11). Cache writes cost 1.25x input and
+        # reads 0.1x unless a model lists its own cache_read price.
+        "claude-haiku-4-5-20251001": {"input": 1.0, "output": 5.0},
+        "claude-haiku-4-5": {"input": 1.0, "output": 5.0},
+        "claude-haiku-5-5": {"input": 0.10, "output": 0.50},
+        "claude-sonnet-5-5": {"input": 2.0, "output": 10.0, "cache_read": 0.10},
+        "claude-sonnet-5": {"input": 2.0, "output": 10.0},
+        "claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_read": 0.20},
         "claude-3-5-haiku-latest": {"input": 0.80, "output": 4.0},
         # Legacy models
         "claude-3-5-sonnet-20241022": {"input": 3.0, "output": 15.0},
@@ -41,7 +48,44 @@ COST_PER_1M_TOKENS = {
 }
 
 
+
+
+def _price(provider: str, model: str) -> Optional[Dict[str, float]]:
+    costs = COST_PER_1M_TOKENS.get(provider, {})
+    if model in costs:
+        return costs[model]
+    # A dated or prefixed variant: the longest table key it contains, or that contains it.
+    matches = sorted((k for k in costs if k in model or model in k), key=len, reverse=True)
+    return costs[matches[0]] if matches else None
+
+
+def estimate_cost(provider: str, model: str, input_tokens: int, output_tokens: int,
+                  cache_read_tokens: int = 0, cache_write_tokens: int = 0,
+                  input_includes_cache_reads: bool = True) -> Optional[float]:
+    """USD for one call, as Anthropic bills it.
+
+    The ledger's input_tokens is everything read, cache reads included (that's
+    how llm_caller has written it since #64, and record_from_anthropic_response
+    now matches): pass input_includes_cache_reads=False for a raw API usage
+    object, whose input_tokens is only the uncached part. Cache writes are never
+    inside input_tokens. A write costs 1.25x the input price, a read 0.1x (or
+    the model's own cache_read price). Before 2026-11-24 writes weren't charged
+    and Haiku 4.5 was priced at $0.80/$4, not $1/$5 (RoboKohl found both).
+    """
+    p = _price(provider, model)
+    if not p:
+        return None
+    read_price = p.get("cache_read", p["input"] * 0.1)
+    write_price = p.get("cache_write", p["input"] * 1.25)
+    reads = cache_read_tokens or 0
+    uncached = max(0, (input_tokens or 0) - reads) if input_includes_cache_reads else (input_tokens or 0)
+    usd = (uncached * p["input"] + (cache_write_tokens or 0) * write_price
+           + reads * read_price + (output_tokens or 0) * p["output"]) / 1_000_000
+    return round(usd, 6)
+
+
 @dataclass
+
 class UsageRecord:
     """A single LLM usage record with full metadata."""
     id: str
@@ -131,36 +175,10 @@ class TokenUsageTracker:
             if row:
                 self._daemon_id = row[0]
 
-    def _estimate_cost(
-        self,
-        provider: str,
-        model: str,
-        input_tokens: int,
-        output_tokens: int,
-        cache_read_tokens: int = 0
-    ) -> Optional[float]:
-        """Estimate cost in USD based on token counts."""
-        provider_costs = COST_PER_1M_TOKENS.get(provider, {})
-        model_costs = provider_costs.get(model)
-
-        if not model_costs:
-            # Try partial match for model variants
-            for model_key, costs in provider_costs.items():
-                if model_key in model or model in model_key:
-                    model_costs = costs
-                    break
-
-        if not model_costs:
-            return None
-
-        # Cache reads are 90% cheaper for Anthropic
-        effective_input = input_tokens - cache_read_tokens
-        cache_cost = cache_read_tokens * 0.1  # 10% of normal cost
-
-        input_cost = (effective_input + cache_cost) / 1_000_000 * model_costs["input"]
-        output_cost = output_tokens / 1_000_000 * model_costs["output"]
-
-        return round(input_cost + output_cost, 6)
+    def _estimate_cost(self, provider: str, model: str, input_tokens: int, output_tokens: int,
+                       cache_read_tokens: int = 0, cache_write_tokens: int = 0) -> Optional[float]:
+        return estimate_cost(provider, model, input_tokens, output_tokens,
+                             cache_read_tokens, cache_write_tokens)
 
     def record(
         self,
@@ -203,7 +221,7 @@ class TokenUsageTracker:
             # A cost the caller already knows (Claude Code reports its own,
             # daedalus_bridge) wins over the per-token estimate.
             estimated_cost_usd=cost_usd if cost_usd is not None else self._estimate_cost(
-                provider, model, input_tokens, output_tokens, cache_read_tokens
+                provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
             )
         )
 
@@ -312,7 +330,8 @@ class TokenUsageTracker:
             operation=ctx.operation,
             provider=ctx.provider or "anthropic",
             model=ctx.model or getattr(response, 'model', 'unknown'),
-            input_tokens=getattr(usage, 'input_tokens', 0) or 0,
+            # The ledger's convention: input includes cache reads (as llm_caller writes it).
+            input_tokens=(getattr(usage, 'input_tokens', 0) or 0) + cache_read,
             output_tokens=getattr(usage, 'output_tokens', 0) or 0,
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
