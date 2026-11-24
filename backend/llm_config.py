@@ -641,6 +641,19 @@ def local_model() -> Optional[str]:
     return (os.environ.get(LOCAL_MODEL_ENV) or "").strip() or None
 
 
+def ollama_num_ctx() -> int:
+    """The one context size every Ollama call asks for, so they share a runner.
+    A call without one got Ollama's 4096 default and lost the front of its prompt
+    (her identity), and chat at 32k vs the rest at 4k rebuilt the runner on every
+    switch (RoboKohl, 2026-11-24: 8 reloads in 43 minutes). AGENT_LOOP_OLLAMA_NUM_CTX
+    sets it; otherwise 16384 in local mode (qwen3:14b + KV fits a 16 GB card with
+    room to spare) and 32768 otherwise."""
+    raw = (os.environ.get("AGENT_LOOP_OLLAMA_NUM_CTX") or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    return 16384 if local_model() else 32768
+
+
 # Busywork a single local GPU can't afford, skipped in local mode (each has a
 # no-model fallback). capability.summary re-summarizes every metric over and
 # over in short 4k-context calls, and that stream kept Ollama from ever

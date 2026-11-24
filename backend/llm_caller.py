@@ -394,8 +394,10 @@ class _Request:
             if self.system_prompt:
                 payload["system"] = _flatten(self.system_prompt)
             endpoint = "generate"
-        if options:
-            payload["options"] = options
+        if "num_ctx" not in options:  # one shared size; Ollama's default 4096 cut prompts short
+            from llm_config import ollama_num_ctx
+            options["num_ctx"] = ollama_num_ctx()
+        payload["options"] = options
         if self.json_mode:
             payload["format"] = "json"
         # No thinking out loud: qwen3 put its reasoning inside /api/generate's answer, and

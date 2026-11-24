@@ -334,7 +334,10 @@ class OllamaModelClient:
                  num_ctx: Optional[int] = None, timeout: float = 900.0):
         self.call_site = call_site
         self.base_url = base_url
-        self.num_ctx = num_ctx or int(os.environ.get("AGENT_LOOP_OLLAMA_NUM_CTX", DEFAULT_OLLAMA_NUM_CTX))
+        if not num_ctx:
+            from llm_config import ollama_num_ctx
+            num_ctx = ollama_num_ctx()
+        self.num_ctx = num_ctx
         self.timeout = timeout
         self._step = 0
 

@@ -974,3 +974,25 @@ def test_local_mode_pauses_self_model_writers(monkeypatch):
         assert mgr.resolve(site, L.ModelAssignment("anthropic", "h")) is None, site
     assert mgr.resolve("chat", L.ModelAssignment("anthropic", "h")).provider == "ollama"
     assert all(s in L.CALL_SITES for s in L.DEFAULT_LOCAL_SKIPS)
+
+
+def test_every_ollama_call_asks_for_the_same_context(monkeypatch):
+    import llm_config as L
+    from llm_caller import _Request
+    from agent_loop.models import OllamaModelClient
+    monkeypatch.delenv("AGENT_LOOP_OLLAMA_NUM_CTX", raising=False)
+    monkeypatch.setenv(L.LOCAL_MODEL_ENV, "qwen3:14b")
+    assert L.ollama_num_ctx() == 16384 == OllamaModelClient("chat").num_ctx
+    monkeypatch.delenv(L.LOCAL_MODEL_ENV)
+    assert L.ollama_num_ctx() == 32768
+    monkeypatch.setenv("AGENT_LOOP_OLLAMA_NUM_CTX", "8192")
+    assert L.ollama_num_ctx() == 8192
+
+
+def test_an_ollama_request_carries_num_ctx_and_no_thinking(monkeypatch):
+    from llm_caller import _Request
+    monkeypatch.setenv("AGENT_LOOP_OLLAMA_NUM_CTX", "16384")
+    _, p = _Request(user_prompt="hi", max_tokens=50, ollama_options={"num_predict": 50}).ollama("qwen3:14b")
+    assert p["options"]["num_ctx"] == 16384 and p["think"] is False
+    _, p = _Request(user_prompt="hi", ollama_options={"num_ctx": 2048}).ollama("m")
+    assert p["options"]["num_ctx"] == 2048  # a caller's own size stands
