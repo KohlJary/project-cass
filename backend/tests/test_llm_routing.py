@@ -982,7 +982,7 @@ def test_every_ollama_call_asks_for_the_same_context(monkeypatch):
     from agent_loop.models import OllamaModelClient
     monkeypatch.delenv("AGENT_LOOP_OLLAMA_NUM_CTX", raising=False)
     monkeypatch.setenv(L.LOCAL_MODEL_ENV, "qwen3:14b")
-    assert L.ollama_num_ctx() == 16384 == OllamaModelClient("chat").num_ctx
+    assert L.ollama_num_ctx() == 24576 == OllamaModelClient("chat").num_ctx
     monkeypatch.delenv(L.LOCAL_MODEL_ENV)
     assert L.ollama_num_ctx() == 32768
     monkeypatch.setenv("AGENT_LOOP_OLLAMA_NUM_CTX", "8192")
