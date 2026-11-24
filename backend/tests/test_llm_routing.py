@@ -938,3 +938,15 @@ def test_local_model_switch_routes_everything_to_one_ollama_model(monkeypatch):
             assert (got.provider, got.model_id, got.fallback_provider) == ("ollama", "qwen3:14b", None), site
     monkeypatch.setenv(L.LOCAL_MODEL_ENV, "")
     assert mgr.resolve("chat", L.ModelAssignment("anthropic", "x")).provider == "anthropic"
+
+
+def test_local_mode_skips_busywork_so_chat_isnt_starved(monkeypatch):
+    import llm_config as L
+    mgr = L.LLMConfigManager()
+    monkeypatch.setenv(L.LOCAL_MODEL_ENV, "qwen3:14b")
+    assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")) is None
+    monkeypatch.setenv("LLM_LOCAL_SKIP", "")
+    assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")).model_id == "qwen3:14b"
+    monkeypatch.delenv(L.LOCAL_MODEL_ENV)
+    monkeypatch.delenv("LLM_LOCAL_SKIP")
+    assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")).model_id == "llama3.1:8b"

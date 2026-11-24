@@ -551,6 +551,8 @@ class LLMConfigManager:
         """The model this call should use, with LOCAL_MODEL_ENV applied (see local_model)."""
         assignment = self._resolve(call_site, default)
         local = local_model()
+        if local and call_site in local_skips():
+            return None  # skipped: the caller's no-model fallback runs instead
         if local and assignment is not None:
             # One model for everything: a second resident model runs a 16 GB card out of memory.
             return ModelAssignment("ollama", local)
@@ -637,6 +639,19 @@ LOCAL_MODEL_ENV = "LLM_LOCAL_MODEL"
 
 def local_model() -> Optional[str]:
     return (os.environ.get(LOCAL_MODEL_ENV) or "").strip() or None
+
+
+# Busywork a single local GPU can't afford, skipped in local mode (each has a
+# no-model fallback). capability.summary re-summarizes every metric over and
+# over in short 4k-context calls, and that stream kept Ollama from ever
+# reloading at chat's 32k context: chat starved (2026-11-24). LLM_LOCAL_SKIP
+# (comma-separated call sites) replaces the list.
+DEFAULT_LOCAL_SKIPS = ("capability.summary",)
+
+
+def local_skips() -> tuple:
+    raw = os.environ.get("LLM_LOCAL_SKIP")
+    return tuple(s.strip() for s in raw.split(",") if s.strip()) if raw is not None else DEFAULT_LOCAL_SKIPS
 
 
 def resolve_model(call_site: str, default: Optional[ModelAssignment] = None) -> Optional[ModelAssignment]:
