@@ -8,9 +8,12 @@ def test_haiku_4_5_is_one_and_five_dollars():
 
 
 def test_cache_writes_are_charged_and_reads_counted_once():
-    # input_tokens excludes cache reads and writes: 100 uncached, 10k written, 50k read, 500 out.
-    got = estimate_cost("anthropic", "claude-haiku-4-5-20251001", 100, 500,
+    # Ledger convention: input includes reads. 100 uncached + 50k read, 10k written, 500 out.
+    got = estimate_cost("anthropic", "claude-haiku-4-5-20251001", 50_100, 500,
                         cache_read_tokens=50_000, cache_write_tokens=10_000)
+    raw = estimate_cost("anthropic", "claude-haiku-4-5-20251001", 100, 500, cache_read_tokens=50_000,
+                        cache_write_tokens=10_000, input_includes_cache_reads=False)
+    assert got == raw
     want = (100 * 1.0 + 10_000 * 1.25 + 50_000 * 0.1 + 500 * 5.0) / 1_000_000
     assert abs(got - want) < 1e-9
     assert got > 0  # never negative on a cache-heavy call

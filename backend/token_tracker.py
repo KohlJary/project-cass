@@ -60,22 +60,27 @@ def _price(provider: str, model: str) -> Optional[Dict[str, float]]:
 
 
 def estimate_cost(provider: str, model: str, input_tokens: int, output_tokens: int,
-                  cache_read_tokens: int = 0, cache_write_tokens: int = 0) -> Optional[float]:
+                  cache_read_tokens: int = 0, cache_write_tokens: int = 0,
+                  input_includes_cache_reads: bool = True) -> Optional[float]:
     """USD for one call, as Anthropic bills it.
 
-    usage.input_tokens is only the uncached input: cache reads and cache writes are
-    counted separately and are not part of it. A write costs 1.25x the input price,
-    a read 0.1x (or the model's own cache_read price). Before 2026-11-24 this
-    subtracted reads from input (counting them twice), never charged writes, and
-    priced Haiku 4.5 at $0.80/$4 instead of $1/$5 (RoboKohl found all three).
+    The ledger's input_tokens is everything read, cache reads included (that's
+    how llm_caller has written it since #64, and record_from_anthropic_response
+    now matches): pass input_includes_cache_reads=False for a raw API usage
+    object, whose input_tokens is only the uncached part. Cache writes are never
+    inside input_tokens. A write costs 1.25x the input price, a read 0.1x (or
+    the model's own cache_read price). Before 2026-11-24 writes weren't charged
+    and Haiku 4.5 was priced at $0.80/$4, not $1/$5 (RoboKohl found both).
     """
     p = _price(provider, model)
     if not p:
         return None
     read_price = p.get("cache_read", p["input"] * 0.1)
     write_price = p.get("cache_write", p["input"] * 1.25)
-    usd = ((input_tokens or 0) * p["input"] + (cache_write_tokens or 0) * write_price
-           + (cache_read_tokens or 0) * read_price + (output_tokens or 0) * p["output"]) / 1_000_000
+    reads = cache_read_tokens or 0
+    uncached = max(0, (input_tokens or 0) - reads) if input_includes_cache_reads else (input_tokens or 0)
+    usd = (uncached * p["input"] + (cache_write_tokens or 0) * write_price
+           + reads * read_price + (output_tokens or 0) * p["output"]) / 1_000_000
     return round(usd, 6)
 
 
@@ -325,7 +330,8 @@ class TokenUsageTracker:
             operation=ctx.operation,
             provider=ctx.provider or "anthropic",
             model=ctx.model or getattr(response, 'model', 'unknown'),
-            input_tokens=getattr(usage, 'input_tokens', 0) or 0,
+            # The ledger's convention: input includes cache reads (as llm_caller writes it).
+            input_tokens=(getattr(usage, 'input_tokens', 0) or 0) + cache_read,
             output_tokens=getattr(usage, 'output_tokens', 0) or 0,
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,

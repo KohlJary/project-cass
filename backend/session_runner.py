@@ -891,6 +891,7 @@ class BaseSessionRunner(ABC):
                     u.input_tokens, u.output_tokens,
                     getattr(u, "cache_read_input_tokens", 0) or 0,
                     getattr(u, "cache_creation_input_tokens", 0) or 0,
+                    input_includes_cache_reads=False,  # a raw usage object
                 )
                 self._session_cost_usd += cost or 0.0  # was Haiku 3's $0.25/$1.25
 
