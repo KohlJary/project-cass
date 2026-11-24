@@ -343,6 +343,16 @@ LEVER_COVERAGE = {
         "tests": [f"{AGENT_LOOP}::test_a_happening_wakes_her_into_a_respond_session"],
         "note": "One respond session through the registry with the fake LLM, its focus the happening. The 10-minute Heartbeat job and the real social inbox aren't run. Fast-suite: tests/test_happenings.py.",
     },
+    "world_events": {
+        "depth": "none",
+        "tests": [],
+        "note": "No smoke test yet. Fast-suite: tests/test_world_events.py (ledger, never-invented rule, noticing, clock, focus flag).",
+    },
+    "reactive_sessions": {
+        "depth": "none",
+        "tests": [],
+        "note": "No smoke test yet. Fast-suite: tests/test_world_events.py (every guard, the job submitting through the budget gate only, a session recording event:<source>:<id>).",
+    },
     "workshop": {
         "depth": "gate",
         "tests": [f"{AGENT_LOOP}::test_workshop_session_opens_her_project_and_commits"],
