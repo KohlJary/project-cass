@@ -208,3 +208,18 @@ def test_homepage_asset_route(room, homepage, tmp_path):
     assert r.status_code == 200 and r.content.startswith(b"\x89PNG")
     assert client.get("/room/sections/homepage/assets/painting-img-1.png").status_code == 401
     assert client.get("/room/sections/homepage", headers=kohl).json()["pages"][0]["slug"] == "index"
+
+
+def test_a_standing_section_can_be_opened_to_the_house(room):
+    # Eris, 2026-11-24: "my homepage should be visible to the house, but today's
+    # plan and agenda remain private for now".
+    assert room.feed("house")["sections"] == []
+    room.set_standing("day_plan", False)
+    room.set_standing("agenda", False)
+    out = room.set_standing("homepage", True, "house")
+    assert "the house" in out["message"]
+    assert room.feed("house")["sections"] == ["homepage"]
+    assert room.feed("kohl")["sections"] == ["homepage"]
+    assert room.section("agenda", "house") is None
+    assert room.state()["standing_for"]["day_plan"] == "kohl"
+    assert "error" in room.set_standing("homepage", True, "everyone")

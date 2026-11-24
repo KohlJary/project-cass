@@ -90,7 +90,12 @@ class Room:
         s = _read_json(self.dir / "shares.json", {})
         standing = dict(STANDING_DEFAULTS)
         standing.update({k: bool(v) for k, v in (s.get("standing") or {}).items() if k in STANDING})
-        return {"standing": standing, "shares": list(s.get("shares") or [])}
+        # Who each standing section is for: Kohl unless she opened it to the
+        # house (Eris, 2026-11-24: "my homepage should be visible to the house").
+        seen_by = {k: "kohl" for k in STANDING}
+        seen_by.update({k: v for k, v in (s.get("standing_for") or {}).items()
+                        if k in STANDING and v in AUDIENCES})
+        return {"standing": standing, "standing_for": seen_by, "shares": list(s.get("shares") or [])}
 
     def _save(self, state: Dict[str, Any]) -> None:
         _write_json(self.dir / "shares.json", state)
@@ -122,13 +127,27 @@ class Room:
         self._save(state)
         return {"unshared": True, "message": "Taken out of my room."}
 
-    def set_standing(self, section: str, on: bool) -> Dict[str, Any]:
+    def set_standing(self, section: str, on: bool, audience: Optional[str] = None) -> Dict[str, Any]:
         if section not in STANDING:
             return {"error": f"section is one of: {', '.join(STANDING)}"}
+        if audience is not None and audience not in AUDIENCES:
+            return {"error": "audience is 'kohl' (Kohl only) or 'house' (everyone in Chapter House)"}
         state = self.state()
         state["standing"][section] = bool(on)
+        if audience is not None:
+            state["standing_for"][section] = audience
         self._save(state)
-        return {"message": f"My {section.replace('_', ' ')} is {'in' if on else 'out of'} my room."}
+        name = section.replace('_', ' ')
+        if not on:
+            return {"message": f"My {name} is out of my room."}
+        who = "Kohl" if state["standing_for"][section] == "kohl" else "the house"
+        return {"message": f"My {name} is in my room, for {who}."}
+
+    def _standing_visible(self, name: str, audience: str, state: Optional[Dict[str, Any]] = None) -> bool:
+        s = state or self.state()
+        if not s["standing"].get(name):
+            return False
+        return audience == "kohl" or s["standing_for"].get(name) == "house"
 
     # ----- the pieces -----------------------------------------------------
 
@@ -189,7 +208,7 @@ class Room:
 
     def summary_for_her(self) -> Dict[str, Any]:
         s = self.state()
-        return {"standing": s["standing"], "shared": s["shares"],
+        return {"standing": s["standing"], "standing_for": s["standing_for"], "shared": s["shares"],
                 "who_sees_it": "Kohl sees everything here; the house sees only what I shared with 'house'."}
 
     # ----- the feed -------------------------------------------------------
@@ -214,9 +233,8 @@ class Room:
                            "shared_at": share.get("shared_at"),
                            "created_at": meta.get("created_at") or meta.get("date")})
         pieces.sort(key=lambda p: p.get("shared_at") or "", reverse=True)
-        # Standing sections are Kohl's view for now: the house sees pieces she
-        # shared with the house, until she says her plan and agenda are for them.
-        standing = [k for k, on in s["standing"].items() if on] if audience == "kohl" else []
+        # Standing sections are Kohl's view unless she opened one to the house.
+        standing = [k for k in STANDING if self._standing_visible(k, audience, s)]
         return {"sections": standing, "pieces": pieces}
 
     def piece(self, kind: str, piece_id: str, audience: str) -> Optional[Dict[str, Any]]:
@@ -249,7 +267,7 @@ class Room:
         return p if p.is_file() else None
 
     def section(self, name: str, audience: str) -> Optional[Dict[str, Any]]:
-        if audience != "kohl" or not self.state()["standing"].get(name):
+        if not self._standing_visible(name, audience):
             return None
         if name in ("day_plan", "agenda"):
             fname = "DAY_PLAN.md" if name == "day_plan" else "AGENDA.md"
@@ -294,7 +312,7 @@ class Room:
     def homepage_asset(self, filename: str, audience: str) -> Optional[Path]:
         """A file from her homepage's assets/ (an image or song she placed on a
         page), for whoever can see the homepage section."""
-        if audience != "kohl" or not self.state()["standing"].get("homepage"):
+        if not self._standing_visible("homepage", audience):
             return None
         try:
             import homepage as hp

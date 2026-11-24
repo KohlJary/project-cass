@@ -45,11 +45,12 @@ ROOM_TOOLS = [
     {
         "name": "set_room_section",
         "description": "Switch one of my room's standing sections on or off: day_plan, agenda, homepage. "
-                       "They show to Kohl only.",
+                       "Each shows to Kohl only unless I set audience to 'house' (everyone in Chapter House).",
         "input_schema": {
             "type": "object",
             "properties": {"section": {"type": "string", "enum": ["day_plan", "agenda", "homepage"]},
-                           "on": {"type": "boolean"}},
+                           "on": {"type": "boolean"},
+                           "audience": {"type": "string", "enum": ["kohl", "house"]}},
             "required": ["section", "on"],
         },
     },
@@ -68,7 +69,7 @@ async def execute_room_tool(tool_name: str, tool_input: Dict[str, Any], daemon_i
     elif tool_name == "view_my_room":
         out = room.summary_for_her()
     elif tool_name == "set_room_section":
-        out = room.set_standing(a.get("section", ""), bool(a.get("on")))
+        out = room.set_standing(a.get("section", ""), bool(a.get("on")), a.get("audience") or None)
     else:
         out = {"error": f"unknown room tool {tool_name}"}
     if "error" in out:
