@@ -48,6 +48,23 @@ except ImportError:  # optional dependency; see README.md
 logger = logging.getLogger("babelr_organ")
 
 BUFFER_PER_PLACE = 50
+REACTS_KEPT = 30  # reactions to her own messages kept per place
+
+
+def _reactions(msg: Dict[str, Any]) -> Dict[str, List[str]]:
+    """{emoji: [usernames]} from a message's reactions, however Babelr shaped them."""
+    raw = msg.get("reactions") or {}
+    out: Dict[str, List[str]] = {}
+    for emo, who in (raw.items() if isinstance(raw, dict) else []):
+        names = [w if isinstance(w, str) else (w or {}).get("preferredUsername", "someone") for w in (who or [])]
+        if names:
+            out[str(emo)] = names
+    return out
+
+
+def _clip(s: str, n: int) -> str:
+    s = " ".join((s or "").split())
+    return s if len(s) <= n else s[: n - 1] + "…"
 CHANNEL_FETCH_LIMIT = 50
 MAX_MESSAGE_CHARS = 4000
 # A reply longer than one message goes out in parts, at paragraph boundaries
@@ -200,6 +217,7 @@ class BabelrOrgan:
         self.disabled_reason: Optional[str] = "not started"
         self._wake_callback: Optional[WakeCallback] = None
         self._buffers: Dict[str, Deque[BabelrEvent]] = {}
+        self._reacts_to_me: Dict[str, Dict[str, Dict[str, Any]]] = {}
         # place -> (text, monotonic time, message id) of the last post there
         self._last_sent: Dict[str, tuple] = {}
         self._action_timestamps: Dict[str, List[float]] = {}
@@ -421,6 +439,8 @@ class BabelrOrgan:
             except Exception as e:
                 logger.warning(f"[Babelr] Couldn't read DM {dm['id']}: {e}")
                 continue
+            self._note_reactions(place, [(m, m.get("author") or {}) for m in messages],
+                                 lambda m: m.get("text") or "")
             # DMs are never baselined: nobody can encrypt to her before her
             # key is published, so everything here was sent to her organ.
             for m in sorted(messages, key=lambda m: m["published"]):
@@ -439,6 +459,7 @@ class BabelrOrgan:
                     text=m.get("text"), published=m["published"],
                     dm_id=dm["id"], partner_id=partner["id"], error=m.get("error"),
                     attachments=m.get("attachments") or [],
+                    reactions=self._named(_reactions(m)),
                 ))
         return out
 
@@ -491,6 +512,8 @@ class BabelrOrgan:
                 self.state.baseline(place)
             self._catch_up_attend(place, rows)
             self._seed_buffer(place, f"#{name}", cid, rows)
+            self._note_reactions(place, [(r.get("message") or {}, r.get("author") or {}) for r in rows],
+                                 lambda m: m.get("content") or "")
             for row in rows:
                 msg, author = row["message"], row.get("author") or {}
                 if not self.state.is_new(place, msg["id"], msg["published"]):
@@ -505,6 +528,7 @@ class BabelrOrgan:
                     author_name=author.get("preferredUsername", "someone"),
                     text=msg.get("content", ""), published=msg["published"], channel_id=cid,
                     attachments=(msg.get("properties") or {}).get("attachments") or [],
+                    reactions=self._named(_reactions(msg)),
                 ))
         return out
 
@@ -863,6 +887,66 @@ class BabelrOrgan:
         logger.info(f"[Babelr] {event.place_label}: attention {m.group(1).lower()}")
         return True
 
+    def _note_reactions(self, place: str, msgs: List[tuple], text_of) -> None:
+        """Reactions as of this look (Kohl, 2026-11-24: "maybe integrate message
+        reacts?"). Updates what she's perceived here, and keeps the reactions
+        others gave her own messages, which is how she sees what landed."""
+        current = {m.get("id"): self._named(_reactions(m)) for m, _ in msgs if m.get("id")}
+        for e in self._buffers.get(place, ()):
+            if e.message_id in current:
+                e.reactions = current[e.message_id]
+        mine = self._reacts_to_me.setdefault(place, {})
+        for m, author in msgs:
+            if author.get("id") != self.my_id or not m.get("id"):
+                continue
+            theirs = self._named({emo: [w for w in who if w != self.my_id]
+                                  for emo, who in _reactions(m).items()})
+            if theirs:
+                mine[m["id"]] = {"you_said": _clip(text_of(m), 120), "published": m.get("published", ""),
+                                 "reactions": theirs}
+            else:
+                mine.pop(m["id"], None)
+        if len(mine) > REACTS_KEPT:
+            for k in sorted(mine, key=lambda k: mine[k]["published"])[:-REACTS_KEPT]:
+                mine.pop(k)
+
+    def _named(self, reactions: Dict[str, List[str]]) -> Dict[str, List[str]]:
+        """Babelr gives reactors as account ids; she knows people by name."""
+        out = {}
+        for emo, who in reactions.items():
+            names = [self.state.username_for(w) or "someone" for w in who]
+            if names:
+                out[emo] = names
+        return out
+
+    def react(self, place: str, message_id: str, emoji: str, remove: bool = False) -> Dict[str, Any]:
+        """She reacts to a message (or takes her reaction back)."""
+        if not self.enabled:
+            return {"success": False, "error": f"Babelr organ not running ({self.disabled_reason})"}
+        target = self._place_target(place)
+        if not target:
+            return {"success": False, "error": f"I don't know '{place}' (a channel name, a username, or a place id)"}
+        try:
+            self.client._req("DELETE" if remove else "POST",
+                             f"/channels/{target}/messages/{message_id}/reactions", {"emoji": emoji})
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        return {"success": True, "reacted": emoji, "removed": remove, "message_id": message_id}
+
+    def _place_target(self, place: str) -> Optional[str]:
+        """A channel or DM id from what she called the place."""
+        if place.startswith(("dm:", "channel:")):
+            return place.split(":", 1)[1]
+        cid = self._channel_id(place)
+        if cid:
+            return cid
+        pid = self.state.person_id(place)
+        if pid:
+            for key, buf in self._buffers.items():
+                if key.startswith("dm:") and any(e.partner_id == pid for e in buf):
+                    return key.split(":", 1)[1]
+        return None
+
     def _seed_buffer(self, place: str, label: str, cid: str, rows: List[Dict[str, Any]]) -> None:
         """After a restart her "Earlier here" for a channel starts empty, so her
         first turn there had almost nothing of the room (2026-11-24: she
@@ -878,7 +962,8 @@ class BabelrOrgan:
                 buf.append(BabelrEvent(
                     kind="channel", place=place, place_label=label, message_id=msg.get("id", ""),
                     author_id=author.get("id", ""), author_name=author.get("preferredUsername", "someone"),
-                    text=msg.get("content", ""), published=msg.get("published", ""), channel_id=cid))
+                    text=msg.get("content", ""), published=msg.get("published", ""), channel_id=cid,
+                    reactions=self._named(_reactions(msg))))
 
     def _catch_up_attend(self, place: str, rows: List[Dict[str, Any]]) -> None:
         """A channel with no attention state yet (she just started, or attention
@@ -1113,8 +1198,13 @@ class BabelrOrgan:
                 key = next((p for p, buf in self._buffers.items()
                             if any(e.partner_id == pid for e in buf)), place) if pid else place
         events = list(self._buffer(key))[-max(1, min(limit, BUFFER_PER_PLACE)):]
-        return {"success": True, "place": key,
-                "messages": [{"from": e.author_name, "text": e.text, "published": e.published} for e in events]}
+        out: Dict[str, Any] = {"success": True, "place": key, "messages": [
+            {"id": e.message_id, "from": e.author_name, "text": e.text, "published": e.published,
+             **({"reactions": e.reactions} if e.reactions else {})} for e in events]}
+        mine = self._reacts_to_me.get(key) or {}
+        if mine:
+            out["reactions_to_you"] = sorted(mine.values(), key=lambda r: r["published"])[-10:]
+        return out
 
     def boundaries(self, action: str, person: Optional[str] = None, policy: Optional[str] = None,
                    dm_id: Optional[str] = None) -> Dict[str, Any]:

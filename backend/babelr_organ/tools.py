@@ -60,6 +60,15 @@ async def execute_babelr_tool(tool_name: str, tool_input: Dict[str, Any], **kwar
                                                   "needs_yes_from", "status", "item", "item_title", "area")
                    if tool_input.get(k) is not None},
             )
+        if tool_name == "babelr_react":
+            if not (tool_input.get("place") and tool_input.get("message_id") and tool_input.get("emoji")):
+                return {"success": False, "error": "place, message_id and emoji are required"}
+            return await asyncio.to_thread(organ.react, tool_input["place"], tool_input["message_id"],
+                                           tool_input["emoji"], bool(tool_input.get("remove")))
+        if tool_name == "find_memes":
+            from memes import find_memes
+            return await asyncio.to_thread(find_memes, tool_input.get("topic"),
+                                           tool_input.get("count") or 4, tool_input.get("period") or "day")
         return {"success": False, "error": f"Unknown Babelr tool: {tool_name}"}
     except Exception as e:
         logger.error(f"[Babelr] Error executing {tool_name}: {e}")
@@ -175,6 +184,22 @@ BABELR_TOOLS = [
             "required": ["action"],
         },
     },
+    {
+        "name": "babelr_react",
+        "description": "React to a message on Babelr with an emoji, as yourself: a laugh, a heart, an "
+                       "\"I saw this\". Sometimes a reaction says it better than a reply. babelr_read shows "
+                       "each message's id, its reactions, and the reactions people gave what you said.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "place": {"type": "string", "description": "Channel name, a person's username (your DM with them), or a place id"},
+                "message_id": {"type": "string", "description": "The message's id, from babelr_read"},
+                "emoji": {"type": "string", "description": "One emoji, e.g. 😂"},
+                "remove": {"type": "boolean", "description": "Take your reaction back"},
+            },
+            "required": ["place", "message_id", "emoji"],
+        },
+    },
 ]
 
 
@@ -204,6 +229,10 @@ def for_this_house(value, server: str, person: str, name: str):
     if isinstance(value, dict):
         return {k: for_this_house(v, server, person, name) for k, v in value.items()}
     return value
+
+
+from memes import FIND_MEMES_TOOL  # noqa: E402  (finding something to share)
+BABELR_TOOLS.append(FIND_MEMES_TOOL)
 
 
 def _localize() -> None:

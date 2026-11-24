@@ -1102,3 +1102,61 @@ class TestRestartContext:
         events, context = reborn.wakes[-1]
         assert "@kohl: earlier thing" in context["recent"]
         assert [e.text for e in events] == ["@cass you there?"]
+
+
+class TestReactions:
+    """Kohl, 2026-11-24: "maybe integrate message reacts?" She sees reactions,
+    sees which of hers landed, and can react herself."""
+
+    async def test_read_shows_ids_and_reactions_by_name(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        await organ.poll_once()
+        msg = babelr.say("general", KOHL, "look at this bagel")
+        await organ.poll_once()
+        babelr.react(msg["id"], KOHL, "🥯")
+        await organ.poll_once()  # a reaction on something already seen updates it
+        got = organ.read("general")["messages"][-1]
+        assert got["id"] == msg["id"] and got["reactions"] == {"🥯": ["kohl"]}
+
+    async def test_reactions_to_what_she_said(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        await organ.poll_once()
+        babelr.say("general", KOHL, "tell me a joke")  # she knows Kohl by name from here
+        await organ.poll_once()
+        sent = organ.post("general", "a pun about tides")
+        babelr.react(sent["message_id"], KOHL, "😂")
+        await organ.poll_once()
+        mine = organ.read("general")["reactions_to_you"]
+        assert mine == [{"you_said": "a pun about tides", "published": mine[0]["published"],
+                         "reactions": {"😂": ["kohl"]}}]
+
+    async def test_her_own_reaction_is_not_feedback(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        await organ.poll_once()
+        sent = organ.post("general", "hello")
+        assert organ.react("general", sent["message_id"], "👋")["success"]
+        await organ.poll_once()
+        assert "reactions_to_you" not in organ.read("general")
+
+    async def test_react_and_take_it_back(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        await organ.poll_once()
+        msg = babelr.say("general", KOHL, "good morning")
+        await organ.poll_once()
+        assert organ.react("general", msg["id"], "☀️")["success"]
+        assert babelr.reactions[msg["id"]] == {"☀️": [CASS["id"]]}
+        assert organ.react("general", msg["id"], "☀️", remove=True)["success"]
+        assert babelr.reactions[msg["id"]] == {"☀️": []}
+        assert not organ.react("nowhere", msg["id"], "☀️")["success"]
+
+    async def test_dm_reactions(self, make_organ, babelr):
+        organ = make_organ()
+        organ.start()
+        await organ.poll_once()
+        babelr.dm_from(KOHL, "here's a meme")
+        await organ.poll_once()
+        assert organ.react("kohl", organ.read("kohl")["messages"][-1]["id"], "😂")["success"]

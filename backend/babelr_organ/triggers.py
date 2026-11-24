@@ -54,6 +54,7 @@ class BabelrEvent:
     partner_id: Optional[str] = None
     error: Optional[str] = None    # set when a DM couldn't be decrypted
     attachments: List[Dict[str, Any]] = field(default_factory=list)  # [{url, filename, contentType}]
+    reactions: Dict[str, List[str]] = field(default_factory=dict)    # {emoji: [who]}, as of the last look
 
     def to_dict(self) -> Dict[str, Any]:
         return dict(self.__dict__)
