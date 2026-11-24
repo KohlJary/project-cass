@@ -200,6 +200,18 @@ class TestBudgetGate:
         # Refused work waits for its next occurrence instead of retrying every tick.
         assert await hb.tick() == [] and len(runs("research")) == 1
 
+    async def test_local_mode_admits_over_budget_work(self, monkeypatch):
+        # Estimates price hosted calls; a local model costs nothing (Eris's
+        # journal, refused on qwen3, 2026-11-24).
+        monkeypatch.setenv("LLM_LOCAL_MODEL", "qwen3:14b")
+        hb = make_hb(budget=exhausted_budget())
+        job = Counter()
+        hb.register(Work("daily_journal", job, Every(300, first_after=0),
+                         budget_class=TaskCategory.RESEARCH, estimated_cost_usd=0.20))
+        await hb.tick()
+        await hb.drain()
+        assert job.calls == 1
+
     async def test_never_refuses_a_conversation(self):
         hb = make_hb(budget=exhausted_budget())
         turn = Counter()

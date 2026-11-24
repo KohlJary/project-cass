@@ -19,6 +19,12 @@ time, the ledger's clock, since 2026-11-17 (it was UTC). Rules:
   refused for budget (Kohl's rule), and chat spend is not charged to the
   autonomous budget (BudgetManager.sync_from_token_tracker leaves chat out).
 - Work with no budget class, or an estimate of 0, is admitted.
+- In local mode (llm_config.local_model(), LLM_LOCAL_MODEL set) work is
+  admitted without an estimate check: the estimates price hosted calls, and a
+  local call costs nothing. Measured spend is still charged row by row, so a
+  call that does reach a hosted model (a local skip) is still counted. Eris's
+  journal was refused on 2026-11-24 at 07:30, on qwen3, because her Haiku calls
+  before 03:06 had used the day's system share.
 - Everything else asks BudgetManager.can_spend(category, estimate).
 """
 from __future__ import annotations
@@ -38,6 +44,14 @@ class Decision:
     reason: str = ""
 
 
+def _local_mode() -> bool:
+    try:
+        from llm_config import local_model
+        return bool(local_model())
+    except Exception:
+        return False
+
+
 class BudgetGate:
     def __init__(self, budget_manager=None):
         self.budget = budget_manager
@@ -47,6 +61,8 @@ class BudgetGate:
             return Decision(True, "conversation")
         if work.budget_class is None or work.estimated_cost_usd <= 0:
             return Decision(True, "free")
+        if _local_mode():
+            return Decision(True, "local model")
         if self.budget is None:
             # No ledger wired: refuse spend we can't count rather than run blind.
             return Decision(False, "no budget manager")
