@@ -42,11 +42,13 @@ class MemoryCore:
         self.embedding_fn = embedding_functions.DefaultEmbeddingFunction()
 
         # Get or create collection
-        self.collection = self.client.get_or_create_collection(
+        # Every write is labelled with the model that wrote it (memory/provenance.py).
+        from memory.provenance import LabelledCollection
+        self.collection = LabelledCollection(self.client.get_or_create_collection(
             name=COLLECTION_NAME,
             embedding_function=self.embedding_fn,
             metadata={"description": "Cass consciousness memory store"}
-        )
+        ))
 
     def _generate_id(self, content: str, timestamp: str) -> str:
         """Generate unique ID for memory entry"""
@@ -375,11 +377,13 @@ Write ONLY the summary, no quotes or labels:"""
         """Clear all memories (use with caution!)"""
         # Delete and recreate collection
         self.client.delete_collection(COLLECTION_NAME)
-        self.collection = self.client.get_or_create_collection(
+        # Every write is labelled with the model that wrote it (memory/provenance.py).
+        from memory.provenance import LabelledCollection
+        self.collection = LabelledCollection(self.client.get_or_create_collection(
             name=COLLECTION_NAME,
             embedding_function=self.embedding_fn,
             metadata={"description": "Cass consciousness memory store"}
-        )
+        ))
 
     def export_memories(self) -> Dict:
         """Export all memories to JSON-serializable format"""

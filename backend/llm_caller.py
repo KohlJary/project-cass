@@ -153,6 +153,11 @@ def record_usage(
 def _record_response(call_site: str, resp: "LLMResponse", started: float, ledger: dict):
     if resp.error is not None:
         return
+    try:  # who wrote what goes into her memory next (memory/provenance.py)
+        from memory.provenance import noted
+        noted(resp.provider, resp.model_id, call_site)
+    except Exception:
+        pass
     record_usage(
         call_site, resp.provider, resp.model_id,
         input_tokens=resp.input_tokens + resp.cache_read_tokens,

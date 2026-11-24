@@ -135,7 +135,9 @@ async def write_lines(now: Optional[datetime] = None, data_dir: Optional[Path] =
                 continue
             store[key] = {"platform": place["platform"], "place_key": place["place_key"], "label": label,
                           "conversation_id": conv, "date": day.isoformat(), "line": line, "upto": upto,
-                          "written_at": now.isoformat()}
+                          "written_at": now.isoformat(),
+                          # which model wrote her line (memory/provenance.py)
+                          "written_by": f"{getattr(resp, 'provider', '')}:{getattr(resp, 'model_id', '')}"}
             written.append(key)
     if written:
         _save(store, data_dir)
