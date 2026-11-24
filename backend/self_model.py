@@ -1209,12 +1209,21 @@ class SelfManager:
         if existing:
             idx, old_op = existing
             # Track evolution
-            old_op.evolution.append({
+            # What she said when she revised it, not a placeholder: the record
+            # her Daybook shows ("Monday she held X, Thursday she holds Y")
+            # can only be as true as this (2026-11-24; the reason used to be
+            # the fixed string "Updated opinion" on every revision).
+            change = {
                 "date": now,
                 "old_position": old_op.position,
                 "new_position": position,
-                "reason": "Updated opinion"
-            })
+                "old_confidence": old_op.confidence,
+                "new_confidence": confidence,
+                "formed_from": formed_from,
+            }
+            if rationale:
+                change["rationale"] = rationale
+            old_op.evolution.append(change)
             old_op.position = position
             old_op.confidence = confidence
             old_op.rationale = rationale
