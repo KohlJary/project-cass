@@ -18,6 +18,7 @@ What's different from the legacy runner.run_session:
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -130,7 +131,13 @@ def _since_last(runner) -> Optional[str]:
 
 # Session types with their own model assignment (llm_config). Kohl, 2026-11-18:
 # try social sessions on Sonnet without moving every session.
-SESSION_SITES = {"social": "session.social"}
+SESSION_SITES = {"social": "session.social", "reactive": "session.reactive"}
+
+# What started a session (a-life-not-a-menu.md, "Event-driven sessions"): "schedule",
+# "goal:<plan>", or "event:<source>:<id>". The phase queue sets it around a unit it
+# runs (WorkUnit.trigger); a caller can also pass session_trigger directly. Without
+# either, the session's trigger_source ("schedule", "wake", "conversation", ...).
+SESSION_TRIGGER: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar("session_trigger", default=None)
 
 
 def session_call_site(session_type: str) -> str:
@@ -182,11 +189,13 @@ def _session_result_cls():
         tools_used_via_find: List[str] = field(default_factory=list)
         workspace_changed: List[str] = field(default_factory=list)
         folded: List[Dict[str, Any]] = field(default_factory=list)
+        trigger: Optional[str] = None
 
         def to_dict(self) -> Dict[str, Any]:
             data = super().to_dict()
             data.update({
                 "kind": self.kind,
+                "trigger": self.trigger,
                 "agent_loop": True,
                 "end_reason": self.end_reason,
                 "model": self.model,
@@ -272,6 +281,7 @@ async def run_session_turn(
     initial_message: Optional[str] = None,
     reply_to: Optional[Dict[str, Any]] = None,
     done_when: Optional[str] = None,
+    session_trigger: Optional[str] = None,
 ):
     """Run one autonomous session through the Turn. Returns a SessionResult
     (subclass) so the action handler reports it the same way as before.
@@ -329,6 +339,8 @@ async def run_session_turn(
         local_tools = {**(local_tools or {}), **workshop_tools({"scope": "private"})}
     from house_wiki import wiki_tools   # what we're building, in every session (plan the-house-wiki)
     local_tools = {**wiki_tools(), **(local_tools or {})}
+    from world_events import focus_tools   # her do-not-disturb, in every session (lever world_events)
+    local_tools = {**focus_tools(), **local_tools}
     from .spec import LOOP_MIN_STEPS, MAKING_SESSIONS
     steps = max(max_turns, LOOP_MIN_STEPS)
     if session_type in MAKING_SESSIONS:
@@ -354,7 +366,7 @@ async def run_session_turn(
                   or n in (local_tools or {})]
     if folding:
         tool_names.append("answer_them")
-    for every in ("project", "house_wiki"):   # every session (above), not only one pack
+    for every in ("project", "house_wiki", "focus"):   # every session (above), not only one pack
         if every in (local_tools or {}) and every not in tool_names:
             tool_names.append(every)
     if origin and RB.TOOL in (local_tools or {}):
@@ -511,6 +523,7 @@ async def run_session_turn(
         workspace_changed=sorted({c["path"] for c in workspace.changes(limit=10_000)
                                   if c.get("session") == session_id}),
     )
+    result.trigger = session_trigger or SESSION_TRIGGER.get() or trigger_source
     result.summary = keep_narrative(outcome, runner)
     result.insights = _insights(outcome)
     result.withheld = outcome.withheld

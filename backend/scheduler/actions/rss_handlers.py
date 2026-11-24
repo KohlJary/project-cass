@@ -552,6 +552,9 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
                 mark_item_processed(item.id, skip_reason=f"passed_by: relevance {score:.2f} < {min_rel:.2f}")
                 passed_by += 1
                 continue
+            # It passed her gate: an event in her world (world_events.py; lever world_events)
+            from world_events import note_news
+            await asyncio.to_thread(note_news, item, score)   # noticing reads her plans: off the loop
 
         # Get feed info for context
         feed = get_feed(item.feed_id) if item.feed_id else None

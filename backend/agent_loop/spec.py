@@ -209,6 +209,7 @@ ACTIVITY_PACKS: Dict[str, Tuple[str, ...]] = {
     "new_capabilities": ("self", "plans", "daedalus"),
     "workshop": ("workshop", "listening", "plans"),   # her ears while she composes (Kohl, 2026-11-18: a song from an album)
     "respond": ("social", "plans", "happenings", "listening"),   # a record she asked for wakes her here
+    "reactive": ("plans",),   # something she noticed (world_events.py); plans to queue an item
 }
 
 # Plain words for each activity, used in "I'm in: ...".
@@ -236,6 +237,7 @@ ACTIVITY_WORDS: Dict[str, str] = {
     "new_capabilities": "a session about capabilities I don't have yet and want",
     "workshop": "a session in my workshop, on one of my projects",
     "respond": "a short session answering something that happened",
+    "reactive": "a few minutes on something I noticed",
 }
 
 

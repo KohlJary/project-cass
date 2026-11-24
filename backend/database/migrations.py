@@ -715,6 +715,37 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 69:
         ensure_places_table(conn)
 
+    # v69 -> v70: work_summaries in the schema, with what started each session
+    # (trigger: schedule, goal:<plan>, event:<source>:<id>; world_events.py).
+    if from_version < 70:
+        ensure_work_summaries_table(conn)
+
+
+def ensure_work_summaries_table(conn):
+    """Idempotently create work_summaries, and add its trigger column (v70). The
+    table used to be created only by WorkSummaryStore; it calls this now too."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS work_summaries (
+        slug TEXT PRIMARY KEY,
+        daemon_id TEXT NOT NULL,
+        work_unit_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        template_id TEXT,
+        phase TEXT NOT NULL,
+        category TEXT NOT NULL,
+        date TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        duration_minutes INTEGER DEFAULT 0,
+        summary TEXT,
+        data_json TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        trigger TEXT DEFAULT 'schedule')""")
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(work_summaries)").fetchall()}
+    if "trigger" not in columns:
+        conn.execute("ALTER TABLE work_summaries ADD COLUMN trigger TEXT DEFAULT 'schedule'")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_work_summaries_date ON work_summaries(daemon_id, date)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_work_summaries_phase ON work_summaries(daemon_id, date, phase)")
+
 
 def ensure_places_table(conn):
     """Idempotently create the places table (v69)."""

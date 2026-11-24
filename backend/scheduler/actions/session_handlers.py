@@ -477,7 +477,38 @@ async def respond_action(context: Dict[str, Any]) -> ActionResult:
                               "summary": result.summary})
 
 
-REFLECTION_FOCUS = "to sit somewhere contemplative in Wonderland and let the place shape my thinking"
+async def reactive_action(context: Dict[str, Any]) -> ActionResult:
+    """A reactive session: something she noticed (reactive_turn.py, world_events.py).
+    On the agent loop only, with the reactive_sessions lever on."""
+    if not is_enabled("agent_loop"):
+        return ActionResult(success=False, message="Reactive sessions run on the agent loop, which is off")
+    if not is_enabled("reactive_sessions"):
+        return ActionResult(success=False, message="Reactive sessions (lever reactive_sessions) are off")
+    managers = context.get("managers", {})
+    runner = managers.get("session_runner")
+    if not runner:
+        return ActionResult(success=False, message="GenericSessionRunner not available in managers")
+    runner.set_managers(managers)
+    runner.register_tool_handlers(get_default_handlers())
+    try:
+        from reactive_turn import run_reactive_turn
+        result = await run_reactive_turn(
+            runner, duration_minutes=context.get("duration_minutes", 10),
+            max_turns=context.get("max_turns", 6), focus=context.get("focus"),
+            why=context.get("why"), trigger_source=context.get("trigger_source") or "event",
+            session_trigger=context.get("session_trigger"))
+    except Exception as e:
+        logger.error(f"Reactive session error: {e}", exc_info=True)
+        return ActionResult(success=False, message=f"Session error: {e}")
+    if result.status == "error":
+        return ActionResult(success=False, message=f"Reactive session failed: {result.error}",
+                            data={"status": result.status, "error": result.error})
+    return ActionResult(success=True, message="Reactive session complete", cost_usd=result.estimated_cost_usd,
+                        data={"session_id": result.session_id, "status": result.status,
+                              "summary": result.summary, "trigger": getattr(result, "trigger", None)})
+
+
+REFLECTION_FOCUS ="to sit somewhere contemplative in Wonderland and let the place shape my thinking"
 
 
 async def _wonderland(context: Dict[str, Any], default_focus: Optional[str]) -> ActionResult:

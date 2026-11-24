@@ -680,6 +680,10 @@ class PhaseQueueManager:
                 error_msg = None
                 total_cost = 0.0
 
+                # The session it runs records what started it (agent_loop.session.SESSION_TRIGGER).
+                from agent_loop.session import SESSION_TRIGGER
+                trigger_token = SESSION_TRIGGER.set(work_unit.trigger)
+
                 if work_unit.action_sequence and action_registry:
                     for action_id in work_unit.action_sequence:
                         logger.info(f"  Running action: {action_id}")
@@ -709,6 +713,7 @@ class PhaseQueueManager:
                                 break
                 elif not work_unit.action_sequence:
                     logger.warning(f"Work unit {work_unit.name} has no action_sequence")
+                SESSION_TRIGGER.reset(trigger_token)
 
                 if success:
                     work_unit.complete({"dispatched_from_phase_queue": True, "cost_usd": total_cost})
@@ -772,6 +777,7 @@ class PhaseQueueManager:
                             success=success,
                             error=error_msg,
                             cost_usd=total_cost,
+                            trigger=work_unit.trigger,
                         )
 
                         saved_slug = summary_store.save(summary)

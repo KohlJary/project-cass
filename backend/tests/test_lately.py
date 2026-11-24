@@ -45,7 +45,9 @@ def week(daemon_id, tmp_path):
             ("s-month", "Long ago", "research", NOW - timedelta(days=30), "Too old for the week"),
         ]
         for slug, name, cat, at, summary in rows:
-            conn.execute("INSERT INTO work_summaries VALUES (?, ?, 'w', ?, 't', 'afternoon', ?, ?, ?, ?, 40, ?, ?, ?)",
+            conn.execute("INSERT INTO work_summaries (slug, daemon_id, work_unit_id, name, template_id, phase, "
+                         "category, date, started_at, completed_at, duration_minutes, summary, data_json, "
+                         "created_at) VALUES (?, ?, 'w', ?, 't', 'afternoon', ?, ?, ?, ?, 40, ?, ?, ?)",
                          (slug, daemon_id, name, cat, at.date().isoformat(), at.isoformat(), at.isoformat(),
                           summary, json.dumps({"key_insights": ["glass holds light by refusing it"]}),
                           at.isoformat()))

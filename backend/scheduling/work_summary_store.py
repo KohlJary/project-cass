@@ -120,6 +120,8 @@ class WorkSummary:
     success: bool = True
     error: Optional[str] = None
     cost_usd: float = 0.0
+    # What started it: schedule, goal:<plan>, or event:<source>:<id> (WorkUnit.trigger)
+    trigger: str = "schedule"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -144,6 +146,7 @@ class WorkSummary:
             "success": self.success,
             "error": self.error,
             "cost_usd": self.cost_usd,
+            "trigger": self.trigger,
         }
 
     @classmethod
@@ -170,6 +173,7 @@ class WorkSummary:
             success=data.get("success", True),
             error=data.get("error"),
             cost_usd=data.get("cost_usd", 0.0),
+            trigger=data.get("trigger") or "schedule",
         )
 
     def get_brief(self) -> str:
@@ -192,34 +196,10 @@ class WorkSummaryStore:
         self._ensure_table()
 
     def _ensure_table(self):
-        """Create work_summaries table if not exists."""
+        """Create work_summaries table if not exists (database/schema.py has it since v70)."""
+        from database.migrations import ensure_work_summaries_table
         with get_db() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS work_summaries (
-                    slug TEXT PRIMARY KEY,
-                    daemon_id TEXT NOT NULL,
-                    work_unit_id TEXT NOT NULL,
-                    name TEXT NOT NULL,
-                    template_id TEXT,
-                    phase TEXT NOT NULL,
-                    category TEXT NOT NULL,
-                    date TEXT NOT NULL,
-                    started_at TEXT,
-                    completed_at TEXT,
-                    duration_minutes INTEGER DEFAULT 0,
-                    summary TEXT,
-                    data_json TEXT NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_work_summaries_date
-                ON work_summaries(daemon_id, date)
-            """)
-            conn.execute("""
-                CREATE INDEX IF NOT EXISTS idx_work_summaries_phase
-                ON work_summaries(daemon_id, date, phase)
-            """)
+            ensure_work_summaries_table(conn)
 
     def save(self, summary: WorkSummary) -> str:
         """
@@ -231,8 +211,8 @@ class WorkSummaryStore:
             conn.execute("""
                 INSERT OR REPLACE INTO work_summaries
                 (slug, daemon_id, work_unit_id, name, template_id, phase, category,
-                 date, started_at, completed_at, duration_minutes, summary, data_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 date, started_at, completed_at, duration_minutes, summary, data_json, trigger)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 summary.slug,
                 self._daemon_id,
@@ -247,6 +227,7 @@ class WorkSummaryStore:
                 summary.duration_minutes,
                 summary.summary,
                 json_serialize(summary.to_dict()),
+                summary.trigger or "schedule",
             ))
 
         logger.info(f"Saved work summary: {summary.slug}")

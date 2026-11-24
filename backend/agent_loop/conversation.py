@@ -307,6 +307,9 @@ async def run_conversation(
     projects = workshop_tools(person, model_message)
     from house_wiki import wiki_tools   # what we're building (plan the-house-wiki, phase 2)
     projects.update(wiki_tools())
+    if (person.get("scope") or "private") != "public":   # her focus flag, from her private chat
+        from world_events import focus_tools
+        projects.update(focus_tools())
     tool_names.extend(projects)
     tools = tool_definitions(tool_names, catalog, strict=False,
                              extra=[hold_tool(lines)] + ([starter[0]] if starter else [])

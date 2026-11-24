@@ -142,6 +142,14 @@ class WorkUnit:
         if self.created_at is None:
             self.created_at = datetime.now()
 
+    @property
+    def trigger(self) -> str:
+        """What started it (a-life-not-a-menu.md): "goal:<plan>" when it carries one of
+        her plan items, else "schedule". Reactive sessions don't run as WorkUnits; theirs
+        is "event:<source>:<id>" (world_events.py)."""
+        plan = (self.plan_item or {}).get("plan")
+        return f"goal:{plan}" if plan else "schedule"
+
     @classmethod
     def create(
         cls,
@@ -260,6 +268,7 @@ class WorkUnit:
             "action_results": self.action_results,
             "run_at": self.run_at,
             "plan_item": self.plan_item,
+            "trigger": self.trigger,
         }
 
     @classmethod
