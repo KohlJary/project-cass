@@ -884,13 +884,15 @@ class BaseSessionRunner(ABC):
 
             # Track session cost (budget cap)
             if response.usage:
-                cache_read = getattr(response.usage, 'cache_read_input_tokens', 0) or 0
-                input_tokens = response.usage.input_tokens + cache_read
-                output_tokens = response.usage.output_tokens
-
-                # Estimate cost (Haiku pricing: $0.25/M input, $1.25/M output)
-                cost = (input_tokens * 0.25 / 1_000_000) + (output_tokens * 1.25 / 1_000_000)
-                self._session_cost_usd += cost
+                from token_tracker import estimate_cost
+                u = response.usage
+                cost = estimate_cost(
+                    "anthropic", getattr(response, "model", "") or "claude-haiku-4-5",
+                    u.input_tokens, u.output_tokens,
+                    getattr(u, "cache_read_input_tokens", 0) or 0,
+                    getattr(u, "cache_creation_input_tokens", 0) or 0,
+                )
+                self._session_cost_usd += cost or 0.0  # was Haiku 3's $0.25/$1.25
 
             return response
 
