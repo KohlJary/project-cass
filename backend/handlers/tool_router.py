@@ -400,6 +400,8 @@ TOOL_REGISTRY = {
     "babelr_post": "babelr",
     "babelr_dm": "babelr",
     "babelr_read": "babelr",
+    "babelr_react": "babelr",
+    "find_memes": "babelr",
     "babelr_boundaries": "babelr",
     "babelr_plans": "babelr",
 

@@ -41,6 +41,8 @@ class FakeBabelr:
         # Plans plugin: slug -> plan detail, as GET /plugins/plans/plans/:slug returns it.
         self.plans: Dict[str, dict] = {}
         self.plan_acts: List[tuple] = []
+        # message id -> {emoji: [actor ids]}, as Babelr's message reads carry them
+        self.reactions: Dict[str, Dict[str, List[str]]] = {}
 
     def _stamp(self) -> str:
         n = next(self._clock)
@@ -57,6 +59,9 @@ class FakeBabelr:
                "authorId": author["id"], "published": self._stamp()}
         self.channel_messages[cid].append({"message": msg, "author": author})
         return msg
+
+    def react(self, message_id: str, actor: dict, emoji: str) -> None:
+        self.reactions.setdefault(message_id, {}).setdefault(emoji, []).append(actor["id"])
 
     def dm_from(self, author: dict, text: str, dm_id: Optional[str] = None) -> str:
         if dm_id is None:
@@ -137,7 +142,8 @@ class FakeAgent:
         out = []
         for m in reversed(self.server.dm_messages[dm_id]):  # newest first, like the server
             st = self.server.statuses.get(m["id"])
-            out.append({**m, "agent_status": [{"agent": {"id": CASS["id"]}, **st}] if st else []})
+            out.append({**m, "agent_status": [{"agent": {"id": CASS["id"]}, **st}] if st else [],
+                        **({"reactions": self.server.reactions[m["id"]]} if m["id"] in self.server.reactions else {})})
         return out
 
     def reply_status(self, channel_id: str, message_id: str, state: str, detail: str = "") -> dict:
@@ -155,6 +161,14 @@ class FakeAgent:
             return [dict(s.server)]
         if method == "GET" and path == f"/servers/{s.server['id']}/channels":
             return list(s.channels.values())
+        if path.startswith("/channels/") and path.endswith("/reactions"):
+            mid = path.split("/")[4]
+            who = s.reactions.setdefault(mid, {}).setdefault(body["emoji"], [])
+            if method == "POST" and CASS["id"] not in who:
+                who.append(CASS["id"])
+            elif method == "DELETE" and CASS["id"] in who:
+                who.remove(CASS["id"])
+            return {"ok": True}
         if path.startswith("/channels/") and "/messages" in path:
             cid = path.split("/")[2]
             if method == "GET":
@@ -162,6 +176,8 @@ class FakeAgent:
                 for r in list(reversed(s.channel_messages[cid]))[:50]:
                     st = s.statuses.get(r["message"]["id"])
                     msg = {**r["message"], **({"agentStatus": [{"agent": {"id": CASS["id"]}, **st}]} if st else {})}
+                    if r["message"]["id"] in s.reactions:
+                        msg["reactions"] = s.reactions[r["message"]["id"]]
                     rows.append({**r, "message": msg})
                 return {"messages": rows, "hasMore": False}
             msg = {"id": s._id("msg"), "content": body["content"], "channelId": cid,
