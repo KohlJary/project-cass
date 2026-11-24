@@ -920,3 +920,21 @@ def test_the_nightly_journal_catches_up_a_night_that_failed():
         return []
     asyncio.run(daily_journal_handler(generate_missing_journals_func=missing))
     assert asked == [JOURNAL_CATCHUP_DAYS] and JOURNAL_CATCHUP_DAYS > 1
+
+
+def test_local_model_switch_routes_everything_to_one_ollama_model(monkeypatch):
+    """Kohl, 2026-11-24, credit gone: everything on one local model, no hosted fallback."""
+    import llm_config as L
+    mgr = L.LLMConfigManager()
+    monkeypatch.delenv(L.LOCAL_MODEL_ENV, raising=False)
+    hosted = mgr.resolve("chat", L.ModelAssignment("anthropic", "claude-haiku-4-5-20251001"))
+    assert hosted.provider == "anthropic"
+    monkeypatch.setenv(L.LOCAL_MODEL_ENV, "qwen3:14b")
+    for site, default in (("chat", L.ModelAssignment("anthropic", "claude-haiku-4-5-20251001")),
+                          ("world.content_analysis", None),
+                          ("memory.summary_chunk", L.ModelAssignment("ollama", "llama3.1:8b", "anthropic", "haiku"))):
+        got = mgr.resolve(site, default)
+        if got is not None:
+            assert (got.provider, got.model_id, got.fallback_provider) == ("ollama", "qwen3:14b", None), site
+    monkeypatch.setenv(L.LOCAL_MODEL_ENV, "")
+    assert mgr.resolve("chat", L.ModelAssignment("anthropic", "x")).provider == "anthropic"
