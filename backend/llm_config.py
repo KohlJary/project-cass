@@ -358,6 +358,11 @@ CALL_SITES: dict[str, CallSite] = _sites(
     CallSite("session.social", from_caller("session.generic's model", f"anthropic:{HAIKU}"),
              "Social sessions", "Bluesky social session tool loop (falls back to session.generic)",
              "per session turn", category="autonomous", text_only=False),
+    # Reactive sessions (world_events.py): its own row so its spend is visible and counted
+    # (scheduler/budget.py). With no override it runs whatever session.generic runs.
+    CallSite("session.reactive", from_caller("session.generic's model", f"anthropic:{HAIKU}"),
+             "Reactive sessions", "A few turns on something she noticed (falls back to session.generic)",
+             "per session turn", category="autonomous", text_only=False),
     CallSite("session.legacy", from_caller("BaseSessionRunner haiku/ollama model", f"anthropic:{HAIKU}"),
              "Legacy session runner", "BaseSessionRunner tool loop", "per session turn", category="autonomous",
              text_only=False),

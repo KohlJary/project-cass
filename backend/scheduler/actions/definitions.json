@@ -217,6 +217,18 @@
       "requires_idle": false,
       "runner_key": "respond"
     },
+    "session.reactive": {
+      "id": "session.reactive",
+      "name": "Reactive",
+      "description": "A few turns on something she noticed in her world (world_events.py, reactive_turn.py); not on her menu, started by a noticed event",
+      "category": "triggered",
+      "handler": "session_handlers.reactive_action",
+      "estimated_cost_usd": 0.06,
+      "default_duration_minutes": 10,
+      "priority": "normal",
+      "requires_idle": false,
+      "runner_key": "reactive"
+    },
     "session.kohl_blog": {
       "id": "session.kohl_blog",
       "name": "Kohl's Blog",

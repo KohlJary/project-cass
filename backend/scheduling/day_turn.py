@@ -433,6 +433,15 @@ async def plan_day_in_turn(runner, candidates: Sequence[Any], phases: Sequence[A
         toward = ""
     if toward:
         additions = toward + "\n\n" + additions
+    try:  # a focus flag up a long time is shown to her, never cleared (world_events.py)
+        import features
+        from world_events import LEVER as WORLD_LEVER, stale_focus_note
+        stale = stale_focus_note() if features.is_enabled(WORLD_LEVER) else ""
+    except Exception as e:
+        logger.warning(f"[day_turn] couldn't read her focus flag: {e}")
+        stale = ""
+    if stale:
+        additions = "## MY FOCUS FLAG\n\n" + stale + "\n\n" + additions
     try:  # what she planned last time and what actually ran (day_recap.py)
         since = day_recap.since_last_plan(workspace)
     except Exception as e:

@@ -437,7 +437,7 @@ def _run_action(activity, managers):
 # Activities that only exist on the loop (her day plan, her homepage, her
 # social sessions, her Wonderland visits) have no legacy path to compare against.
 LOOP_ONLY_ACTIVITIES = {"day_planning", "homepage", "social", "wonderland", "long_term_planning",
-                        "change_proposals", "kohl_blog", "new_capabilities", "workshop", "respond",
+                        "change_proposals", "kohl_blog", "new_capabilities", "workshop", "respond", "reactive",
                         "listening"}
 
 

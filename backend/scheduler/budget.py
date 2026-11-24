@@ -55,6 +55,9 @@ BUDGET_COUNTED_CALL_SITES = frozenset({
     # (agent_loop.session.ledger_category), so they land in its own bucket,
     # not SYSTEM.
     "session.generic",
+    # Reactive sessions (world_events.py, 2026-11-24): with no override of their
+    # own they log as session.generic (counted above); with one, as this.
+    "session.reactive",
 })
 
 

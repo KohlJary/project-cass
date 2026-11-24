@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 HEARTBEAT_JOBS = frozenset({
     "github_metrics", "goal_refinement", "idle_summarization", "daily_journal",
     "autonomous_research", "conversation_observation", "budget_sync", "agent_loop_wakes",
-    "social_watch", "runlog_prune", "happenings",
+    "social_watch", "runlog_prune", "happenings", "world",
 })
 
 # Actions that are a job's work. Executing one with the job on Heartbeat runs
@@ -227,6 +227,17 @@ def job_work(managers: Dict[str, Any]) -> Dict[str, Work]:
         run=check_happenings,
         trigger=Every(CHECK_SECONDS, first_after=120),
         lever="happenings",
+        log_runs=False,
+    )
+
+    # Her world (world_events.py): poll the clock, then maybe one reactive session,
+    # submitted as its own budgeted run. No LLM in the job itself.
+    import world_events
+    jobs["world"] = Work(
+        name="world",
+        run=world_events.check_world,
+        trigger=Every(world_events.CHECK_SECONDS, first_after=180),
+        lever=world_events.LEVER,
         log_runs=False,
     )
 

@@ -233,6 +233,16 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
     _lever("happenings", "Happenings (happenings.py): a Bluesky mention, reply, quote or DM, or a commitment "
            "coming due, wakes her into a short respond session, by her own rules (crisis always)",
            LLM, BACKGROUND, default=False, where="heartbeat job happenings"),
+    _lever("world_events", "Her world as events (world_events.py): news that passed her relevance gate, "
+           "ambient Chapter House channel messages and the clock are logged to DATA_DIR/world, scored "
+           "by rules against her topics and plans (no model call), and her focus tool (do-not-disturb, "
+           "hers to raise and clear) is in her sessions and private chat",
+           BACKGROUND, default=False, where="heartbeat job world, rss_handlers, babelr_organ.poll_once"),
+    _lever("reactive_sessions", "A noticed world event can start a short reactive session (reactive_turn.py), "
+           "within her rules: a daily cap, a cooldown per source, quiet hours, her focus flag, one at a "
+           "time and never from inside another; through the budget gate (dollars). Needs world_events "
+           "and agent_loop",
+           LLM, BACKGROUND, default=False, where="world_events.check_world"),
     _lever("workshop", "Her workshop (workshop.py, workshop_turn.py): projects she owns, each a git repository "
            "with a PROJECT.md (software, long writing, outreach), and a Workshop session on her menu",
            LLM, default=False, where="scheduling.templates workshop available"),

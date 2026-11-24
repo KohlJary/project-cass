@@ -185,9 +185,10 @@ def test_routed_calls_name_registered_call_sites():
     assert unresolved == [], f"router calls whose call site isn't a literal: {unresolved}"
     unknown = names - set(CALL_SITES)
     assert unknown == set(), f"call sites used in code but missing from llm_config.CALL_SITES: {unknown}"
-    # session.social reaches resolve_model through agent_loop.session.SESSION_SITES
-    # -> model_client_for(site), so it's never a literal at the call.
-    unused = set(CALL_SITES) - names - {"chat", "session.social"}
+    # session.social and session.reactive reach resolve_model through
+    # agent_loop.session.SESSION_SITES -> model_client_for(site), so they're never a literal at the call.
+    from agent_loop.session import SESSION_SITES
+    unused = set(CALL_SITES) - names - {"chat"} - set(SESSION_SITES.values())
     assert unused == set(), f"registered call sites no code uses: {unused}"
 
 

@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 69  # v69 places (where her conversations happen, places.py); v68 rss_items.topics_json / relevance (her topics, news.py); v67 consumed_articles.interests_json / symbols_json; v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62); v66 llm_call_failures
+SCHEMA_VERSION = 70  # v70 work_summaries (+ trigger: schedule / goal:<plan> / event:<source>:<id>); v69 places (where her conversations happen, places.py); v68 rss_items.topics_json / relevance (her topics, news.py); v67 consumed_articles.interests_json / symbols_json; v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62); v66 llm_call_failures
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -2438,4 +2438,27 @@ CREATE TABLE IF NOT EXISTS places (
 );
 
 CREATE INDEX IF NOT EXISTS idx_places_conversation ON places(conversation_id);
+
+-- Work summaries (scheduling/work_summary_store.py), one per phase-queue unit run.
+-- trigger (v70): what started it: schedule, goal:<plan>, or event:<source>:<id>.
+CREATE TABLE IF NOT EXISTS work_summaries (
+    slug TEXT PRIMARY KEY,
+    daemon_id TEXT NOT NULL,
+    work_unit_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    template_id TEXT,
+    phase TEXT NOT NULL,
+    category TEXT NOT NULL,
+    date TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    duration_minutes INTEGER DEFAULT 0,
+    summary TEXT,
+    data_json TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    trigger TEXT DEFAULT 'schedule'
+);
+
+CREATE INDEX IF NOT EXISTS idx_work_summaries_date ON work_summaries(daemon_id, date);
+CREATE INDEX IF NOT EXISTS idx_work_summaries_phase ON work_summaries(daemon_id, date, phase);
 """

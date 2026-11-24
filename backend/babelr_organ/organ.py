@@ -31,7 +31,7 @@ from typing import Any, Awaitable, Callable, Deque, Dict, List, Optional
 from babelr_organ.config import BabelrConfig, babelr_enabled, load_config
 from babelr_organ.state import OrganState
 from babelr_organ.terms import Terms, ensure_terms_file
-from babelr_organ.triggers import IMAGE_TYPES, BabelrEvent, TriggerAction, evaluate, words
+from babelr_organ.triggers import IMAGE_TYPES, BabelrEvent, TriggerAction, TriggerPriority, evaluate, words
 
 try:
     from babelr_agent import Agent, BabelrError
@@ -538,6 +538,7 @@ class BabelrOrgan:
             return []
         events = await asyncio.to_thread(self.collect)
         to_wake: Dict[str, List[BabelrEvent]] = {}
+        ambient: List[BabelrEvent] = []
         for event in events:
             result = evaluate(event, self.my_username)
             self._buffer(event.place).append(event)
@@ -550,6 +551,13 @@ class BabelrOrgan:
                 to_wake.setdefault(event.place, []).append(event)
             else:
                 self._record_heard(event)
+                if result.priority == TriggerPriority.BACKGROUND:
+                    ambient.append(event)
+        if ambient:
+            # ambient: events in her world (world_events.py; lever world_events). Off the
+            # event loop: noticing reads her plans from Babelr.
+            from world_events import note_babelr
+            await asyncio.to_thread(lambda: [note_babelr(e) for e in ambient])
         # Someone pressed Retry under a message she didn't answer.
         for event in await asyncio.to_thread(self._collect_retries):
             if event.message_id not in {e.message_id for e in to_wake.get(event.place, [])}:
