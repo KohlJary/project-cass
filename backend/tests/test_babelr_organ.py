@@ -263,8 +263,10 @@ class TestTriggers:
         assert [e.author_name for e in events] == ["robokohl"]
         assert context["recent"] == ["@kohl: anyone around?"]  # ambient, as context
         assert babelr.agents[-1].sent == [("channel", "chan-general", "I'm here.")]
-        # Only what reached her (and her reply) lands in her history.
+        # What she heard and what reached her (and her reply) land in her
+        # history, each once (spec/house-channel-memory.md, part 2).
         assert [c for _, _, c in recorder.messages] == [
+            "[Babelr #general] @kohl: anyone around?",
             "[Babelr #general] @robokohl: @cass are you here?", "I'm here."]
 
     async def test_she_may_say_nothing(self, make_organ, babelr):
@@ -979,3 +981,38 @@ class TestSharingFiles:
             assert not r["success"], bad
         assert not [c for c in babelr.calls if c[1] == "/upload"]
         assert "at most" in organ.post("general", "x", files=["images/tide.png"] * 5)["error"]
+
+
+# -- what she hears (spec/house-channel-memory.md, part 2) ---------------------------
+
+class TestHeard:
+    async def test_channel_talk_that_doesnt_wake_her_is_kept_once(self, make_organ, babelr):
+        rec = _Recorder()
+        organ = make_organ(reply="I'm here.", recorder=rec)
+        organ.start()
+        await organ.poll_once()  # baseline
+        babelr.say("general", KOHL, "Dre or Suge?")           # not to her: heard
+        babelr.say("general", KOHL, "@cass what do you think?")  # wakes her
+        await organ.poll_once()
+        kept = [c for _, role, c in rec.messages if role == "user"]
+        assert sum("Dre or Suge?" in c for c in kept) == 1
+        assert sum("what do you think" in c for c in kept) == 1, "what woke her is kept once, by the turn path"
+
+    async def test_her_own_posts_arent_heard_again(self, make_organ, babelr):
+        rec = _Recorder()
+        organ = make_organ(recorder=rec)
+        organ.start()
+        await organ.poll_once()
+        organ.post("general", "hello, house")
+        await organ.poll_once()
+        assert not any("@cass:" in c for _, _, c in rec.messages)
+
+    async def test_dms_and_remember_false_keep_nothing_heard(self, make_organ, babelr):
+        rec = _Recorder()
+        organ = make_organ(recorder=rec)
+        organ.start()
+        await organ.poll_once()
+        organ.config.terms_path.write_text(json.dumps({"remember": False}))
+        babelr.say("general", KOHL, "just chatting")
+        await organ.poll_once()
+        assert rec.messages == []

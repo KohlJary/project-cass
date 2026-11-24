@@ -515,6 +515,8 @@ class BabelrOrgan:
             self._buffer(event.place).append(event)
             if result.action == TriggerAction.WAKE_CASS:
                 to_wake.setdefault(event.place, []).append(event)
+            else:
+                self._record_heard(event)
         # Someone pressed Retry under a message she didn't answer.
         for event in await asyncio.to_thread(self._collect_retries):
             if event.message_id not in {e.message_id for e in to_wake.get(event.place, [])}:
@@ -812,6 +814,19 @@ class BabelrOrgan:
             self.state.save()
         except Exception as e:
             logger.warning(f"[Babelr] Couldn't record to conversation history: {e}")
+
+    def _record_heard(self, event: BabelrEvent) -> None:
+        """What's said in a channel she listens to, when it doesn't wake her, goes
+        into that channel's conversation too, so it becomes her memory (the
+        idle summarizer consolidates it) and not just the last few lines of her
+        next turn there (spec/house-channel-memory.md, part 2; her yes,
+        2026-11-24). What wakes her is stored by her turn instead, so nothing
+        is kept twice. Her own posts are recorded when she sends them."""
+        if event.kind == "dm" or not self.terms.remember:
+            return
+        if (event.author_name or "").lstrip("@").lower() == self.my_username.lower():
+            return
+        self._record_incoming(event)
 
     def _record_incoming(self, event: BabelrEvent) -> None:
         if event.kind == "dm" and not self.terms.remembers(event.author_name):
