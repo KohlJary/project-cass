@@ -71,16 +71,17 @@ def test_every_section_lever_is_a_real_lever():
 def test_wanted_drops_a_section_whose_lever_is_off(daemon_id, monkeypatch):
     """Whatever builds a section, its lever off keeps it out of the prompt."""
     import continuous_context
-    real = continuous_context._assemble_continuous_prompt
+    real = continuous_context._assemble_turn_prompt
     seen = {}
 
     def spy(sections):
         seen.update(sections)
         return real(sections)
 
-    monkeypatch.setattr(continuous_context, "_assemble_continuous_prompt", spy)
+    monkeypatch.setattr(continuous_context, "_assemble_turn_prompt", spy)
     with features.override(prompt_threads=False, prompt_questions=False):
         ctx = _build(daemon_id, threads=_Threads(), questions=_Questions())
+    assert seen, "the prompt was assembled through the spy"
     assert "threads" not in seen and "questions" not in seen
     assert "kernel" in ctx.context_sections
 

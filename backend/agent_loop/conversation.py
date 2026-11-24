@@ -31,6 +31,7 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .loop import run_loop
+from .models import SplitSystem
 from .seam import render_seam
 from .spec import Trigger, conversation_spec
 
@@ -272,9 +273,16 @@ async def run_conversation(
     working_toward: Optional[str] = None,
     image: Optional[str] = None,
     image_media_type: Optional[str] = None,
+    turn_context: Optional[str] = None,
 ) -> LoopChatResult:
     """One conversation turn through the loop. `client`, `run_router`,
-    `catalog` and `workspace` default to the live ones (tests pass fakes)."""
+    `catalog` and `workspace` default to the live ones (tests pass fakes).
+
+    `system_prompt` is the part of her prompt that stays the same turn to turn
+    (the kernel, who she is); `turn_context` is the part of the continuous
+    context that changes per turn (the time, her state, what was recalled).
+    The model gets system_prompt, then turn_context, the seam and the other
+    per-turn blocks, as a SplitSystem: the first part is cached on its own."""
     from . import tools as tools_mod
     from .session import tool_definitions
     from .workspace import WORKSPACE_TOOL_NAMES, Workspace
@@ -304,12 +312,14 @@ async def run_conversation(
         tool_names.append("start_session")
     blog = blog_tools()    # Kohl's blog, here too (Kohl, 2026-11-18: she said she couldn't see it)
     tool_names.extend(blog)
-    projects = workshop_tools(person, model_message)
     from house_wiki import wiki_tools   # what we're building (plan the-house-wiki, phase 2)
-    projects.update(wiki_tools())
+    projects = dict(wiki_tools())
     if (person.get("scope") or "private") != "public":   # her focus flag, from her private chat
         from world_events import focus_tools
         projects.update(focus_tools())
+    # Last: in a public turn `project` comes and goes with the words of the message,
+    # and tools are the front of the cached prefix, so the ones before it stay put.
+    projects.update(workshop_tools(person, model_message))
     tool_names.extend(projects)
     tools = tool_definitions(tool_names, catalog, strict=False,
                              extra=[hold_tool(lines)] + ([starter[0]] if starter else [])
@@ -319,19 +329,24 @@ async def run_conversation(
     where = CHANNEL_WORDS.get(channel or "", channel or "a conversation")
     trigger = Trigger(source="message", why=f"{who} wrote to me through {where}")
     findable = tools_mod.findable(catalog, tool_names)
-    system = f"{system_prompt}\n\n{render_seam(spec, trigger, tool_names, findable)}"
+    # Everything after system_prompt changes per turn: this turn's context, then
+    # the seam (its "Now:" line has the minute), her plans, the arrival block and
+    # her sessions, in the order they always had.
+    turn = [turn_context] if turn_context else []
+    turn.append(render_seam(spec, trigger, tool_names, findable))
     if working_toward is None:
         working_toward = await working_toward_block()
     if working_toward:
-        system += f"\n\n{working_toward}"
+        turn.append(working_toward)
     if arrival_block:   # C9: who's here, what's needed, how much time (container.py)
-        system += f"\n\n{arrival_block}"
+        turn.append(arrival_block)
     if starter:   # what's true about her sessions (wakes.sessions_block)
         try:
             from .wakes import sessions_block
-            system += f"\n\n{sessions_block()}"
+            turn.append(sessions_block())
         except Exception as e:
             logger.warning(f"[agent_loop] sessions block: {e}")
+    system = SplitSystem(system_prompt or "", "\n\n".join(turn))
 
     if client is None:
         # LLM_LOCAL_MODEL: chat runs on the one local model too (llm_config.local_model).

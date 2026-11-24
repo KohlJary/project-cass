@@ -202,9 +202,17 @@ async def run_chat_turn(
         speaker_recognition=speaker_recognition,
         scope=context_scope,
     )
-    system_prompt = continuous_ctx.system_prompt
+    # Who she is first, then what changes per turn, so the first part can be
+    # cached on its own (agent_loop.models.SplitSystem). The entry point's
+    # addendum (Discord's guidance) is the same every turn: it ends the stable part.
+    stable_prompt = getattr(continuous_ctx, "stable_prompt", "") or ""
+    turn_prompt = getattr(continuous_ctx, "turn_prompt", "") or ""
+    if not stable_prompt:   # a context without the split: all of it, as one part
+        stable_prompt, turn_prompt = continuous_ctx.system_prompt or "", ""
     if system_addendum:
-        system_prompt = f"{system_prompt}\n\n{system_addendum}" if system_prompt else system_addendum
+        stable_prompt = f"{stable_prompt}\n\n{system_addendum}" if stable_prompt else system_addendum
+    system_prompt = f"{stable_prompt}\n\n{turn_prompt}" if stable_prompt and turn_prompt else (
+        stable_prompt or turn_prompt)
     memory_used = "semantic_memories" in continuous_ctx.context_sections
     # Read before this turn is stored, so history ends at the previous turn.
     continuous_messages = get_recent_messages_for_continuous(
@@ -282,7 +290,7 @@ async def run_chat_turn(
                                 generated_images=[], hit_tool_cap=False)
     elif on_loop:
         looped = await run_conversation(
-            system_prompt=system_prompt,
+            system_prompt=stable_prompt, turn_context=turn_prompt,
             continuous_messages=continuous_messages,
             model_message=send_kwargs["message"],
             person={"user_id": user_id, "user_name": user_name, "conversation_id": conversation_id,

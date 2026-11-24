@@ -17,8 +17,9 @@ the OpenAI and Ollama clients convert them.
 
 Every request goes through llm_caller, so each lands in the token ledger under
 its call site and admin overrides apply:
-    Anthropic -> create_message (with prompt caching on the system prompt,
-                 the tool list and the newest message)
+    Anthropic -> create_message (with prompt caching on the tool list, the
+                 system prompt's stable part (SplitSystem) and the newest
+                 message)
     OpenAI    -> openai_raw (chat.completions with function tools)
     Ollama    -> ollama_raw (native /api/chat, so num_ctx can be set; Ollama's
                  OpenAI endpoint ignores it)
@@ -128,6 +129,44 @@ async def _ollama_request(payload: Dict[str, Any], model: str, base_url: Optiona
 CACHE = {"type": "ephemeral"}
 
 
+class SplitSystem(str):
+    """A system prompt in two parts: what stays the same from turn to turn
+    (`stable`: the kernel, who she is) and what changes every turn (`turn`:
+    the time, her state, what was recalled for this message, the seam).
+
+    It is the whole prompt as a string (stable, a blank line, turn), so the
+    OpenAI and Ollama clients, the ledger and anything else that reads the
+    system prompt as text see it unchanged. The Anthropic client sends it as
+    two system blocks with the cache breakpoint on the stable one, so the
+    cached prefix (tools, then the stable block) is byte-identical across
+    turns and is read from the cache instead of rewritten (2026-11-18: $6.16
+    of a $7.28 chat day was cache writes, because the time and the recalled
+    memories sat inside the one cached block)."""
+
+    stable: str
+    turn: str
+
+    def __new__(cls, stable: str, turn: str = ""):
+        text = f"{stable}\n\n{turn}" if stable and turn else (stable or turn)
+        obj = super().__new__(cls, text)
+        obj.stable, obj.turn = stable, turn
+        return obj
+
+
+def anthropic_system(system: str, cache: bool = True) -> Any:
+    """The `system` field: a plain string without caching; with it, the stable
+    part as one block with the breakpoint, then the per-turn part uncached."""
+    if not cache:
+        return str(system)
+    stable = getattr(system, "stable", None)
+    if stable is None or not stable:
+        return [{"type": "text", "text": str(system), "cache_control": CACHE}]
+    blocks: List[Dict[str, Any]] = [{"type": "text", "text": stable, "cache_control": CACHE}]
+    if system.turn:
+        blocks.append({"type": "text", "text": system.turn})
+    return blocks
+
+
 def anthropic_messages(history: List[Dict[str, Any]], cache: bool = True) -> List[Dict[str, Any]]:
     msgs: List[Dict[str, Any]] = []
     for h in history:
@@ -183,13 +222,10 @@ class AnthropicModelClient:
     async def create(self, *, model, system, tools, messages, max_tokens) -> ModelReply:
         kwargs: Dict[str, Any] = dict(model=model, max_tokens=max_tokens,
                                       messages=anthropic_messages(messages, self.cache))
-        if self.cache:
-            kwargs["system"] = [{"type": "text", "text": system, "cache_control": CACHE}]
-            if tools:
-                tools = [dict(t) for t in tools]
-                tools[-1]["cache_control"] = CACHE
-        else:
-            kwargs["system"] = system
+        kwargs["system"] = anthropic_system(system, self.cache)
+        if self.cache and tools:
+            tools = [dict(t) for t in tools]
+            tools[-1]["cache_control"] = CACHE
         if tools:
             kwargs["tools"] = tools
         # Model routing (#64): the call site's override, else `model`;
@@ -217,7 +253,7 @@ class AnthropicModelClient:
 # ---------------------------------------------------------------------------
 
 def openai_messages(system: str, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    msgs: List[Dict[str, Any]] = [{"role": "system", "content": system}]
+    msgs: List[Dict[str, Any]] = [{"role": "system", "content": str(system)}]
     for h in history:
         role = h["role"]
         if role == "user":
@@ -298,7 +334,7 @@ DEFAULT_OLLAMA_NUM_CTX = 32768
 
 
 def ollama_messages(system: str, history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    msgs: List[Dict[str, Any]] = [{"role": "system", "content": system}]
+    msgs: List[Dict[str, Any]] = [{"role": "system", "content": str(system)}]
     for h in history:
         role = h["role"]
         if role == "user":
