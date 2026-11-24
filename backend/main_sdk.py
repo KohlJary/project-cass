@@ -3086,12 +3086,13 @@ def _init_websocket_state():
 
     # Create a tool context factory - uses the full create_tool_context from main_sdk
     # which has all managers including state_bus
-    def create_tool_ctx(user_id, user_name, conversation_id, project_id):
+    def create_tool_ctx(user_id, user_name, conversation_id, project_id, scope="private"):
         return create_tool_context(
             user_id=user_id,
             user_name=user_name,
             conversation_id=conversation_id,
-            project_id=project_id
+            project_id=project_id,
+            scope=scope,
         )
 
     init_websocket_state(
