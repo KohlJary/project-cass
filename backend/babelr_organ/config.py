@@ -45,6 +45,9 @@ class BabelrConfig:
     poll_seconds: int
     rate_limit_messages: int
     rate_limit_window: int
+    # Whose "/attend on|off" and unmentioned posts count for house attention:
+    # Kohl's Babelr account.
+    attend_from: str = "jaryk"
 
     @property
     def key_path(self) -> Path:
@@ -81,6 +84,7 @@ def load_config(data_dir: Path | None = None) -> BabelrConfig:
     return BabelrConfig(
         url=os.getenv("BABELR_URL", "http://localhost:3000").rstrip("/"),
         server_name=os.getenv("BABELR_SERVER", "Chapter House"),
+        attend_from=os.getenv("BABELR_ATTEND_FROM", "jaryk").lstrip("@").lower(),
         dir=base,
         token_file=token_file,
         poll_seconds=max(5, _int_env("BABELR_POLL_SECONDS", 8)),

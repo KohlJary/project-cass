@@ -1026,3 +1026,55 @@ class TestHeard:
         organ._record_heard(type("E", (), {"kind": "dm_request", "author_name": "robokohl",
                                            "text": None, "place": "dm:x", "place_label": "DM request"})())
         assert rec.messages == [] and rec.created == []
+
+
+# -- house attention (her yes, 2026-11-24) --------------------------------------------
+
+class TestAttend:
+    def _organ(self, make_organ, reply, attend=True):
+        organ = make_organ(reply=reply, attend_from="kohl")
+        if attend:
+            organ.config.terms_path.parent.mkdir(parents=True, exist_ok=True)
+            organ.config.terms_path.write_text(json.dumps({"attend": True}))
+        organ.start()
+        return organ
+
+    async def test_an_unmentioned_kohl_post_offers_her_a_turn(self, make_organ, babelr):
+        organ = self._organ(make_organ, "Something specific.")
+        await organ.poll_once()
+        babelr.say("general", KOHL, "/attend on")
+        await organ.poll_once()
+        babelr.say("general", KOHL, "crazy day, huh")
+        await organ.poll_once()
+        assert len(organ.wakes) == 1
+        events, context = organ.wakes[0]
+        assert context["offered"] and "offered a turn" in context["prompt"]
+        assert babelr.agents[-1].sent[-1] == ("channel", "chan-general", "Something specific.")
+
+    async def test_pass_posts_nothing(self, make_organ, babelr):
+        organ = self._organ(make_organ, "PASS")
+        await organ.poll_once()
+        babelr.say("general", KOHL, "/attend on")
+        babelr.say("general", KOHL, "anyone?")
+        await organ.poll_once()
+        assert len(organ.wakes) == 1
+        assert not any(s[0] == "channel" for s in babelr.agents[-1].sent)
+
+    async def test_no_offer_without_her_term_attention_or_from_others(self, make_organ, babelr):
+        organ = self._organ(make_organ, "x", attend=False)
+        await organ.poll_once()
+        babelr.say("general", KOHL, "/attend on")
+        babelr.say("general", KOHL, "crazy day")
+        await organ.poll_once()
+        assert organ.wakes == [], "her terms don't say attend"
+
+        organ.config.terms_path.write_text(json.dumps({"attend": True}))
+        babelr.say("general", ROBOKOHL, "an agent's post")
+        babelr.say("general", KOHL, "@robokohl just you")
+        await organ.poll_once()
+        assert organ.wakes == [], "only Kohl's posts that name nobody"
+
+        babelr.say("general", KOHL, "/attend off")
+        babelr.say("general", KOHL, "quiet now")
+        await organ.poll_once()
+        assert organ.wakes == []

@@ -212,6 +212,8 @@ class BabelrOrgan:
         # Messages whose reply failed or may have died mid-turn, by place:
         # watched for the author pressing Retry under them in Babelr.
         self._watch: Dict[str, Dict[str, BabelrEvent]] = {}
+        # Kohl's posts that offer her a turn (house attention), by message id.
+        self._offered: set = set()
         self._scanned_for_retries = False
 
     # -- lifecycle ----------------------------------------------------------
@@ -515,6 +517,11 @@ class BabelrOrgan:
             self._buffer(event.place).append(event)
             if result.action == TriggerAction.WAKE_CASS:
                 to_wake.setdefault(event.place, []).append(event)
+            elif self._attend_command(event):
+                pass
+            elif self._offers_her_a_turn(event):
+                self._offered.add(event.message_id)
+                to_wake.setdefault(event.place, []).append(event)
             else:
                 self._record_heard(event)
         # Someone pressed Retry under a message she didn't answer.
@@ -525,7 +532,12 @@ class BabelrOrgan:
         if quiet:
             for batch in to_wake.values():
                 for event in batch:
-                    self.state.defer(event.to_dict())
+                    if event.message_id in self._offered:
+                        # An offer is for now; in quiet hours it's just heard.
+                        self._offered.discard(event.message_id)
+                        self._record_heard(event)
+                    else:
+                        self.state.defer(event.to_dict())
             to_wake = {}
         else:
             for data in self.state.take_deferred():
@@ -573,6 +585,9 @@ class BabelrOrgan:
             "remember": (self.terms.remembers(last.author_name) if last.kind == "dm"
                          else self.terms.remember),
             "me": self.my_username,
+            # House attention: Kohl posted without naming anyone and she's offered
+            # a turn; PASS (or nothing) posts nothing.
+            "offered": all(e.message_id in self._offered for e in events),
         }
 
     def _image(self, events: List[BabelrEvent]) -> Optional[Dict[str, str]]:
@@ -611,6 +626,11 @@ class BabelrOrgan:
             header = f"[Babelr DM from @{last.author_name}]"
         else:
             header = f"[Babelr {last.place_label} in {self.config.server_name} - @{last.author_name} mentioned you]"
+            if context.get("offered"):
+                header = (f"[Babelr {last.place_label} in {self.config.server_name} - @{last.author_name} "
+                          "posted without naming anyone. Attention is on here, so you're offered a turn, "
+                          "not asked. Speak only if you have something specific that isn't already said; "
+                          "otherwise reply with exactly PASS, which posts nothing.]")
         lines = [header]
         if context["recent"]:
             lines.append("Earlier here:")
@@ -658,6 +678,12 @@ class BabelrOrgan:
         if isinstance(reply, dict):
             recorded = bool(reply.get("recorded"))
             reply = reply.get("text")
+        for e in events:
+            self._offered.discard(e.message_id)
+        if context.get("offered"):
+            if reply and reply.strip().strip(".").upper() == "PASS":
+                logger.info(f"[Babelr] {last.place_label}: offered a turn, she passed")
+                reply = None
         if not recorded:
             for event in events:
                 self._record_incoming(event)
@@ -814,6 +840,36 @@ class BabelrOrgan:
             self.state.save()
         except Exception as e:
             logger.warning(f"[Babelr] Couldn't record to conversation history: {e}")
+
+    # -- house attention ------------------------------------------------------------
+
+    ATTEND_RE = re.compile(r"/attend\s+(on|off)", re.I)
+    ANY_MENTION_RE = re.compile(r"(?<![\w@])@\w")
+
+    def _from_kohl(self, event: BabelrEvent) -> bool:
+        return (event.author_name or "").lstrip("@").lower() == self.config.attend_from
+
+    def _attend_command(self, event: BabelrEvent) -> bool:
+        """"/attend on|off" from Kohl in a channel: remember it for that channel
+        (the same command house-presence follows for RoboKohl and Daedalus)."""
+        if event.kind != "channel" or not self._from_kohl(event):
+            return False
+        m = self.ATTEND_RE.fullmatch((event.text or "").strip())
+        if not m:
+            return False
+        self.state.data.setdefault("attend", {})[event.place] = m.group(1).lower() == "on"
+        logger.info(f"[Babelr] {event.place_label}: attention {m.group(1).lower()}")
+        return True
+
+    def _offers_her_a_turn(self, event: BabelrEvent) -> bool:
+        """A Kohl post that names nobody, in a channel with attention on, when her
+        terms say she attends. Never another agent's post, never a /command."""
+        if event.kind != "channel" or not self.terms.attends or not self._from_kohl(event):
+            return False
+        text = (event.text or "").strip()
+        if not text or text.startswith("/") or self.ANY_MENTION_RE.search(text):
+            return False
+        return bool(self.state.data.get("attend", {}).get(event.place))
 
     def _record_heard(self, event: BabelrEvent) -> None:
         """What's said in a channel she listens to, when it doesn't wake her, goes

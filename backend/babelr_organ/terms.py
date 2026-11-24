@@ -24,6 +24,11 @@ Fields the organ acts on:
                 included, and DMs she starts with them too (plan "A
                 listener for Cass": Vigil). The other side may keep its
                 own record; that's theirs.
+  attend        bool. true: in a channel where Kohl has typed "/attend on",
+                a post from Kohl that @mentions nobody offers her a turn
+                (house attention; she reads it and speaks or passes). Absent
+                or false: only @mentions and DMs wake her. Her yes,
+                2026-11-24 ("Yes.").
 
 Fields the organ shows her, in her own words, whenever Babelr wakes her
 (it can't enforce these; they're hers to keep):
@@ -92,6 +97,10 @@ class Terms:
         if isinstance(value, list):
             return [str(c).lstrip("#").lower() for c in value]
         return None
+
+    @property
+    def attends(self) -> bool:
+        return self.raw.get("attend") is True
 
     def listens_to(self, channel_name: str) -> bool:
         allowed = self.channels
