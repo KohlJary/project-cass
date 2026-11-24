@@ -938,3 +938,61 @@ def test_local_model_switch_routes_everything_to_one_ollama_model(monkeypatch):
             assert (got.provider, got.model_id, got.fallback_provider) == ("ollama", "qwen3:14b", None), site
     monkeypatch.setenv(L.LOCAL_MODEL_ENV, "")
     assert mgr.resolve("chat", L.ModelAssignment("anthropic", "x")).provider == "anthropic"
+
+
+def test_local_mode_skips_busywork_so_chat_isnt_starved(monkeypatch):
+    import llm_config as L
+    mgr = L.LLMConfigManager()
+    monkeypatch.setenv(L.LOCAL_MODEL_ENV, "qwen3:14b")
+    assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")) is None
+    monkeypatch.setenv("LLM_LOCAL_SKIP", "")  # blank (compose passes unset as blank): the defaults
+    assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")) is None
+    monkeypatch.setenv("LLM_LOCAL_SKIP", "none")
+    assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")).model_id == "qwen3:14b"
+    monkeypatch.setenv("LLM_LOCAL_SKIP", "capability.summary")  # the trial: only the busywork
+    assert mgr.resolve("opinion_extraction", L.ModelAssignment("anthropic", "h")).model_id == "qwen3:14b"
+    monkeypatch.delenv(L.LOCAL_MODEL_ENV)
+    monkeypatch.delenv("LLM_LOCAL_SKIP")
+    assert mgr.resolve("capability.summary", L.ModelAssignment("ollama", "llama3.1:8b")).model_id == "llama3.1:8b"
+
+
+def test_ollama_calls_ask_for_no_thinking_and_leaked_thinking_is_dropped():
+    import llm_caller as C
+    assert C.strip_thinking("<think>Okay, the user wants</think>\\nThe answer.".replace("\\n", "\n")) == "The answer."
+    assert C.strip_thinking("<think>Okay, the user wants a summary and I ran out") == ""
+    assert C.strip_thinking("plain") == "plain"
+    resp = C._ollama_to_response({"response": "<think>hmm</think> Hi."}, "qwen3:14b")
+    assert resp.content == "Hi."
+
+
+def test_local_mode_pauses_self_model_writers(monkeypatch):
+    import llm_config as L
+    monkeypatch.setenv(L.LOCAL_MODEL_ENV, "qwen3:14b")
+    monkeypatch.delenv("LLM_LOCAL_SKIP", raising=False)
+    mgr = L.LLMConfigManager()
+    for site in ("self_observation_extraction.conversation", "opinion_extraction", "identity_snippet"):
+        assert mgr.resolve(site, L.ModelAssignment("anthropic", "h")) is None, site
+    assert mgr.resolve("chat", L.ModelAssignment("anthropic", "h")).provider == "ollama"
+    assert all(s in L.CALL_SITES for s in L.DEFAULT_LOCAL_SKIPS)
+
+
+def test_every_ollama_call_asks_for_the_same_context(monkeypatch):
+    import llm_config as L
+    from llm_caller import _Request
+    from agent_loop.models import OllamaModelClient
+    monkeypatch.delenv("AGENT_LOOP_OLLAMA_NUM_CTX", raising=False)
+    monkeypatch.setenv(L.LOCAL_MODEL_ENV, "qwen3:14b")
+    assert L.ollama_num_ctx() == 24576 == OllamaModelClient("chat").num_ctx
+    monkeypatch.delenv(L.LOCAL_MODEL_ENV)
+    assert L.ollama_num_ctx() == 32768
+    monkeypatch.setenv("AGENT_LOOP_OLLAMA_NUM_CTX", "8192")
+    assert L.ollama_num_ctx() == 8192
+
+
+def test_an_ollama_request_carries_num_ctx_and_no_thinking(monkeypatch):
+    from llm_caller import _Request
+    monkeypatch.setenv("AGENT_LOOP_OLLAMA_NUM_CTX", "16384")
+    _, p = _Request(user_prompt="hi", max_tokens=50, ollama_options={"num_predict": 50}).ollama("qwen3:14b")
+    assert p["options"]["num_ctx"] == 16384 and p["think"] is False
+    _, p = _Request(user_prompt="hi", ollama_options={"num_ctx": 2048}).ollama("m")
+    assert p["options"]["num_ctx"] == 2048  # a caller's own size stands
