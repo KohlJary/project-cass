@@ -2916,6 +2916,7 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
 
         if tools:
             request_json["tools"] = tools
+        request_json["think"] = False  # no hidden thinking (llm_caller.ollama_raw)
 
         try:
             async with httpx.AsyncClient() as client:

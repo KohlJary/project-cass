@@ -905,6 +905,12 @@ async def ollama_raw(
         assignment = default
     body = dict(payload)
     body["model"] = assignment.model_id
+    # No hidden thinking here either (as in _OllamaCall): qwen3 thinks by default
+    # on /api/chat, into a separate field, and when that runs to num_predict the
+    # reply comes back empty. Eris's Babelr replies did (2026-11-24: Kohl's DM,
+    # and three of Daedalus's). Her own <gesture:think> stays in her text. A
+    # caller that sets "think" keeps its choice.
+    body.setdefault("think", False)
     started = time.time()
     ledger = dict(category=category, operation=operation, conversation_id=conversation_id, user_id=user_id)
     try:
