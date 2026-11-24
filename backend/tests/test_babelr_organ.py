@@ -1078,3 +1078,11 @@ class TestAttend:
         babelr.say("general", KOHL, "quiet now")
         await organ.poll_once()
         assert organ.wakes == []
+
+    async def test_attention_turned_on_before_she_started_is_caught_up(self, make_organ, babelr):
+        babelr.say("general", KOHL, "/attend on")   # before she's present
+        organ = self._organ(make_organ, "Here.")
+        await organ.poll_once()                      # first sight: history, and the catch-up
+        babelr.say("general", KOHL, "crazy day")
+        await organ.poll_once()
+        assert len(organ.wakes) == 1 and organ.wakes[0][1]["offered"]

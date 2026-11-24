@@ -489,6 +489,7 @@ class BabelrOrgan:
             first_sight = not self.state.known_place(place)
             if first_sight:
                 self.state.baseline(place)
+            self._catch_up_attend(place, rows)
             for row in rows:
                 msg, author = row["message"], row.get("author") or {}
                 if not self.state.is_new(place, msg["id"], msg["published"]):
@@ -860,6 +861,24 @@ class BabelrOrgan:
         self.state.data.setdefault("attend", {})[event.place] = m.group(1).lower() == "on"
         logger.info(f"[Babelr] {event.place_label}: attention {m.group(1).lower()}")
         return True
+
+    def _catch_up_attend(self, place: str, rows: List[Dict[str, Any]]) -> None:
+        """A channel with no attention state yet (she just started, or attention
+        came before this code did): take it from Kohl's latest "/attend" in the
+        recent history, so a restart never makes Kohl type it again. After this,
+        commands are followed as they arrive."""
+        attend = self.state.data.setdefault("attend", {})
+        if place in attend:
+            return
+        for row in reversed(rows):
+            msg, author = row.get("message") or {}, row.get("author") or {}
+            if (author.get("preferredUsername") or "").lower() != self.config.attend_from:
+                continue
+            m = self.ATTEND_RE.fullmatch((msg.get("content") or "").strip())
+            if m:
+                attend[place] = m.group(1).lower() == "on"
+                logger.info(f"[Babelr] {place}: attention {m.group(1).lower()} (from history)")
+                return
 
     def _offers_her_a_turn(self, event: BabelrEvent) -> bool:
         """A Kohl post that names nobody, in a channel with attention on, when her
