@@ -93,6 +93,31 @@ def test_a_linked_dm_is_their_chat_with_her(booted_app, fake_llm, levers, tmp_pa
     assert babelr.statuses[msg_id]["state"] == "done"
 
 
+def test_an_empty_dm_reply_is_retried_without_offering_pass(booted_app, fake_llm, levers, tmp_path):
+    """A DM is someone waiting: the retry after an empty reply asks for her
+    answer and never offers PASS (Kohl's DM to Eris, 2026-11-24, went unanswered
+    when she took the channel nudge's PASS)."""
+    import main_sdk
+    kohl_user = create_user("Kohl")
+    babelr = FakeBabelr()
+    with levers(babelr=True):
+        organ = _organ(tmp_path, babelr)
+        (organ.config.dir / "links.json").write_text(f'{{"kohl": "{kohl_user}"}}')
+        asyncio.run(organ.poll_once())
+        replies = ["<think>weighing it, never closed", "Start with one post a week."]
+        fake_llm.responder = lambda source, kw: (
+            ScriptedResponse(text=replies.pop(0)) if kw.get("tools") and replies else None)
+        dm_id = babelr.dm_from(KOHL, "how do we reach further?")
+        asyncio.run(organ.poll_once())
+
+    assert babelr.agents[-1].sent == [("dm", dm_id, "Start with one post a week.")]
+    conv = main_sdk.conversation_manager.get_or_create_continuous(kohl_user)
+    stored = [m.content for m in main_sdk.conversation_manager.load_conversation(conv.id).messages]
+    assert main_sdk.BABELR_DM_RETRY_NUDGE in stored
+    assert main_sdk.BABELR_RETRY_NUDGE not in stored
+    assert "PASS" not in main_sdk.BABELR_DM_RETRY_NUDGE
+
+
 def test_a_channel_mention_runs_in_the_channels_conversation(booted_app, fake_llm, levers, tmp_path):
     """A channel turn carries the channel's own history and, for a linked
     person, their private context; the exchange is stored once, by the turn."""

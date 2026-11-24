@@ -1560,6 +1560,12 @@ BABELR_RETRY_NUDGE = (
     "(Babelr, not a person: your last reply had nothing to post in the channel: it was all "
     "thinking, or the thinking wasn't closed. Your thinking stays with you. Reply now with "
     "only what you want to say there, or exactly PASS to say nothing.)")
+# A DM is someone waiting on her: no PASS there. Kohl's DM to Eris on 2026-11-24
+# came back empty, the channel nudge offered PASS, she took it, and Kohl got
+# silence until they sent it again.
+BABELR_DM_RETRY_NUDGE = (
+    "(Babelr, not a person: your last reply came through empty, so nothing reached them. "
+    "Your thinking stays with you. Reply now with only what you want to say to them.)")
 BABELR_RETRIES = 1  # Kohl: "retry at least once if we can't parse a final response"
 
 
@@ -1639,7 +1645,7 @@ def make_babelr_wake_callback():
                     image_media_type=(context.get("image") or {}).get("media_type"),
                 )
             result = await dm_turn(stored, "\n\n".join([stored] + extra))
-            text = await _babelr_reply_or_retry(result, dm_turn, place)
+            text = await _babelr_reply_or_retry(result, dm_turn, place, dm=True)
             return {"text": text, "recorded": True}
 
         # A channel turn runs in the channel's own conversation (its history),
@@ -1676,7 +1682,7 @@ def make_babelr_wake_callback():
     return babelr_wake_callback
 
 
-async def _babelr_reply_or_retry(result, turn, place: str) -> Optional[str]:
+async def _babelr_reply_or_retry(result, turn, place: str, dm: bool = False) -> Optional[str]:
     """Her reply for Babelr, asking her again (BABELR_RETRIES times) when only
     thinking came back. The nudge and her answer are in her own history, so it
     matches what was posted. The log says what failed, never what she thought."""
@@ -1686,7 +1692,8 @@ async def _babelr_reply_or_retry(result, turn, place: str) -> Optional[str]:
         tries += 1
         logger.info(f"[Babelr] {place}: no reply separable from her thinking "
                     f"({len(result.clean_text or '')} chars); asking again ({tries}/{BABELR_RETRIES})")
-        result = await turn(BABELR_RETRY_NUDGE, BABELR_RETRY_NUDGE)
+        nudge = BABELR_DM_RETRY_NUDGE if dm else BABELR_RETRY_NUDGE
+        result = await turn(nudge, nudge)
         text = _babelr_final(result.clean_text)
     if text is None and tries:
         logger.warning(f"[Babelr] {place}: still no separable reply after {tries} retry; posting nothing")
