@@ -306,7 +306,7 @@ def _state(data_dir: Optional[Path] = None) -> Dict[str, Any]:
 def record(source: str, source_id: str, summary: str, origin: Dict[str, Any], *,
            at: Optional[datetime] = None, data_dir: Optional[Path] = None,
            her_interests: Optional[List[str]] = None,
-           now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
+           now: Optional[datetime] = None, quiet: bool = False) -> Optional[Dict[str, Any]]:
     """Log one real event and notice it, or not. Returns the event, or None if it was
     already logged. Raises NotARealEvent for anything without a real source."""
     if source not in SOURCES:
@@ -327,7 +327,7 @@ def record(source: str, source_id: str, summary: str, origin: Dict[str, Any], *,
     if her_interests is None:
         her_interests = interests(now)
     points, why = score(summary, source, str(source_id), her_interests)
-    noticed = points >= rules(data_dir)["threshold"]
+    noticed = not quiet and points >= rules(data_dir)["threshold"]
     event = {"id": key, "source": source, "source_id": str(source_id),
              "at": (at or now).isoformat(timespec="seconds"),
              "logged_at": now.isoformat(timespec="seconds"),
@@ -417,10 +417,15 @@ def poll_clock(now: Optional[datetime] = None, data_dir: Optional[Path] = None) 
         (f"day:{now:%Y-%m-%d}", f"A new day: {now:%A %-d %B %Y}."),
         (f"season:{year}-{season}", f"It's {season} now."),
     ]
+    # A season "turns" only if an earlier one is in her log: on the first poll it's just
+    # the season she's in, logged but not noticed (Eris's first reactive session, 2026-11-24,
+    # was "It's autumn now." in late November).
+    seen_before = any(k.startswith("clock:season:") for k in _read(_dir(data_dir) / "seen.json", []))
     n = 0
     for sid, words in readings:
+        first_season = sid.startswith("season:") and not seen_before
         if record("clock", sid, words, {"clock": now.isoformat(timespec="seconds")},
-                  at=now, data_dir=data_dir, her_interests=[], now=now):
+                  at=now, data_dir=data_dir, her_interests=[], now=now, quiet=first_season):
             n += 1
     return n
 

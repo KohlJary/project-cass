@@ -78,7 +78,10 @@ def test_the_clock_is_real_and_only_a_turning_season_is_noticed(tmp_path):
     assert W.poll_clock(NOW.replace(hour=15), tmp_path) == 1, "a new hour"
     events = W.recent(data_dir=tmp_path)
     assert all(e["origin"]["clock"] for e in events)
-    assert [e["source_id"] for e in events if e["noticed"]] == ["season:2026-autumn"]
+    assert not any(e["noticed"] for e in events), "the first season is the one she's in, not a turning"
+    assert W.poll_clock(datetime(2026, 12, 1, 9, 0), tmp_path) == 3
+    noticed = [e["source_id"] for e in W.recent(data_dir=tmp_path) if e["noticed"]]
+    assert noticed == ["season:2027-winter"], "a season that follows one in her log is a turning"
 
 
 def test_her_threshold_is_hers(tmp_path):
