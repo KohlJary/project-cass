@@ -553,6 +553,9 @@ class TestNightlyHandler:
 
         import identity_snippets
         monkeypatch.setattr(identity_snippets, "trigger_snippet_regeneration", _noop_async)
+        # Quiet hours read the wall clock; pin them off or this fails whenever CI
+        # runs inside them (it did, 2026-11-24 05:00 UTC).
+        monkeypatch.setattr("quiet_hours.is_quiet_hours", lambda user_id: False)
         fake_llm.queue_text("yes")
         fake_llm.queue_text("A dream I want to think about with you.")
         with levers(reach_out=True):
