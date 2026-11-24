@@ -13,6 +13,9 @@ from . import ActionResult
 logger = logging.getLogger(__name__)
 
 
+CATCH_UP_DAYS = 3
+
+
 async def generate_daily_action(context: Dict[str, Any]) -> ActionResult:
     """
     Generate daily journal entry for yesterday.
@@ -32,13 +35,16 @@ async def generate_daily_action(context: Dict[str, Any]) -> ActionResult:
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
     try:
-        generated = await generate_func(days_to_check=1)
+        # Three days, not one: a refused or failed morning (Eris's, 2026-11-24,
+        # refused for budget) left that day without a journal for good. Days
+        # that already have one are skipped, so a normal morning writes one.
+        generated = await generate_func(days_to_check=CATCH_UP_DAYS)
 
         if generated:
-            logger.info(f"Generated journal for {generated[0]}")
+            logger.info(f"Generated journal for {', '.join(generated)}")
             return ActionResult(
                 success=True,
-                message=f"Generated journal for {generated[0]}",
+                message=f"Generated journal for {', '.join(generated)}",
                 cost_usd=context["definition"].estimated_cost_usd,
                 data={
                     "journal_date": generated[0],
