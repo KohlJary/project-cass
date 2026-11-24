@@ -193,7 +193,7 @@ def spies(monkeypatch):
 
     def build_spy(*args, **kwargs):
         ctx = real_build(*args, **kwargs)
-        prompts.append(ctx.system_prompt)
+        prompts.append(ctx)
         return ctx
 
     monkeypatch.setattr(continuous_context, "build_continuous_context", build_spy)
@@ -205,10 +205,14 @@ def _system_prompt_source(chat_calls, prompts):
     POST /chat, HA and Discord sent no continuous prompt, so the clients
     built one from the daemon's active prompt chain (or the kernel)."""
     assert len(prompts) == 1, "continuous context was not built exactly once"
+    # The stable part opens the system prompt and this turn's part follows it
+    # (they go as two system blocks on the loop; tests/test_chat_cache_split.py).
+    ctx = prompts[0]
     sources = set()
     for call in chat_calls:
-        sources.add("continuous_context" if call.system_text.startswith(prompts[0])
-                    else "other")
+        text = call.system_text
+        sources.add("continuous_context" if text.startswith(ctx.stable_prompt)
+                    and ctx.turn_prompt in text[len(ctx.stable_prompt):] else "other")
     return sorted(sources)
 
 

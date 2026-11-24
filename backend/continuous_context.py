@@ -34,6 +34,10 @@ class ContinuousContext:
     context_sections: Dict[str, str]
     recent_message_count: int
     token_estimate: int
+    # system_prompt in its two parts (stable, then a blank line, then turn):
+    # the stable part is cached on its own (agent_loop.models.SplitSystem).
+    stable_prompt: str = ""
+    turn_prompt: str = ""
 
 
 @dataclass
@@ -388,7 +392,9 @@ def build_continuous_context(
     # ==========================================================================
     # Belt and braces: nothing outside the scope reaches the prompt.
     context_sections = {k: v for k, v in context_sections.items() if wanted(k)}
-    system_prompt = _assemble_continuous_prompt(context_sections)
+    stable_prompt = _assemble_stable_prompt(context_sections)
+    turn_prompt = _assemble_turn_prompt(context_sections)
+    system_prompt = f"{stable_prompt}\n\n{turn_prompt}" if turn_prompt else stable_prompt
 
     # Estimate tokens (rough: 4 chars per token)
     token_estimate = len(system_prompt) // 4
@@ -398,6 +404,8 @@ def build_continuous_context(
         context_sections=context_sections,
         recent_message_count=recent_message_limit,
         token_estimate=token_estimate,
+        stable_prompt=stable_prompt,
+        turn_prompt=turn_prompt,
     )
 
 
@@ -659,14 +667,50 @@ def _format_voice_recognition(recognition: SpeakerRecognition) -> str:
         )
 
 
-def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
-    """Assemble the final system prompt from context sections."""
+CONTINUOUS_MODE_NOTE = """## CONTINUOUS CHAT MODE
+
+This is a continuous conversation stream. All our exchanges accumulate here.
+Context flows from multiple sources: active threads, working summary, and semantic memory retrieval.
+The relationship flows naturally - you don't need to re-establish context each message."""
+
+# The sections that stay the same from one turn to the next: who she is. They
+# come first, as their own cached system block (agent_loop.models.SplitSystem);
+# everything after them changes per turn (the time, her state, what was recalled
+# for this message). Order only: the prompt carries the same sections as before.
+# 2026-11-18: $6.16 of a $7.28 chat day was cache writes, because CURRENT TIME
+# sat right after the kernel inside the one cached block.
+STABLE_SECTIONS = ("kernel", "self_model_public", "gremlin", "self_model")
+
+
+def _assemble_stable_prompt(sections: Dict[str, str]) -> str:
+    """Who she is: the same text turn after turn, so it can be cached."""
     parts = []
 
     # 1. Kernel (identity + vows) - always first
     if "kernel" in sections:
         parts.append(sections["kernel"])
 
+    # 2.88. Who she is, in public (identity, values, positions)
+    if "self_model_public" in sections:
+        parts.append(sections["self_model_public"])
+
+    # 2.89. Her gremlin (already has its ## header)
+    if "gremlin" in sections:
+        parts.append(sections["gremlin"])
+
+    # 2.9. Self-model (already has its ## header)
+    if "self_model" in sections:
+        parts.append(sections["self_model"])
+
+    # 9. Continuous mode note (static)
+    parts.append(CONTINUOUS_MODE_NOTE)
+
+    return "\n\n".join(parts)
+
+
+def _assemble_turn_prompt(sections: Dict[str, str]) -> str:
+    """What changes from turn to turn, in the order it always had."""
+    parts = []
     # 2. Temporal awareness
     if "temporal" in sections:
         parts.append(f"## CURRENT TIME\n\n{sections['temporal']}")
@@ -700,21 +744,9 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     if "self_context" in sections:
         parts.append(f"## MY OWN LIFE, LATELY\n\n*My own time between conversations. It was mine, and it mattered:*\n\n{sections['self_context']}")
 
-    # 2.88. Who she is, in public (identity, values, positions)
-    if "self_model_public" in sections:
-        parts.append(sections["self_model_public"])
-
-    # 2.89. Her gremlin (already has its ## header)
-    if "gremlin" in sections:
-        parts.append(sections["gremlin"])
-
     # 2.85. Her presence on Bluesky
     if "social" in sections:
         parts.append(f"## ON BLUESKY\n\n{sections['social']}")
-
-    # 2.9. Self-model (already has its ## header)
-    if "self_model" in sections:
-        parts.append(sections["self_model"])
 
     # 3. Relational context (combined user understanding + relationship)
     if "relational_context" in sections:
@@ -744,14 +776,15 @@ def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
     if "semantic_memories" in sections:
         parts.append(f"## RELEVANT MEMORIES\n\nPast conversations and experiences that may be relevant:\n\n{sections['semantic_memories']}")
 
-    # 9. Continuous mode note
-    parts.append("""## CONTINUOUS CHAT MODE
-
-This is a continuous conversation stream. All our exchanges accumulate here.
-Context flows from multiple sources: active threads, working summary, and semantic memory retrieval.
-The relationship flows naturally - you don't need to re-establish context each message.""")
-
     return "\n\n".join(parts)
+
+
+def _assemble_continuous_prompt(sections: Dict[str, str]) -> str:
+    """Assemble the final system prompt from context sections: the stable part
+    (who she is), then this turn's part."""
+    turn = _assemble_turn_prompt(sections)
+    stable = _assemble_stable_prompt(sections)
+    return f"{stable}\n\n{turn}" if turn else stable
 
 
 def get_recent_messages_for_continuous(
