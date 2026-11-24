@@ -548,6 +548,15 @@ class LLMConfigManager:
         return None
 
     def resolve(self, call_site: str, default: Optional[ModelAssignment] = None) -> Optional[ModelAssignment]:
+        """The model this call should use, with LOCAL_MODEL_ENV applied (see local_model)."""
+        assignment = self._resolve(call_site, default)
+        local = local_model()
+        if local and assignment is not None:
+            # One model for everything: a second resident model runs a 16 GB card out of memory.
+            return ModelAssignment("ollama", local)
+        return assignment
+
+    def _resolve(self, call_site: str, default: Optional[ModelAssignment] = None) -> Optional[ModelAssignment]:
         """The model this call should use. None means: skip the call (no model).
 
         A pinned call site with a fixed policy (the dreams) runs that model
@@ -615,6 +624,19 @@ class LLMConfigManager:
 def get_model_for(call_site: str) -> ModelAssignment:
     """Back-compat: the model assignment for a call site."""
     return LLMConfigManager().get(call_site)
+
+
+# Everything local (Kohl, 2026-11-24, when the API credit ran out: "let's start
+# fucking around with ollama integration"). With LLM_LOCAL_MODEL set (e.g.
+# qwen3:14b), every call that would go to a hosted model runs on that Ollama
+# model instead, pinned sites included, and nothing falls back to a hosted one.
+# Calls already on Ollama move to it too, so only one model is ever resident.
+# Calls a site skips (None) stay skipped. Unset it and everything is as it was.
+LOCAL_MODEL_ENV = "LLM_LOCAL_MODEL"
+
+
+def local_model() -> Optional[str]:
+    return (os.environ.get(LOCAL_MODEL_ENV) or "").strip() or None
 
 
 def resolve_model(call_site: str, default: Optional[ModelAssignment] = None) -> Optional[ModelAssignment]:
