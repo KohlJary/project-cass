@@ -532,12 +532,26 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
     processed = []
     skipped = []
     triaged_out = 0
+    passed_by = 0
     seen_hashes: set = set()
 
     for item in items:
         # Stop if we've processed enough
         if len(processed) >= limit:
             break
+
+        # Her relevance gate, before anything is fetched or read. It used to run
+        # after the full Haiku read, in integrate(), so ~95% of what she paid to
+        # read was dropped there (2026-11-19..23: 407 of 426 gated, median score
+        # 0.00). The score is the same one integrate() checks: consume_headlines
+        # scores the headline with the same scorer, from title and summary.
+        min_rel = config.min_relevance_for_integration
+        if min_rel:
+            score = consumer.relevance({"title": item.title, "summary": item.summary})
+            if score < min_rel:
+                mark_item_processed(item.id, skip_reason=f"passed_by: relevance {score:.2f} < {min_rel:.2f}")
+                passed_by += 1
+                continue
 
         # Get feed info for context
         feed = get_feed(item.feed_id) if item.feed_id else None
@@ -610,7 +624,11 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
             # Integrate insights
             integration = await asyncio.to_thread(integrator.integrate, article, insights)
 
-            # Save the article
+            # Save the article. Mark it completed: this path never did, so every
+            # RSS article sat at "pending" and get_daily_budget (which counts
+            # completed rows) never saw any of them.
+            from world.models import ProcessingStatus
+            article.processing_status = ProcessingStatus.COMPLETED
             consumer._save_article(article)
 
             mark_item_processed(item.id)
@@ -635,7 +653,7 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
 
     logger.info(
         f"Processed {len(processed)} RSS items, "
-        f"skipped {len(skipped)}, triaged out {triaged_out}"
+        f"skipped {len(skipped)}, triaged out {triaged_out}, passed by {passed_by}"
     )
 
     return ActionResult(
@@ -645,6 +663,7 @@ async def process_items_action(context: Dict[str, Any]) -> ActionResult:
             "processed": len(processed),
             "skip_count": len(skipped),
             "triaged_out": triaged_out,
+            "passed_by": passed_by,
             "processed_items": processed,
             "skip_items": skipped,
         }

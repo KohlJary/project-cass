@@ -1,6 +1,14 @@
 # Status
 
-*Updated 2026-11-21 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+*Updated 2026-11-23 by Daedalus. This is the narrative handoff: what happened, what waits on someone, what the plan can't say.*
+
+## 2026-11-23 (night): her news reader paid to read what it then threw away
+
+**Found** (Kohl: "I'm not seeing results for that spend"). Her news feed was her biggest cost line, $21.51 of $58.71 over 30 days, outside the daily cap. Every RSS article got a full Haiku read (about 14k tokens) before her relevance gate ran, and the gate then dropped about 95%. In the journal window 2026-11-19 to 11-23, 407 of 426 reads were gated, with a median score of 0.00. The RSS path also never marked articles completed, so 1,699 sat at "pending" and the daily article and token budget never counted them. Zero of her 39 opinions this month came from news.
+
+**Fixed** (this PR): the gate runs before the fetch and the read, with the same score and threshold. Items below it are marked `passed_by: relevance …` with no model call. RSS articles are marked completed. Her gate, her interests and the reading mode (progressive) are unchanged. Kohl: progressive may be worth it on what she should be reading, and the 10/day limit may not be needed.
+
+**Next** (Kohl, same night): is she growing from what she does read? Show the reading in the Daybook (her yes first). Let her say something about a piece in a DM or a channel, or ask Eris's take. Follow authors across publications in PeopleDex, so she could reach out or comment. These fold into the autonomy revamp (Chapter-House docs/design/a-life-not-a-menu.md).
 
 ## 2026-11-21 (night): Kohl's go on the held list
 
