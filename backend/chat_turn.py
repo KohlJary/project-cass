@@ -305,7 +305,7 @@ async def run_chat_turn(
         (raw_response, clean_text, animations, tool_uses, total_input, total_output, total_cache_read,
          tool_iterations, tool_names_used, generated_images, hit_tool_cap) = await _client_tool_loop(
             turn_client, send_kwargs, response_provider, provider_label, is_anthropic, tool_cap,
-            user_id, user_manager, conversation_id, project_id, emit)
+            user_id, user_manager, conversation_id, project_id, emit, scope=context_scope)
 
     # 3. Persist: tags, marks, memory, SQLite, tokens, title, summary.
     turn = await finalize_chat_turn(
@@ -353,7 +353,8 @@ async def run_chat_turn(
 
 
 async def _client_tool_loop(turn_client, send_kwargs, response_provider, provider_label, is_anthropic,
-                            tool_cap, user_id, user_manager, conversation_id, project_id, emit):
+                            tool_cap, user_id, user_manager, conversation_id, project_id, emit,
+                            scope: str = "private"):
     """The chat tool loop on the provider clients (lever agent_loop_chat off)."""
     from websocket_handlers import _state, execute_tools_safely, extract_generated_images, max_tool_iterations
     response = await turn_client.send_message(**send_kwargs)
@@ -398,6 +399,7 @@ async def _client_tool_loop(turn_client, send_kwargs, response_provider, provide
             user_name=user_name,
             conversation_id=conversation_id,
             project_id=project_id,
+            scope=scope,
         )
         results = await execute_tools_safely(
             _state["execute_tool_batch"], tool_uses, tool_ctx, _state["tool_executors"])

@@ -48,6 +48,31 @@ def test_eris_is_filed_as_house_and_her_existing_entry_is_reused():
     assert len([e for e in dex.search_entities("Eris") if e.primary_name == "Eris"]) == 1
 
 
+def test_eris_filed_as_a_person_already_is_reused_not_duplicated():
+    dex = PeopleDexManager(daemon_id=get_daemon_id())
+    existing = dex.create_entity(EntityType.PERSON, "Eris")
+    run([ev("eris", "hi")], "hi", dex)
+    assert find("babelr", "eris", dex) == existing
+
+
+def test_two_existing_erises_means_nothing_new_is_made():
+    dex = PeopleDexManager(daemon_id=get_daemon_id())
+    dex.create_entity(EntityType.DAEMON, "Eris")
+    dex.create_entity(EntityType.PERSON, "Eris")
+    assert run([ev("eris", "hi")], "hi", dex) == []
+    assert find("babelr", "eris", dex) is None
+    assert len([e for e in dex.search_entities("Eris") if e.primary_name == "Eris"]) == 2
+
+
+def test_a_short_handle_among_many_similar_ones_isnt_duplicated():
+    dex = PeopleDexManager(daemon_id=get_daemon_id())
+    for i in range(7):
+        run([ev(f"al{i}x", "hi")], "hi", dex)
+    run([ev("al", "one")], "a", dex)
+    run([ev("al", "two")], "b", dex)
+    assert len([e for e in dex.search_entities("al") if e.primary_name == "al"]) == 1
+
+
 def test_eris_without_an_entry_gets_a_daemon_one():
     dex = PeopleDexManager(daemon_id=get_daemon_id())
     run([ev("eris", "hi")], "hi", dex)
@@ -100,5 +125,7 @@ def test_filings_file(tmp_path):
     p = tmp_path / "people.json"
     p.write_text(json.dumps({"house": ["@Eris"], "keep_off": ["gemini"]}))
     assert load_filings(p) == {"house": ["eris"], "keep_off": ["gemini"]}
+    p.write_text(json.dumps({"house": "eris", "keep_off": "gemini"}))
+    assert load_filings(p) == {"house": ["eris"], "keep_off": ["gemini"]}, "a string is one name"
     p.write_text("{nope")
     assert "*" in load_filings(p)["keep_off"], "an unreadable file keeps nobody new"

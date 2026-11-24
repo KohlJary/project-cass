@@ -19,6 +19,9 @@ class ToolContext:
     conversation_id: Optional[str] = None
     project_id: Optional[str] = None
     daemon_id: Optional[str] = None
+    # "private", "public" or "house" (continuous_context.CONTEXT_SCOPES): what kind
+    # of turn this is, so a tool can keep house places out of a public one.
+    scope: str = "private"
 
     # Managers (injected at runtime)
     memory: Any = None
@@ -969,6 +972,7 @@ async def route_tool(
             memory=ctx.memory,
             user_id=ctx.user_id,
             daemon_id=ctx.daemon_id,
+            scope=getattr(ctx, "scope", "private"),
         )
 
     elif executor_type == "letters":

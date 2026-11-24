@@ -45,7 +45,8 @@ def test_tools_act_for_the_person_she_is_with(monkeypatch):
     monkeypatch.setitem(ws._state, "execute_tool_batch", batch)
     person = {"user_id": "u-ann", "user_name": "Ann", "conversation_id": "c-1", "project_id": None}
     assert asyncio.run(live_router("d", person=person)("add_task", {})) == "ok"
-    assert seen == {"user_id": "u-ann", "user_name": "Ann", "conversation_id": "c-1", "project_id": None}
+    assert seen == {"user_id": "u-ann", "user_name": "Ann", "conversation_id": "c-1", "project_id": None,
+                    "scope": "private"}  # no scope given: private, as before
 
 
 # Her plans in every conversation (Cass and Kohl, 2026-11-16).

@@ -1016,3 +1016,13 @@ class TestHeard:
         babelr.say("general", KOHL, "just chatting")
         await organ.poll_once()
         assert rec.messages == []
+
+
+    async def test_a_dm_request_isnt_heard(self, make_organ, babelr):
+        rec = _Recorder()
+        organ = make_organ(recorder=rec)
+        organ.start()
+        await organ.poll_once()
+        organ._record_heard(type("E", (), {"kind": "dm_request", "author_name": "robokohl",
+                                           "text": None, "place": "dm:x", "place_label": "DM request"})())
+        assert rec.messages == [] and rec.created == []

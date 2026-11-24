@@ -39,8 +39,15 @@ def load_filings(path: Path) -> Dict[str, List[str]]:
     except Exception as e:
         logger.warning(f"[Babelr] people.json unreadable ({e}); nobody new is kept")
         return {"house": [], "keep_off": ["*"]}
-    return {k: [str(n).lstrip("@").lower() for n in (raw.get(k) or []) if str(n).strip()]
-            for k in DEFAULT_FILINGS}
+    out = {}
+    for k in DEFAULT_FILINGS:
+        v = raw.get(k) if isinstance(raw, dict) else None
+        if isinstance(v, str):
+            v = [v]  # one name, not a list of its letters
+        elif not isinstance(v, list):
+            v = []
+        out[k] = [str(n).lstrip("@").lower() for n in v if str(n).strip()]
+    return out
 
 
 def person_for(username: str, display_name: Optional[str], filings: Dict[str, List[str]]) -> dict:

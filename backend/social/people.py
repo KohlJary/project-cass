@@ -21,15 +21,19 @@ def _dex(daemon_id: Optional[str], dex):
 
 
 def find(platform: str, handle: str, dex) -> Optional[str]:
-    """The PeopleDex entity with this handle on this platform, if there is one."""
-    from peopledex import AttributeType
-    handle = handle.lstrip("@").strip()
-    for e in dex.find_entities(f"{platform}:{handle}", limit=5):
-        if any(getattr(a.attribute_type, "value", a.attribute_type) == AttributeType.HANDLE.value
-               and (a.value or "").lstrip("@").lower() == handle.lower()
-               for a in dex.get_attributes(e.id)):
-            return e.id
-    return None
+    """The PeopleDex entity with exactly this handle on this platform, if there
+    is one. An exact lookup: a substring search with a limit could miss it
+    among similar handles and let a duplicate be made."""
+    from database import get_db
+    handle = handle.lstrip("@").strip().lower()
+    if not handle:
+        return None
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT entity_id FROM peopledex_attributes WHERE attribute_type = 'handle' "
+            "AND LOWER(COALESCE(attribute_key, '')) = ? AND LOWER(LTRIM(value, '@')) = ? "
+            "ORDER BY created_at LIMIT 1", (platform.lower(), handle)).fetchone()
+    return row[0] if row else None
 
 
 def _existing(person: dict, dex) -> Optional[str]:
@@ -44,13 +48,19 @@ def _existing(person: dict, dex) -> Optional[str]:
             return e.id
     name = (person.get("name") or "").strip()
     if person.get("match_name") and name:
-        from peopledex import EntityType
-        etype = EntityType(person.get("entity_type") or "person")
-        exact = [e for e in dex.search_entities(name, etype, limit=20)
+        # Any type: her existing entry may be filed as a person.
+        exact = [e for e in dex.search_entities(name, limit=50)
                  if (e.primary_name or "").strip().lower() == name.lower()]
         if len(exact) == 1:
             return exact[0].id
+        if len(exact) > 1:
+            return AMBIGUOUS
     return None
+
+
+# More than one entry could be them: make nothing, so she (or Daedalus, with
+# her) can say which, instead of adding a third.
+AMBIGUOUS = "ambiguous"
 
 
 def keep(platform: str, people: Iterable[dict], daemon_id: Optional[str] = None, dex=None) -> List[str]:
@@ -71,6 +81,12 @@ def keep(platform: str, people: Iterable[dict], daemon_id: Optional[str] = None,
         if find(platform, handle, dex):
             continue
         entity_id = _existing(person, dex)
+        if entity_id == AMBIGUOUS:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"[people] more than one entry is named {person.get('name')!r}; "
+                f"not adding {platform}:{handle} until she says which")
+            continue
         if entity_id:
             dex.add_attribute(entity_id, AttributeType.HANDLE, handle, attribute_key=platform,
                               is_primary=False, source_type=platform)

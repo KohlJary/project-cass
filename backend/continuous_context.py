@@ -432,12 +432,13 @@ def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int, h
     a house place (a Chapter House channel): that's house context, recalled in
     any house context (Cass, 2026-11-24: "That's just normal context").
     """
-    from memory.scope import (ConversationOwners, house_agent_user_ids, house_place_conversations,
-                              in_house_place, recallable_with)
+    from memory.scope import (ConversationOwners, house_agent_user_ids, house_members,
+                              house_place_conversations, in_house_place, recallable_with)
 
     agents = set() if house else house_agent_user_ids()
     owners = ConversationOwners()
     house_places = house_place_conversations()
+    members = house_members()
     episode_slots = min(EPISODE_SLOTS, n_results)
 
     def pool(where, slots, episodic):
@@ -456,7 +457,7 @@ def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int, h
             if house and is_episode and not in_house_place(meta, house_places):
                 continue
             if not recallable_with(user_id, meta, agents, owners, episodic=episodic,
-                                   house_places=house_places):
+                                   house_places=house_places, members=members):
                 continue
             kept.append(m)
         return kept

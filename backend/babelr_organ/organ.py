@@ -822,7 +822,9 @@ class BabelrOrgan:
         next turn there (spec/house-channel-memory.md, part 2; her yes,
         2026-11-24). What wakes her is stored by her turn instead, so nothing
         is kept twice. Her own posts are recorded when she sends them."""
-        if event.kind == "dm" or not self.terms.remember:
+        # Channels only: a DM is recorded by its own path, and a DM request
+        # (still unread, maybe undecryptable) isn't something she heard.
+        if event.kind != "channel" or not self.terms.remember:
             return
         if (event.author_name or "").lstrip("@").lower() == self.my_username.lower():
             return

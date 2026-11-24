@@ -85,6 +85,21 @@ def house_conversation_ids() -> Set[str]:
     return {r["conversation_id"] for r in _rows("WHERE visibility = 'house'") if r["conversation_id"]}
 
 
+def house_members() -> Set[str]:
+    """Vessel users who are in the house: the people linked to her on Babelr
+    (DATA_DIR/babelr/links.json: Kohl, RoboKohl, Daedalus). House places come up
+    with them, and with nobody else who has an account. Empty if unknown, so
+    house places then come up only where she's with nobody in particular."""
+    try:
+        import json
+        from babelr_organ.config import load_config
+        data = json.loads(load_config().links_path.read_text())
+        return {str(v) for v in data.values() if isinstance(v, str) and v}
+    except Exception as e:
+        logger.debug(f"[places] no house members: {e}")
+        return set()
+
+
 def all_places(platform: Optional[str] = None, visibility: Optional[str] = None) -> List[Dict]:
     clauses, args = [], []
     if platform:

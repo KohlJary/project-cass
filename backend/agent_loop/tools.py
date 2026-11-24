@@ -318,7 +318,8 @@ def live_router(daemon_id: Optional[str], *, person: Optional[Dict[str, Any]] = 
         if person is not None:
             ctx = make_ctx(user_id=person.get("user_id"), user_name=person.get("user_name"),
                            conversation_id=person.get("conversation_id"),
-                           project_id=person.get("project_id"))
+                           project_id=person.get("project_id"),
+                           scope=person.get("scope") or "private")
         else:
             user_id = user_name = None
             try:

@@ -63,7 +63,11 @@ RECALL_TOOL_NAMES = frozenset(t["name"] for t in RECALL_TOOLS)
 
 async def execute_recall_tool(tool_name: str, tool_input: Dict[str, Any], memory=None,
                               user_id: Optional[str] = None, daemon_id: Optional[str] = None,
-                              **_) -> Dict[str, Any]:
+                              scope: str = "private", **_) -> Dict[str, Any]:
+    # A public turn (a room outsiders can read, an unlinked DM) never gets
+    # what was said in a house place (Cass, 2026-11-24: house channels are
+    # recallable in house contexts; spec/house-channel-memory.md).
+    public = scope == "public"
     from memory.recall import recall, recall_open
     if memory is None and tool_name != "lately_open":
         return {"success": False, "error": "My memory isn't reachable from here."}
@@ -73,13 +77,17 @@ async def execute_recall_tool(tool_name: str, tool_input: Dict[str, Any], memory
             out = recall(memory, about=a.get("about"), kinds=a.get("kinds"), with_people=a.get("with"),
                          between=a.get("between"), from_sources=a.get("from"),
                          order=a.get("order") or "relevance", limit=a.get("limit") or 10,
-                         by_month=bool(a.get("by_month")), current_user_id=user_id, daemon_id=daemon_id)
+                         by_month=bool(a.get("by_month")), current_user_id=user_id, daemon_id=daemon_id,
+                         exclude_house=public)
         elif tool_name == "lately_open":
             from database import get_daemon_id
             from lately import lately_open
+            if public and (a.get("id") or "").strip().strip("[]").startswith("place:"):
+                return {"success": False, "error": "That's from a house place; it stays in the house."}
             out = lately_open(daemon_id or get_daemon_id(), a.get("id") or "")
         elif tool_name == "recall_open":
-            out = recall_open(memory, a.get("id") or "", around=int(a.get("around", 3)), current_user_id=user_id)
+            out = recall_open(memory, a.get("id") or "", around=int(a.get("around", 3)), current_user_id=user_id,
+                              exclude_house=public)
         else:
             return {"success": False, "error": f"unknown recall tool {tool_name}"}
     except Exception as e:

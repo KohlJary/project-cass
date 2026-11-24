@@ -108,6 +108,13 @@ class People:
         return (meta.get("with") or "").lower() in self.handles
 
 
+def _house_place_for(meta: Dict[str, Any], current: Optional[str]) -> bool:
+    if not _house_place(meta):
+        return False
+    from memory.scope import house_members
+    return current is None or current in house_members()
+
+
 def _house_place(meta: Dict[str, Any]) -> bool:
     from memory.scope import house_place_conversations, in_house_place
     return in_house_place(meta, house_place_conversations())
@@ -128,8 +135,9 @@ def _entry(mid: str, doc: str, meta: Dict[str, Any], owner: Optional[str], curre
            "from": _source(meta), "text": text}
     if meta.get("with"):
         out["with"] = meta["with"]
-    # A house place (a Chapter House channel) is house context, not someone's.
-    if owner and owner != current and owner not in agents and not _house_place(meta):
+    # A house place (a Chapter House channel) is house context, not someone's,
+    # when she's with someone in the house (or nobody in particular).
+    if owner and owner != current and owner not in agents and not _house_place_for(meta, current):
         out["note"] = THEIRS_NOTE
     return out
 
@@ -138,7 +146,8 @@ def recall(memory, *, about: Optional[str] = None, kinds: Optional[Sequence[str]
            with_people: Optional[Sequence[str]] = None, between: Optional[Dict[str, str]] = None,
            from_sources: Optional[Sequence[str]] = None, order: str = "relevance", limit: int = 10,
            by_month: bool = False, current_user_id: Optional[str] = None,
-           daemon_id: Optional[str] = None, dex=None, owners=None, agents=None) -> Dict[str, Any]:
+           daemon_id: Optional[str] = None, dex=None, owners=None, agents=None,
+           exclude_house: bool = False) -> Dict[str, Any]:
     limit = max(1, min(int(limit or 10), MAX_LIMIT))
     types = _types(kinds)
     unknown_kinds = [k for k in (kinds or ()) if k not in KINDS]
@@ -159,9 +168,12 @@ def recall(memory, *, about: Optional[str] = None, kinds: Optional[Sequence[str]
         if order == "relevance":
             order = "newest"
 
-    from memory.scope import owner_of
+    from memory.scope import house_place_conversations, in_house_place, owner_of
+    house = house_place_conversations() if exclude_house else set()
     results = []
     for mid, doc, meta in candidates:
+        if house and in_house_place(meta, house):
+            continue  # a public turn: what was said in the house stays there
         if not _in_range(meta, between):
             continue
         if sources and _source(meta) not in sources:
@@ -193,11 +205,13 @@ def recall(memory, *, about: Optional[str] = None, kinds: Optional[Sequence[str]
 
 
 def recall_open(memory, memory_id: str, *, around: int = 3, current_user_id: Optional[str] = None,
-                owners=None, agents=None) -> Dict[str, Any]:
+                owners=None, agents=None, exclude_house: bool = False) -> Dict[str, Any]:
     got = memory.collection.get(ids=[memory_id], include=["documents", "metadatas"])
     if not got.get("ids"):
         return {"error": "I don't have a memory with that id (it comes from recall's results)."}
     doc, meta = got["documents"][0], got["metadatas"][0]
+    if exclude_house and _house_place(meta):
+        return {"error": "That's from a house place; it stays in the house."}
     if owners is None or agents is None:
         owners, agents = _owners()
     from memory.scope import owner_of

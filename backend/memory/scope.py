@@ -84,20 +84,30 @@ def in_house_place(metadata: Dict, house_places: Iterable[str]) -> bool:
     return bool(conv) and conv in set(house_places)
 
 
+def house_members() -> Set[str]:
+    try:
+        from places import house_members as members
+        return members()
+    except Exception as e:
+        logger.debug(f"[scope] no house members: {e}")
+        return set()
+
+
 def recallable_with(user_id: Optional[str], metadata: Dict, agents: Iterable[str],
                     owners: Callable[[Optional[str]], Optional[str]], *, episodic: bool,
-                    house_places: Iterable[str] = ()) -> bool:
+                    house_places: Iterable[str] = (), members: Iterable[str] = ()) -> bool:
     """May this memory come up while she's with `user_id` (None: nobody known)?
 
-    A memory from a house place comes up in any house context (callers in
-    public context don't recall at all). Otherwise: episodic memories
+    A memory from a house place comes up in house contexts: with a house
+    member (`members`), or with nobody in particular (her own sessions, a
+    housemate's DM). Callers in public context don't recall at all. Otherwise: episodic memories
     (conversations, summary chunks) need an owner, the person she's with or
     a house agent. Other memories (her journals, reflections, notes) come up
     anywhere, unless they're tagged with someone, in which case the same rule
     applies.
     """
     if in_house_place(metadata, house_places):
-        return True
+        return user_id is None or user_id in set(members)
     owner = owner_of(metadata, owners)
     if owner is None:
         return not episodic

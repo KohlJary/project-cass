@@ -49,8 +49,18 @@ OWNERS = {"conv-general": None, "conv-kohl": "kohl"}.get
 HOUSE = {"conv-general"}
 
 
+MEMBERS = {"kohl", "robokohl"}
+
+
 def ok(with_user, meta, episodic=True):
-    return recallable_with(with_user, meta, set(), OWNERS, episodic=episodic, house_places=HOUSE)
+    return recallable_with(with_user, meta, set(), OWNERS, episodic=episodic, house_places=HOUSE,
+                           members=MEMBERS)
+
+
+def test_a_house_place_doesnt_come_up_with_someone_outside_the_house():
+    # Momus, 2026-11-24: any account with private chat isn't the house.
+    assert not ok("sam", {"conversation_id": "conv-general"})
+    assert not ok("sam", {"conversation_id": "conv-general", "user_id": "kohl"})
 
 
 def test_a_house_place_comes_up_whoever_woke_her():
@@ -85,9 +95,15 @@ def _mem(i, conv, type_="conversation", user_id=None):
     return {"id": f"m{i}", "content": f"memory {i}", "metadata": meta, "distance": 0.1 * i}
 
 
-def _recall(found, user_id, house=False):
+def _recall(found, user_id, house=False, members=frozenset({"kohl"})):
     import continuous_context as cc
-    return {m["id"] for m in cc._scoped_recall(FakeMemory(found), "crazy day", user_id, 5, house=house)}
+    import memory.scope as scope
+    real = scope.house_members
+    scope.house_members = lambda: set(members)
+    try:
+        return {m["id"] for m in cc._scoped_recall(FakeMemory(found), "crazy day", user_id, 5, house=house)}
+    finally:
+        scope.house_members = real
 
 
 def test_with_kohl_she_recalls_the_house_channel_a_guest_woke_her_in():
@@ -140,3 +156,46 @@ def test_a_public_servers_channels_are_public():
     organ = _organ(True, {"channel:g": "conv-general"})
     organ._register_places()
     assert places.by_conversation("conv-general")["visibility"] == "public"
+
+
+# -- her recall tools in a public turn (Momus, 2026-11-24, finding 1) -----------------
+
+class FakeCollection:
+    def __init__(self, items):
+        self.items = items
+
+    def get(self, ids=None, include=None, where=None, **kw):
+        got = [i for i in self.items if ids is None or i["id"] in ids]
+        return {"ids": [i["id"] for i in got], "documents": [i["content"] for i in got],
+                "metadatas": [i["metadata"] for i in got]}
+
+    def query(self, query_texts=None, n_results=10, where=None, include=None, **kw):
+        got = self.items[:n_results]
+        return {"ids": [[i["id"] for i in got]], "documents": [[i["content"] for i in got]],
+                "metadatas": [[i["metadata"] for i in got]], "distances": [[0.1 for _ in got]]}
+
+
+class RecallMemory:
+    def __init__(self, items):
+        self.collection = FakeCollection(items)
+        self.items = items
+
+    def retrieve_where(self, query, n, where):
+        return list(self.items)[:n]
+
+
+def test_public_turns_dont_get_house_places_from_her_recall_tools():
+    import asyncio
+    from handlers.recall import execute_recall_tool
+    places.register("babelr", "channel:general", kind="channel", visibility="house",
+                    conversation_id="conv-general", label="#general")
+    mem = RecallMemory([_mem(1, "conv-general", type_="summary")])
+    pub = asyncio.run(execute_recall_tool("recall", {"about": "Dre"}, memory=mem, scope="public"))
+    assert pub["success"] and not pub["result"].get("results"), pub
+    opened = asyncio.run(execute_recall_tool("recall_open", {"id": "m1"}, memory=mem, scope="public"))
+    assert not opened["success"]
+    lately = asyncio.run(execute_recall_tool("lately_open", {"id": "place:babelr:channel:g:2026-11-24"},
+                                             memory=mem, scope="public"))
+    assert not lately["success"] and "stays in the house" in lately["error"]
+    private = asyncio.run(execute_recall_tool("recall", {"about": "Dre"}, memory=mem, scope="private"))
+    assert private["result"].get("results"), "a house context still finds it"

@@ -551,11 +551,13 @@ def create_tool_context(
     user_id: Optional[str] = None,
     user_name: Optional[str] = None,
     conversation_id: Optional[str] = None,
-    project_id: Optional[str] = None
+    project_id: Optional[str] = None,
+    scope: str = "private",
 ) -> ToolContext:
     """Create a ToolContext with all global managers injected."""
     g = globals()
     return ToolContext(
+        scope=scope,
         user_id=user_id,
         user_name=user_name,
         conversation_id=conversation_id,
@@ -1701,7 +1703,7 @@ async def _babelr_unstored_turn(events, context):
     tool_cap = max_tool_iterations()
     while response.stop_reason == "tool_use" and response.tool_uses and tool_iteration < tool_cap:
         tool_iteration += 1
-        tool_ctx = create_tool_context(user_id=None, user_name=events[-1].author_name)
+        tool_ctx = create_tool_context(user_id=None, user_name=events[-1].author_name, scope="public")
         tool_results = await execute_tools_safely(
             execute_tool_batch, response.tool_uses, tool_ctx, TOOL_EXECUTORS
         )
