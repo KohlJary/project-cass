@@ -135,6 +135,13 @@ class _LLMLease:
         if not enabled():
             yield
             return
+        # The broker only gives sessions to ComfyUI and services, not to an LLM
+        # (2026-11-24: "'llama31' is not a ready ComfyUI model or service"), so
+        # her calls can't hold the card: they wait out an image or song session.
+        if not SESSIONS_FOR_LLM:
+            await wait_for_llm()
+            yield
+            return
         async with self._get_lock():
             if self._release is not None:
                 self._release.cancel()
@@ -163,6 +170,30 @@ class _LLMLease:
                 ctx, self._ctx = self._ctx, None
                 with contextlib.suppress(Exception):
                     await ctx.__aexit__(None, None, None)
+
+
+SESSIONS_FOR_LLM = os.environ.get("GPU_BROKER_LLM_SESSIONS", "0") == "1"
+
+
+async def wait_for_llm(max_wait: Optional[float] = None, get=None) -> None:
+    """Async: wait while an image or song session holds the card (as wait_for_llm_sync)."""
+    if not enabled():
+        return
+    max_wait = LLM_MAX_WAIT_S if max_wait is None else max_wait
+    start = time.monotonic()
+    async with httpx.AsyncClient(base_url=_url(), headers=_headers(), timeout=REQUEST_TIMEOUT_S) as c:
+        while True:
+            try:
+                st = get() if get else (await c.get("/v1/status")).json()
+            except Exception as e:
+                logger.warning(f"[gpu_broker] status unreachable ({e}); calling Ollama anyway")
+                return
+            model = ((st.get("session") or {}).get("model") or "")
+            if model not in NON_LLM_KINDS:
+                return
+            if time.monotonic() - start > max_wait:
+                raise BrokerError(f"the card is still held by {model} after {max_wait:.0f}s")
+            await asyncio.sleep(POLL_S)
 
 
 _lease = _LLMLease()

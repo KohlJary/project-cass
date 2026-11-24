@@ -32,6 +32,7 @@ class FakeSessions:
 def on(monkeypatch):
     monkeypatch.setattr(gbc, "enabled", lambda: True)
     monkeypatch.setattr(gbc, "GRACE_S", 0.05)
+    monkeypatch.setattr(gbc, "SESSIONS_FOR_LLM", True)  # the session path, behind its switch
 
 
 def test_concurrent_calls_share_one_session_released_after_grace(on):
@@ -113,3 +114,23 @@ def test_an_unreachable_broker_doesnt_stop_her_thinking(on):
     def boom():
         raise OSError("refused")
     gbc.wait_for_llm_sync(max_wait=60, sleep=lambda s: None, get=boom)
+
+
+def test_by_default_her_calls_wait_out_an_image_session_instead_of_opening_one(monkeypatch):
+    monkeypatch.setattr(gbc, "enabled", lambda: True)
+    monkeypatch.setattr(gbc, "SESSIONS_FOR_LLM", False)
+    monkeypatch.setattr(gbc, "POLL_S", 0.0)
+    fake = FakeSessions()
+    lease = gbc._LLMLease(session=fake)
+    states = [{"session": {"model": "comfyui"}}, {"session": None}]
+    real = gbc.wait_for_llm
+
+    async def waited(max_wait=None, get=None):
+        await real(max_wait=60, get=lambda: states.pop(0))
+    monkeypatch.setattr(gbc, "wait_for_llm", waited)
+
+    async def main():
+        async with lease.hold():
+            pass
+    asyncio.run(main())
+    assert fake.entered == 0 and states == []
