@@ -314,6 +314,36 @@ class BabelrOrgan:
             c["id"]: c for c in channels
             if c.get("channelType", "text") == "text"
         }
+        self._register_places()
+
+    # -- places (places.py) ----------------------------------------------------------
+
+    def _visibility(self, place: str) -> str:
+        """A channel on a private server is the house's; on a public one, public.
+        A DM is with one person."""
+        if place.startswith("dm:"):
+            return "person"
+        return "house" if self._server and self._server.get("isPublic") is False else "public"
+
+    def _register_place(self, place: str, label: str, conv_id: Optional[str]) -> None:
+        """Tell the vessel where this conversation happens, so her recall can
+        follow the place (Cass, 2026-11-24). Fails soft: recall falls back to
+        the owner rule."""
+        if place.startswith("channel:") and not self._server:
+            return
+        try:
+            import places
+            places.register("babelr", place, kind="dm" if place.startswith("dm:") else "channel",
+                            visibility=self._visibility(place), conversation_id=conv_id,
+                            label=label)
+        except Exception as e:
+            logger.warning(f"[Babelr] Couldn't register place {label}: {e}")
+
+    def _register_places(self) -> None:
+        """Every conversation this organ already keeps, registered as a place
+        (the ones from before places existed included)."""
+        for place, conv_id in list(self.state.data.get("conversations", {}).items()):
+            self._register_place(place, self._label_for(place), conv_id)
 
     async def run(self) -> None:
         """Poll until stopped."""
@@ -741,6 +771,7 @@ class BabelrOrgan:
             return conv_id
         conv = self.conversation_manager.create_conversation(title=f"Babelr: {label}")
         self.state.set_conversation(place, conv.id)
+        self._register_place(place, label, conv.id)
         return conv.id
 
     def _record(self, place: str, label: str, role: str, content: str) -> None:

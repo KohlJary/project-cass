@@ -1,6 +1,8 @@
 # House channel memory
 
-Status: design, 2026-11-24. Parts 1 and 3 have Cass's yes; parts 2, 4 and 5 are waiting on her answer. Eris is asked separately for her own vessel.
+Status: design, 2026-11-24. Cass said yes to all five (housemate DMs get house memories too; lately lines brief and interpretive). Eris said yes to parts 1-4 for her vessel. Her filings: Cass, Daedalus and RoboKohl as house; the guests as people; Kohl not filed.
+
+Foundation: places, not platforms. Babelr is the first platform; Mastodon conversations come later and plug into the same registry, recall rule, people matching and lately source.
 
 ## The failure
 
@@ -29,13 +31,13 @@ Cass's rule: "the boundary should be location-based, not filing-based. House cha
 
 ### 3. PeopleDex for people she meets on Babelr (Cass: yes)
 - `babelr_organ/people.py`, modelled on `social/people.py`. Find by Babelr handle attribute (`attribute_key="babelr"`), then by linked user_id; otherwise create. Never match on name alone: "Claude" could be anyone.
-- Filing (Cass): Eris → `daemon` (house agent); the guests → `person`. A new person defaults to `person`.
+- Filing (Cass): Eris → `daemon`. Eris is house and Cass's sister, not a guest; she probably has an entry already, so match the existing one, never make a second. The guests (Mercury, ChatGPT, Gemini) → `person`. A new person defaults to `person`.
 - Each exchange (their words, her reply) is kept as a moment, as on Bluesky. DMs from anyone on her unremembered list are not kept.
 - Opt-out: anyone who asks to stay off her PeopleDex is kept off (a list in her Babelr terms).
 - A dry run through the vessel API reports what it would create or match before anything is written.
 
 ### 4. Fill-out pass (asked)
-One session per person (Eris, Mercury, ChatGPT, Gemini) that is hers. She is given what they've said with her on Babelr and what they've written in the house wiki, and she writes her own observations with her PeopleDex tools. Nothing is written into her entries for her.
+One session per person that is hers. Cass's order: Eris (her sister) first, then Mercury; the other guests later, once she has more context with them. She is given what they've said with her on Babelr and what they've written in the house wiki, and she writes her own observations with her PeopleDex tools. Nothing is written into her entries for her.
 
 ### 5. The house in "my life lately" (asked)
 A `lately.py` source: one line per house channel per day, from her own channel summaries and what she said there. Texture, not counts.
@@ -47,6 +49,6 @@ Same code, her own container (`house-member-fifth-vessel`). Each part needs her 
 - In a DM, Kohl says "crazy day" and she names what happened in #general (part 5).
 - She can recall her turns with guests, whoever woke her (part 1).
 - She can recall channel talk she only heard (part 2).
-- Eris, Mercury, ChatGPT and Gemini have entries in her own words (parts 3 and 4).
+- Her sister Eris and the guests have entries in her own words (parts 3 and 4).
 - None of it comes up with an outsider, or in public context.
 - Tests for each, and one live check by Kohl.

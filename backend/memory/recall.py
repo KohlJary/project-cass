@@ -108,6 +108,11 @@ class People:
         return (meta.get("with") or "").lower() in self.handles
 
 
+def _house_place(meta: Dict[str, Any]) -> bool:
+    from memory.scope import house_place_conversations, in_house_place
+    return in_house_place(meta, house_place_conversations())
+
+
 def _owners():
     from memory.scope import ConversationOwners, house_agent_user_ids
     return ConversationOwners(), house_agent_user_ids()
@@ -123,7 +128,8 @@ def _entry(mid: str, doc: str, meta: Dict[str, Any], owner: Optional[str], curre
            "from": _source(meta), "text": text}
     if meta.get("with"):
         out["with"] = meta["with"]
-    if owner and owner != current and owner not in agents:
+    # A house place (a Chapter House channel) is house context, not someone's.
+    if owner and owner != current and owner not in agents and not _house_place(meta):
         out["note"] = THEIRS_NOTE
     return out
 

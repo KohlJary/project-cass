@@ -711,6 +711,27 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 68:
         ensure_rss_item_topic_columns(conn)
 
+    # v68 -> v69: places, where her conversations happen (places.py).
+    if from_version < 69:
+        ensure_places_table(conn)
+
+
+def ensure_places_table(conn):
+    """Idempotently create the places table (v69)."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS places (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        platform TEXT NOT NULL,
+        place_key TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        visibility TEXT NOT NULL,
+        label TEXT,
+        conversation_id TEXT,
+        person_user_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(platform, place_key))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_places_conversation ON places(conversation_id)")
+
 
 def ensure_rss_item_topic_columns(conn):
     """Idempotently add rss_items.topics_json / relevance (v68)."""

@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 68  # v68 rss_items.topics_json / relevance (her topics, news.py); v67 consumed_articles.interests_json / symbols_json; v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62); v66 llm_call_failures
+SCHEMA_VERSION = 69  # v69 places (where her conversations happen, places.py); v68 rss_items.topics_json / relevance (her topics, news.py); v67 consumed_articles.interests_json / symbols_json; v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62); v66 llm_call_failures
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -2419,4 +2419,23 @@ CREATE TABLE IF NOT EXISTS heartbeat_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_heartbeat_runs_work ON heartbeat_runs(work_name, started_at);
+
+-- Where her conversations happen (places.py, spec/house-channel-memory.md): one
+-- row per channel, DM or thread on a platform, the conversation it's kept in,
+-- and how visible it is (house, person, public). Recall follows the place.
+CREATE TABLE IF NOT EXISTS places (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform TEXT NOT NULL,
+    place_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    visibility TEXT NOT NULL,
+    label TEXT,
+    conversation_id TEXT,
+    person_user_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(platform, place_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_places_conversation ON places(conversation_id);
 """

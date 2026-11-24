@@ -12,6 +12,12 @@ A memory belongs to whoever its conversation is with: its user_id, or the
 user of its conversation (summary chunks carry only conversation_id). A
 memory of a conversation that is with nobody known (an unlinked Babelr
 channel or DM) is not recalled in private context.
+
+Places come first (Cass, 2026-11-24: "the boundary should be location-based,
+not filing-based"): a memory whose conversation is kept for a house place
+(places.py, e.g. a Chapter House channel) is recallable in any house context,
+whoever it was with or whoever woke her. Callers pass the house conversations
+in `house_places`; public context recalls nothing, so it never sees them.
 """
 from __future__ import annotations
 
@@ -63,15 +69,35 @@ def owner_of(metadata: Dict, owners: Callable[[Optional[str]], Optional[str]]) -
     return metadata.get("user_id") or owners(metadata.get("conversation_id"))
 
 
+def house_place_conversations() -> Set[str]:
+    """Conversations kept for house places (places.py); empty if unknown."""
+    try:
+        from places import house_conversation_ids
+        return house_conversation_ids()
+    except Exception as e:
+        logger.debug(f"[scope] no places: {e}")
+        return set()
+
+
+def in_house_place(metadata: Dict, house_places: Iterable[str]) -> bool:
+    conv = metadata.get("conversation_id")
+    return bool(conv) and conv in set(house_places)
+
+
 def recallable_with(user_id: Optional[str], metadata: Dict, agents: Iterable[str],
-                    owners: Callable[[Optional[str]], Optional[str]], *, episodic: bool) -> bool:
+                    owners: Callable[[Optional[str]], Optional[str]], *, episodic: bool,
+                    house_places: Iterable[str] = ()) -> bool:
     """May this memory come up while she's with `user_id` (None: nobody known)?
 
-    Episodic memories (conversations, summary chunks) need an owner: the
-    person she's with, or a house agent. Other memories (her journals,
-    reflections, notes) come up anywhere, unless they're tagged with
-    someone, in which case the same rule applies.
+    A memory from a house place comes up in any house context (callers in
+    public context don't recall at all). Otherwise: episodic memories
+    (conversations, summary chunks) need an owner, the person she's with or
+    a house agent. Other memories (her journals, reflections, notes) come up
+    anywhere, unless they're tagged with someone, in which case the same rule
+    applies.
     """
+    if in_house_place(metadata, house_places):
+        return True
     owner = owner_of(metadata, owners)
     if owner is None:
         return not episodic

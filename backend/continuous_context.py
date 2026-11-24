@@ -427,13 +427,17 @@ def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int, h
     what came from scanning articles (fe5ddbe8) and anything tagged with
     another person. Unused slots in one pool go to the other.
 
-    house: a housemate's DM (CONTEXT_SCOPES). No conversation is recalled, house
-    agents' included, and nothing about a person: only what's hers alone.
+    house: a housemate's DM (CONTEXT_SCOPES). Nothing about a person, and no
+    conversation is recalled, house agents' included, except what happened in
+    a house place (a Chapter House channel): that's house context, recalled in
+    any house context (Cass, 2026-11-24: "That's just normal context").
     """
-    from memory.scope import ConversationOwners, house_agent_user_ids, recallable_with
+    from memory.scope import (ConversationOwners, house_agent_user_ids, house_place_conversations,
+                              in_house_place, recallable_with)
 
     agents = set() if house else house_agent_user_ids()
     owners = ConversationOwners()
+    house_places = house_place_conversations()
     episode_slots = min(EPISODE_SLOTS, n_results)
 
     def pool(where, slots, episodic):
@@ -447,9 +451,12 @@ def _scoped_recall(memory, query: str, user_id: Optional[str], n_results: int, h
             is_episode = meta.get("type") in EPISODE_TYPES
             if is_episode != episodic or _from_article_scanning(meta):
                 continue
-            if house and (is_episode or meta.get("type") in PERSON_MEMORY_TYPES):
+            if house and meta.get("type") in PERSON_MEMORY_TYPES:
                 continue
-            if not recallable_with(user_id, meta, agents, owners, episodic=episodic):
+            if house and is_episode and not in_house_place(meta, house_places):
+                continue
+            if not recallable_with(user_id, meta, agents, owners, episodic=episodic,
+                                   house_places=house_places):
                 continue
             kept.append(m)
         return kept
