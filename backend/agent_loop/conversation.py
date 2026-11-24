@@ -331,7 +331,13 @@ async def run_conversation(
             logger.warning(f"[agent_loop] sessions block: {e}")
 
     if client is None:
-        client = _client_for(provider, model, agent_client)
+        # LLM_LOCAL_MODEL: chat runs on the one local model too (llm_config.local_model).
+        from llm_config import local_model
+        if local_model():
+            from .models import OllamaModelClient
+            client, model = OllamaModelClient("chat"), local_model()
+        else:
+            client = _client_for(provider, model, agent_client)
     # Each model call is filed under chat, with this conversation and person
     # (finalize_chat_turn then doesn't record the turn's total a second time).
     client.ledger = {"category": "chat", "operation": "conversation_step",

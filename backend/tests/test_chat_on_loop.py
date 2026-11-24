@@ -205,3 +205,33 @@ def test_the_gremlins_revise_step_runs_her_loop_with_tools(monkeypatch):
     assert out.clean_text.startswith("Kohl's wrong")
     assert len(calls) == 2 and calls[1]["tools"] == calls[0]["tools"] and calls[1]["tools"]
     assert calls[1]["last"].startswith("[GREMLIN] what do you actually disagree with?")
+
+
+def test_chat_runs_on_the_local_model_when_it_is_set(monkeypatch):
+    """LLM_LOCAL_MODEL (credit out, 2026-11-24): chat goes to that Ollama model, not Claude."""
+    from agent_loop import conversation, models
+    from agent_loop.models import ModelReply
+    seen = {}
+
+    class Local:
+        ledger = None
+
+        def __init__(self, call_site):
+            seen["call_site"] = call_site
+
+        async def create(self, *, model, system, tools, messages, max_tokens):
+            seen["model"] = model
+            return ModelReply("still here", [], "end_turn", 1, 1)
+
+    class Space:
+        def run(self, *a):
+            return ""
+
+    monkeypatch.setattr(models, "OllamaModelClient", Local)
+    monkeypatch.setattr(conversation, "_client_for", lambda *a: (_ for _ in ()).throw(AssertionError("hosted")))
+    monkeypatch.setenv("LLM_LOCAL_MODEL", "qwen3:14b")
+    asyncio.run(conversation.run_conversation(
+        system_prompt="KERNEL", continuous_messages=[], model_message="you there?",
+        person={"user_name": "Kohl"}, channel="babelr", provider="anthropic", model="claude-haiku-4-5",
+        catalog={}, workspace=Space(), run_router=lambda *a: None, working_toward=""))
+    assert seen == {"call_site": "chat", "model": "qwen3:14b"}
