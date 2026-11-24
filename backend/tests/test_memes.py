@@ -62,3 +62,45 @@ def test_a_failed_source_is_quiet(data_dir, monkeypatch):
     monkeypatch.setattr(memes.requests, "get", boom)
     out = memes.find_memes()
     assert out["success"] and out["memes"] == []
+
+
+# --- her sources and the NSFW toggle ---------------------------------------------
+
+def test_nsfw_shows_only_with_both_keys_and_hard_floor_holds():
+    posts = [_post(1, nsfw=True), _post(2, title="nsfw but funny"), _post(3, title="gore lol", nsfw=True), _post(4)]
+    assert [c["key"] for c in memes.candidates(posts, None, [])] == ["https://x/post/4"]
+    on = [c["key"] for c in memes.candidates(posts, None, [], nsfw=True)]
+    assert "https://x/post/1" in on and "https://x/post/2" in on and "https://x/post/3" not in on
+
+
+def test_her_list_starts_from_the_house_and_she_changes_it(data_dir, monkeypatch):
+    monkeypatch.setenv("MEME_COMMUNITIES", "memes@lemmy.ml,comics@lemmy.world")
+    monkeypatch.setattr(memes, "_lookup", lambda name: {"name": name, "title": "T", "nsfw": False, "subscribers": 5})
+    assert memes.meme_sources("list")["communities"] == ["memes@lemmy.ml", "comics@lemmy.world"]
+    out = memes.meme_sources("add", "!MusicMemes@lemmy.world")
+    assert out["success"] and out["communities"][-1] == "musicmemes@lemmy.world" and out["yours"]
+    assert memes.meme_sources("remove", "comics@lemmy.world")["communities"] == ["memes@lemmy.ml", "musicmemes@lemmy.world"]
+    assert memes.communities() == ["memes@lemmy.ml", "musicmemes@lemmy.world"]
+    assert not memes.meme_sources("add", "memes@lemmy.ml")["success"]          # already there
+    assert not memes.meme_sources("remove", "nope@lemmy.ml")["success"]        # not there
+    assert not memes.meme_sources("add", "not a community")["success"]        # bad shape
+    assert memes.meme_sources("reset")["communities"] == ["memes@lemmy.ml", "comics@lemmy.world"]
+    assert [e["did"] for e in memes._settings()["log"]][:2] == ["added musicmemes@lemmy.world",
+                                                                 "removed comics@lemmy.world"]
+
+
+def test_an_unknown_community_is_refused(data_dir, monkeypatch):
+    monkeypatch.setattr(memes, "_lookup", lambda name: {"error": f"Lemmy doesn't know {name}"})
+    out = memes.meme_sources("add", "ghost@lemmy.world")
+    assert not out["success"] and "doesn't know" in out["error"]
+    assert "ghost@lemmy.world" not in memes.communities()
+
+
+def test_nsfw_toggle_is_two_keys(data_dir, monkeypatch):
+    monkeypatch.delenv("MEME_NSFW_ALLOWED", raising=False)
+    out = memes.meme_sources("nsfw_on")
+    assert out["nsfw"] == {"your_choice": True, "house_allows": False, "shown": False} and "house" in out["note"]
+    monkeypatch.setenv("MEME_NSFW_ALLOWED", "1")
+    assert memes.nsfw_on()
+    memes.meme_sources("nsfw_off")
+    assert not memes.nsfw_on()

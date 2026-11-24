@@ -65,6 +65,10 @@ async def execute_babelr_tool(tool_name: str, tool_input: Dict[str, Any], **kwar
                 return {"success": False, "error": "place, message_id and emoji are required"}
             return await asyncio.to_thread(organ.react, tool_input["place"], tool_input["message_id"],
                                            tool_input["emoji"], bool(tool_input.get("remove")))
+        if tool_name == "meme_sources":
+            from memes import meme_sources
+            return await asyncio.to_thread(meme_sources, tool_input.get("action") or "list",
+                                           tool_input.get("community"))
         if tool_name == "find_memes":
             from memes import find_memes
             return await asyncio.to_thread(find_memes, tool_input.get("topic"),
@@ -231,8 +235,8 @@ def for_this_house(value, server: str, person: str, name: str):
     return value
 
 
-from memes import FIND_MEMES_TOOL  # noqa: E402  (finding something to share)
-BABELR_TOOLS.append(FIND_MEMES_TOOL)
+from memes import FIND_MEMES_TOOL, MEME_SOURCES_TOOL  # noqa: E402  (finding something to share)
+BABELR_TOOLS += [FIND_MEMES_TOOL, MEME_SOURCES_TOOL]
 
 
 def _localize() -> None:
