@@ -800,9 +800,7 @@ class BabelrOrgan:
                 logger.warning(f"[Babelr] Couldn't read DM {dm_id} for retries: {e}")
                 continue
             for m in messages:
-                statuses = m.get("agent_status") or []
-                if not any((s.get("agent") or {}).get("id") == self.my_id and s.get("state") == "retry"
-                           for s in statuses):
+                if not self._wants_rerun(m.get("agent_status") or [], first_scan):
                     continue
                 author = m.get("author") or {}
                 watched = self._watch.get(place, {}).pop(m["id"], None)
@@ -826,8 +824,7 @@ class BabelrOrgan:
                 continue
             for row in rows:
                 msg = row.get("message") or {}
-                if not any((s.get("agent") or {}).get("id") == self.my_id and s.get("state") == "retry"
-                           for s in msg.get("agentStatus") or []):
+                if not self._wants_rerun(msg.get("agentStatus") or [], first_scan):
                     continue
                 if msg.get("id") in watched:
                     out.append(watched.pop(msg["id"]))
@@ -841,6 +838,29 @@ class BabelrOrgan:
                         attachments=(msg.get("properties") or {}).get("attachments") or [],
                     ))
         return out
+
+    # A turn the last process started and never finished: rerun on the first scan
+    # after a start if it's this recent. Older ones stay as they are; a reply
+    # an hour late reads stranger than none.
+    STUCK_RERUN_SECONDS = 30 * 60
+
+    def _wants_rerun(self, statuses: List[Dict[str, Any]], first_scan: bool) -> bool:
+        """Her status on a message says to run it again: someone pressed Retry, or
+        (first scan only) it's still "working" from a process that died mid-turn
+        (2026-11-25: a restart left Kohl's mention "working" for both daemons, and
+        nothing ever picked it up)."""
+        for st in statuses:
+            if (st.get("agent") or {}).get("id") != self.my_id:
+                continue
+            if st.get("state") == "retry":
+                return True
+            if first_scan and st.get("state") == "working":
+                try:
+                    at = datetime.fromisoformat((st.get("updatedAt") or "").replace("Z", "+00:00"))
+                except ValueError:
+                    return False
+                return (datetime.now(timezone.utc) - at).total_seconds() < self.STUCK_RERUN_SECONDS
+        return False
 
     def _links(self) -> Dict[str, str]:
         """links.json: Babelr usernames whose DMs are their chat with her."""

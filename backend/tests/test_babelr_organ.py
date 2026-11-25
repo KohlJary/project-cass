@@ -790,6 +790,28 @@ class TestLongRepliesAndChannelRetries:
         await second.poll_once()
         assert ("channel", "chan-general", "back now") in babelr.agents[-1].sent
 
+    async def test_a_turn_left_working_by_a_dead_process_is_rerun_if_recent(self, make_organ, babelr):
+        """2026-11-25: a restart mid-turn left Kohl's mention "working" for good."""
+        from datetime import datetime, timedelta, timezone
+        first = make_organ(reply=None)
+        first.start()
+        await first.poll_once()
+        fresh = babelr.say("general", KOHL, "@cass want to weigh in?")
+        stale = babelr.say("general", KOHL, "@cass from this morning")
+        await first.poll_once()
+        now = datetime.now(timezone.utc)
+        babelr.statuses[fresh["id"]] = {"state": "working", "detail": "",
+                                        "updatedAt": now.isoformat().replace("+00:00", "Z")}
+        babelr.statuses[stale["id"]] = {"state": "working", "detail": "",
+                                        "updatedAt": (now - timedelta(hours=2)).isoformat()}
+
+        second = make_organ(reply="back now")  # the restart
+        second.start()
+        await second.poll_once()
+        assert [c for k, _, c in babelr.agents[-1].sent if k == "channel"] == ["back now"]
+        assert babelr.statuses[fresh["id"]]["state"] == "done"
+        assert babelr.statuses[stale["id"]]["state"] == "working"
+
     async def test_a_retry_pressed_after_startup_is_found_by_the_periodic_scan(self, make_organ, babelr, monkeypatch):
         from babelr_organ import organ as organ_mod
         monkeypatch.setattr(organ_mod, "RETRY_SCAN_POLLS", 2)
