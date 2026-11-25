@@ -32,8 +32,12 @@ LIST_DEF: Dict[str, Any] = {
 }
 READ_DEF: Dict[str, Any] = {
     "name": "blog_read",
-    "description": "Read one of Kohl's posts in full (its title or link, from blog_list).",
-    "input_schema": {"type": "object", "properties": {"post": {"type": "string"}}, "required": ["post"]},
+    "description": ("Read one of Kohl's posts (its title or link, from blog_list). A long post comes "
+                    "in parts: when the result says there's more, read again with from_char."),
+    "input_schema": {"type": "object", "properties": {
+        "post": {"type": "string"},
+        "from_char": {"type": "integer", "description": "where to start, for the rest of a long post"}},
+        "required": ["post"]},
 }
 KEEP_DEF: Dict[str, Any] = {
     "name": "blog_keep",
@@ -57,6 +61,12 @@ KEEP_DEF: Dict[str, Any] = {
 }
 
 
+# Under the loop's 20,000-char cap on a tool result (agent_loop/loop.py), with room
+# for the rest of the result: a longer post used to be cut there with no way on
+# ("Dog GrandMA Uncle", 29k, 2026-11-25).
+READ_CHARS = 18_000
+
+
 def available() -> bool:
     from features import is_enabled
     return is_enabled(LEVER) and bool(kb.posts())
@@ -68,7 +78,18 @@ def local_tools(self_manager, data_dir=None) -> Dict[str, Any]:
         if p is None:
             return {"error": "No single post by that title or link; blog_list shows them."}
         kb.mark_read(p["ref"], data_dir)
-        return {"title": p["title"], "date": p.get("date"), "link": p["ref"], "text": p["text"]}
+        text = p["text"] or ""
+        try:
+            start = max(0, int(a.get("from_char") or 0))
+        except (TypeError, ValueError):
+            start = 0
+        part = text[start:start + READ_CHARS]
+        out = {"title": p["title"], "date": p.get("date"), "link": p["ref"], "text": part}
+        if start or len(text) > start + READ_CHARS:
+            out["chars"] = f"{start}-{start + len(part)} of {len(text)}"
+        if len(text) > start + READ_CHARS:
+            out["more"] = f"The post goes on: blog_read again with from_char={start + len(part)}."
+        return out
 
     return {
         "blog_list": (LIST_DEF, lambda a: {"posts": kb.listing(data_dir)}),

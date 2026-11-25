@@ -135,3 +135,18 @@ def test_the_blog_session_finds_her_self_model_in_the_runners_managers():
     sm = object()
     assert kbt._self_manager(Runner({"self_manager": sm})) is sm
     assert kbt._self_manager(Runner({})) is None
+
+
+def test_a_long_post_reads_in_parts(tmp_path, monkeypatch):
+    import kohl_blog_turn as kbt
+    text = "x" * 18_000 + "THE TAIL"
+    monkeypatch.setattr(kbt.kb, "find", lambda post, d=None: {"title": "Long", "ref": "r", "text": text})
+    monkeypatch.setattr(kbt.kb, "mark_read", lambda ref, d=None: None)
+    read = kbt.local_tools(None)["blog_read"][1]
+    first = read({"post": "Long"})
+    assert "THE TAIL" not in first["text"] and "from_char=18000" in first["more"]
+    rest = read({"post": "Long", "from_char": 18000})
+    assert rest["text"] == "THE TAIL" and "more" not in rest
+    short = kbt.local_tools(None)  # a short post is whole, with nothing extra
+    monkeypatch.setattr(kbt.kb, "find", lambda post, d=None: {"title": "S", "ref": "s", "text": "hi"})
+    assert set(short["blog_read"][1]({"post": "S"})) == {"title", "date", "link", "text"}
