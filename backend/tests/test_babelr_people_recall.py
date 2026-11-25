@@ -367,3 +367,84 @@ class TestInvitedArrival:
         h2 = f"g_{uuid.uuid4().hex[:8]}"
         assert "linked" in self.link(h2, label2, dex)
         assert dex.get_entity(find("babelr", h2, dex)).primary_name == f"Mira {label2}"
+
+
+class TestWelcomesPolled:
+    """Babelr's welcomes (feat/house-welcome), read on the poll: each welcome
+    handled once, never marked done, nothing sent, never opting her in."""
+
+    @pytest.fixture
+    def organ(self, tmp_path, babelr, levers):  # noqa: F811
+        from babelr_organ.organ import BabelrOrgan
+        from tests.test_babelr_organ import _config, _place_token
+        cfg = _config(tmp_path)
+        _place_token(cfg)
+        with levers(babelr=True):
+            o = BabelrOrgan(config=cfg, client_factory=babelr.make_welcoming_agent,
+                            conversation_manager=_Recorder())
+            o.wakes = []
+
+            async def wake(events, context):
+                o.wakes.append((events, context))
+                return "Welcome, Linda."
+            o.set_wake_callback(wake)
+            assert o.start()
+            yield o
+
+    def prepared(self, label):
+        return TestInvitedArrival.prepared(None, label)
+
+    async def test_a_welcome_links_before_the_first_dm_and_only_once(self, organ, babelr, monkeypatch):  # noqa: F811
+        label = f"Mom {uuid.uuid4().hex[:6]}"
+        eid, dex = self.prepared(label)
+        g = guest()
+        await organ.poll_once()
+        w = babelr.welcome(g, invited_as=label)
+        babelr.dm_from(g, "hi, Kohl said you'd be here")  # arrives in the same poll
+        calls = []
+        real = organ.on_welcome
+        monkeypatch.setattr(organ, "on_welcome", lambda x: calls.append(x) or real(x))
+        await organ.poll_once()
+        assert calls == [{"handle": g["preferredUsername"], "invited_as": label}]
+        assert find("babelr", g["preferredUsername"], dex) == eid
+        assert "retired teacher" in organ.wakes[-1][1]["person"]
+        await organ.poll_once()
+        assert len(calls) == 1  # handled once
+        assert w["id"] in organ.state.data["welcomes_seen"]
+        from babelr_organ.state import OrganState
+        assert w["id"] in OrganState(organ.config.state_path).data["welcomes_seen"]  # kept across restarts
+        assert not [c for c in babelr.calls if "/done" in c[1] or c[1].endswith("/welcome")]
+        assert [s for s in organ.client.sent if s[1] == w["dmId"]] == []  # nothing sent into the welcome DM
+
+    async def test_a_welcome_without_a_label_links_nothing(self, organ, babelr):  # noqa: F811
+        label = f"Mom {uuid.uuid4().hex[:6]}"
+        _, dex = self.prepared(label)
+        g = guest()
+        babelr.welcome(g)
+        await organ.poll_once()
+        assert find("babelr", g["preferredUsername"], dex) is None
+        assert organ.client.sent == []
+
+    async def test_seeds_are_dropped_when_she_said_no(self, organ, babelr, monkeypatch):  # noqa: F811
+        g = guest()
+        babelr.welcome(g, invited_as="Aunt", consented=False,
+                       card={"name": "Jo", "label": "Aunt", "seeds": ["@jo.bsky.social"], "facts": ["x"]})
+        seen = []
+        monkeypatch.setattr(organ, "on_welcome", lambda x: seen.append(x) or {"skipped": "x"})
+        await organ.poll_once()
+        assert seen == [{"handle": g["preferredUsername"], "invited_as": "Aunt"}]
+        assert "jo.bsky" not in json.dumps(organ.state.data)
+
+    async def test_an_error_is_tried_again_next_poll(self, organ, babelr, monkeypatch):  # noqa: F811
+        babelr.welcome(guest(), invited_as="Mom")
+        tries = []
+        monkeypatch.setattr(organ, "on_welcome", lambda x: tries.append(x) or {"skipped": "error"})
+        await organ.poll_once()
+        await organ.poll_once()
+        assert len(tries) == 2
+
+    async def test_an_older_client_without_welcomes_is_fine(self, make_organ, babelr):  # noqa: F811
+        organ = make_organ(reply="ok")
+        organ.start()
+        await organ.poll_once()
+        assert not [c for c in babelr.calls if "welcome" in c[1]]

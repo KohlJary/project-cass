@@ -42,6 +42,9 @@ class OrganState:
             self.data.setdefault(key, {})
         self.data.setdefault("deferred", [])
         self.data.setdefault("requests_seen", [])
+        # Welcome ids already linked up (or found nothing to link), so each
+        # welcome is handled once (organ._collect_welcomes).
+        self.data.setdefault("welcomes_seen", [])
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

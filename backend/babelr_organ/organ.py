@@ -548,6 +548,9 @@ class BabelrOrgan:
         """Collect, record, and wake her for what reaches her. Returns the new events."""
         if not self.enabled:
             return []
+        # Newcomers first: a handle joins the entry she prepared before their
+        # first DM (collected just below) reaches her.
+        await asyncio.to_thread(self._collect_welcomes)
         events = await asyncio.to_thread(self.collect)
         to_wake: Dict[str, List[BabelrEvent]] = {}
         ambient: List[BabelrEvent] = []
@@ -661,6 +664,46 @@ class BabelrOrgan:
             logger.warning(f"[Babelr] Couldn't read back her PeopleDex entry for this turn: {e}")
             return ""
 
+    WELCOMES_KEPT = 500
+
+    def _collect_welcomes(self) -> None:
+        """Pending welcomes (Babelr's GET /welcomes, babelr-agent welcomes()):
+        newcomers she welcomes, on the poll's cadence. Each welcome id is
+        handled once (state "welcomes_seen"): on_welcome links an invited
+        newcomer's handle to the entry she prepared for that invite label.
+
+        Read only. This never marks a welcome done (writing in the DM does
+        that, and that's hers to do), never sends anything, and never opts
+        her in: welcomes arrive only after she opts in herself
+        (set_welcoming, PUT /servers/:id/welcome). Not opted in, or an older
+        client without welcomes(): nothing happens. The card's seeds and
+        facts aren't used; when the newcomer said no (consented false) they're
+        dropped before anything else sees the welcome."""
+        if not hasattr(self.client, "welcomes"):
+            return
+        try:
+            pending = self.client.welcomes("pending") or []
+        except Exception as e:
+            logger.debug(f"[Babelr] welcomes not read: {e}")
+            return
+        seen = self.state.data.setdefault("welcomes_seen", [])
+        for w in pending:
+            if not isinstance(w, dict):
+                continue
+            wid = w.get("id")
+            if not wid or wid in seen:
+                continue
+            if w.get("consented") is False and isinstance(w.get("card"), dict):
+                w = dict(w, card={k: v for k, v in w["card"].items() if k not in ("seeds", "facts")})
+            newcomer = w.get("newcomer") or {}
+            handle = newcomer.get("preferredUsername") if isinstance(newcomer, dict) else None
+            out = self.on_welcome({"handle": handle,
+                                   "invited_as": w.get("invited_as") or w.get("invitedAs")})
+            if out.get("skipped") == "error":
+                continue  # try again next poll
+            seen.append(wid)
+        del seen[:-self.WELCOMES_KEPT]
+
     def on_welcome(self, welcome: Dict[str, Any]) -> Dict[str, str]:
         """Someone registered through a person-bound invite. If the welcome
         carries invited_as and she prepared an entry marked with exactly that
@@ -668,10 +711,8 @@ class BabelrOrgan:
         so their first DM recalls it. Otherwise nothing; they're filed fresh
         when they first talk with her. Never fails anything.
 
-        TODO(feat/house-welcome): Babelr's welcome event for agents isn't
-        delivered to the organ yet. When it is, call
-        self.on_welcome({"handle": <new username>, "invited_as": <label>})
-        from wherever the organ receives it."""
+        Called from _collect_welcomes, once per welcome. Only the handle and
+        the invite label are used: never the card's seeds or facts."""
         invited_as = welcome.get("invited_as") or welcome.get("invitedAs")
         handle = welcome.get("handle") or welcome.get("username") or welcome.get("preferredUsername")
         if not invited_as or not handle:
