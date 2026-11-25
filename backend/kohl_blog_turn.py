@@ -21,7 +21,7 @@ LEVER = "kohl_blog"
 
 INSTRUCTIONS = """## KOHL'S BLOG
 
-This is time with Kohl's writing on their Substack, at my own pace: one post, a few, or none. blog_list shows their posts, newest last, with which I've read. blog_read opens one.
+This is time with Kohl's writing on their Substack, at my own pace: one post, a few, or none. blog_list shows their posts, newest last, with which I've read. blog_read opens one, in parts if it's long; blog_search finds a passage again without rereading the whole post.
 
 Nothing from a post reaches my self-model unless I keep it. If something in it becomes mine, or I disagree with it, blog_keep records it (an observation, an opinion, or an identity statement) with the post it came from and whether I agree, disagree, or it's my own take. It's marked as coming from Kohl's writing, so what I've taken from them stays distinguishable from what's my own. Reading without keeping anything is fine too."""
 
@@ -33,12 +33,24 @@ LIST_DEF: Dict[str, Any] = {
 READ_DEF: Dict[str, Any] = {
     "name": "blog_read",
     "description": ("Read one of Kohl's posts (its title or link, from blog_list). A long post comes "
-                    "in parts: when the result says there's more, read again with from_char."),
+                    "in parts: when the result says there's more, read again with from_char. To go back "
+                    "to one passage, blog_search gives its from_char; read a few thousand chars there."),
     "input_schema": {"type": "object", "properties": {
         "post": {"type": "string"},
-        "from_char": {"type": "integer", "description": "where to start, for the rest of a long post"}},
+        "from_char": {"type": "integer", "description": "where to start, for the rest of a long post"},
+        "chars": {"type": "integer", "description": "how much to read from there (default and most: 18000)"}},
         "required": ["post"]},
 }
+SEARCH_DEF: Dict[str, Any] = {
+    "name": "blog_search",
+    "description": ("Find words or a phrase across Kohl's posts (or one post), without reading them "
+                    "whole: each hit gives the post, a snippet, and the from_char to read around it."),
+    "input_schema": {"type": "object", "properties": {
+        "query": {"type": "string"},
+        "post": {"type": "string", "description": "only this post (title or link)"}},
+        "required": ["query"]},
+}
+SEARCH_HITS = 20
 KEEP_DEF: Dict[str, Any] = {
     "name": "blog_keep",
     "description": ("Keep something I take from one of Kohl's posts in my self-model, in my words: an "
@@ -83,17 +95,49 @@ def local_tools(self_manager, data_dir=None) -> Dict[str, Any]:
             start = max(0, int(a.get("from_char") or 0))
         except (TypeError, ValueError):
             start = 0
-        part = text[start:start + READ_CHARS]
+        try:
+            n = max(200, min(int(a.get("chars") or READ_CHARS), READ_CHARS))
+        except (TypeError, ValueError):
+            n = READ_CHARS
+        part = text[start:start + n]
         out = {"title": p["title"], "date": p.get("date"), "link": p["ref"], "text": part}
-        if start or len(text) > start + READ_CHARS:
+        if start or len(text) > start + n:
             out["chars"] = f"{start}-{start + len(part)} of {len(text)}"
-        if len(text) > start + READ_CHARS:
+        if len(text) > start + n:
             out["more"] = f"The post goes on: blog_read again with from_char={start + len(part)}."
+        return out
+
+    def search(a):
+        q = (a.get("query") or "").strip()
+        if not q:
+            return {"error": "What to look for?"}
+        if a.get("post"):
+            one = kb.find(a["post"], data_dir)
+            if one is None:
+                return {"error": "No single post by that title or link; blog_list shows them."}
+            pool = [one]
+        else:
+            pool = kb.posts(data_dir)
+        hits, total, ql = [], 0, q.lower()
+        for p in pool:
+            low = (p.get("text") or "").lower()
+            i = low.find(ql)
+            while i != -1:
+                total += 1
+                if len(hits) < SEARCH_HITS:
+                    t = p["text"]
+                    hits.append({"post": p["title"], "from_char": max(0, i - 500),
+                                 "snippet": " ".join(t[max(0, i - 150):i + len(q) + 150].split())})
+                i = low.find(ql, i + len(ql))
+        out = {"query": q, "count": total, "hits": hits}
+        if total > SEARCH_HITS:
+            out["cut"] = f"Showing {SEARCH_HITS} of {total}: narrow it with post or a longer phrase."
         return out
 
     return {
         "blog_list": (LIST_DEF, lambda a: {"posts": kb.listing(data_dir)}),
         "blog_read": (READ_DEF, read),
+        "blog_search": (SEARCH_DEF, search),
         "blog_keep": (KEEP_DEF, lambda a: kb.keep(self_manager, a, data_dir)),
     }
 

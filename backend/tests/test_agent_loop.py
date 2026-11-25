@@ -1078,7 +1078,7 @@ def test_blog_tools_in_chat_when_available(monkeypatch):
     assert blog_tools() == {}
     monkeypatch.setattr(kbt, "available", lambda: True)
     got = blog_tools()
-    assert set(got) == {"blog_list", "blog_read", "blog_keep"}
+    assert set(got) == {"blog_list", "blog_read", "blog_search", "blog_keep"}
     assert all(d["name"] == n for n, (d, _) in got.items())
 
 

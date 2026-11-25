@@ -58,9 +58,9 @@ def loop_channels() -> frozenset:
 
 
 def blog_tools() -> Dict[str, Any]:
-    """Kohl's blog in chat: blog_list, blog_read, blog_keep, the same tools as her blog
+    """Kohl's blog in chat: blog_list, blog_read, blog_search, blog_keep, the same tools as her blog
     session (kohl_blog_turn), while its lever is on and there are posts. What she keeps
-    is marked as coming from his writing, as it is there."""
+    is marked as coming from their writing, as it is there."""
     try:
         import kohl_blog_turn as kbt
         if not kbt.available():

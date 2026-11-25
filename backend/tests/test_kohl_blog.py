@@ -150,3 +150,17 @@ def test_a_long_post_reads_in_parts(tmp_path, monkeypatch):
     short = kbt.local_tools(None)  # a short post is whole, with nothing extra
     monkeypatch.setattr(kbt.kb, "find", lambda post, d=None: {"title": "S", "ref": "s", "text": "hi"})
     assert set(short["blog_read"][1]({"post": "S"})) == {"title", "date", "link", "text"}
+
+
+def test_search_finds_a_passage_and_a_short_read_gets_just_it(monkeypatch):
+    import kohl_blog_turn as kbt
+    posts = [{"title": "A", "ref": "a", "text": "a" * 5000 + " the Skillet line " + "b" * 5000},
+             {"title": "B", "ref": "b", "text": "nothing here"}]
+    monkeypatch.setattr(kbt.kb, "posts", lambda d=None: posts)
+    monkeypatch.setattr(kbt.kb, "find", lambda post, d=None: next(p for p in posts if p["title"] == post))
+    monkeypatch.setattr(kbt.kb, "mark_read", lambda ref, d=None: None)
+    tools = kbt.local_tools(None)
+    found = tools["blog_search"][1]({"query": "skillet"})
+    assert found["count"] == 1 and found["hits"][0]["post"] == "A" and "Skillet" in found["hits"][0]["snippet"]
+    part = tools["blog_read"][1]({"post": "A", "from_char": found["hits"][0]["from_char"], "chars": 1000})
+    assert "Skillet" in part["text"] and len(part["text"]) == 1000 and "more" in part
