@@ -720,6 +720,23 @@ def _apply_schema_updates(conn, from_version: int):
     if from_version < 70:
         ensure_work_summaries_table(conn)
 
+    # v70 -> v71: which model wrote each opinion and growth edge, and from
+    # where (memory/provenance.py; Eris, 2026-11-25: "my writes are labeled
+    # with the model that made them").
+    if from_version < 71:
+        ensure_self_model_written_by_columns(conn)
+
+
+def ensure_self_model_written_by_columns(conn):
+    """Idempotently add written_by / written_by_site to opinions and growth_edges (v71)."""
+    for table in ("opinions", "growth_edges"):
+        columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if not columns:   # no table yet: SCHEMA_SQL creates it with the columns
+            continue
+        for column in ("written_by", "written_by_site"):
+            if column not in columns:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
+
 
 def ensure_work_summaries_table(conn):
     """Idempotently create work_summaries, and add its trigger column (v70). The

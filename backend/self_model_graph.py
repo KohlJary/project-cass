@@ -2662,3 +2662,34 @@ def get_self_model_graph(data_dir: Optional[Path] = None) -> SelfModelGraph:
             graph = SelfModelGraph(storage_path=storage_path)
             _graph_instances[storage_path] = graph
         return graph
+
+
+# Her self-model write hold (self_model_hold.py): the graph's writers are choke
+# points too. The primitives (add_node ... remove_edge) catch writes from code
+# outside this class; the public writers above them queue as one entry each.
+def _held_node_id(args, kwargs):
+    """A held add_node keeps the id it would have had, so a held add_edge that
+    names it replays against the same node."""
+    args = list(args)
+    if len(args) >= 3 and args[2]:
+        return tuple(args), kwargs, args[2]
+    if len(args) >= 3:
+        args[2] = str(uuid.uuid4())[:8]
+        return tuple(args), kwargs, args[2]
+    kwargs["node_id"] = kwargs.get("node_id") or str(uuid.uuid4())[:8]
+    return tuple(args), kwargs, kwargs["node_id"]
+
+
+from self_model_hold import hold_class as _hold_class  # noqa: E402
+
+GRAPH_WRITERS = (
+    "add_node", "update_node", "delete_node", "add_edge", "remove_edge",
+    "connect_disconnected_nodes",
+    "sync_observation", "sync_milestone", "sync_mark",
+    "add_contradiction", "resolve_contradiction",
+    "register_intention", "log_intention_outcome", "update_intention_status",
+    "log_situational_inference", "log_presence", "import_from_json",
+    "document_stake", "record_preference_test", "log_narration_context",
+    "request_architectural_change", "update_request_status",
+)
+_hold_class(SelfModelGraph, "graph", GRAPH_WRITERS, prepare={"add_node": _held_node_id})

@@ -158,6 +158,20 @@ def reach_out_decisions_file(tmp_path, monkeypatch):
     yield path
 
 
+@pytest.fixture(autouse=True)
+def self_model_hold_dir(tmp_path, monkeypatch):
+    """Each test gets its own self-model write hold (off) and held-writes queue,
+    and forgets which model answered last (model_line.py)."""
+    import self_model_hold
+    from memory import provenance
+    monkeypatch.setattr(self_model_hold, "DATA_DIR_OVERRIDE", tmp_path / "hold_data")
+    provenance.reset_answers()
+    token = provenance._last.set(None)   # no model label carried over from another test
+    yield tmp_path / "hold_data"
+    provenance._last.reset(token)
+    provenance.reset_answers()
+
+
 # User IDs the manager tests write rows for. Tasks, calendar events,
 # conversations and projects all have a foreign key to users(id).
 TEST_USER_IDS = [

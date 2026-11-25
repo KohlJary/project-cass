@@ -10,6 +10,15 @@ This replaces the raw API client with the official SDK, giving us:
 - Their "initializer agent" pattern with OUR cognitive architecture
 """
 from model_compat import fit_kwargs, note_thinking, with_thinking
+
+
+def note_answer(provider, raw, fallback_model, call_site):
+    """Which model answered (memory/provenance.note_answer), imported late: memory imports a lot."""
+    try:
+        from memory.provenance import note_answer as _note
+        _note(provider, raw, fallback_model, call_site)
+    except Exception:
+        pass
 import anyio
 from typing import Any, AsyncIterator, List, Dict, Optional, Callable
 from dataclasses import dataclass, field
@@ -2297,6 +2306,7 @@ class CassAgentClient:
                 })
 
         note_thinking(response, self.model, "chat")
+        note_answer("anthropic", response, self.model, "chat")  # her model line (model_line.py)
         full_text = with_thinking(full_text, response)
 
         # Track assistant response for potential tool continuation
@@ -2388,6 +2398,7 @@ class CassAgentClient:
                 })
 
         note_thinking(response, self.model, "chat")
+        note_answer("anthropic", response, self.model, "chat")  # her model line (model_line.py)
         full_text = with_thinking(full_text, response)
 
         # Track assistant response for potential further tool calls
@@ -2488,6 +2499,7 @@ class CassAgentClient:
                 })
 
         note_thinking(response, self.model, "chat")
+        note_answer("anthropic", response, self.model, "chat")  # her model line (model_line.py)
         full_text = with_thinking(full_text, response)
 
         # Track assistant response for potential further tool calls
@@ -2940,6 +2952,7 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
                     raise Exception(f"Ollama error: {response.status_code} - {response.text}")
 
                 data = response.json()
+                note_answer("ollama", data, self.model, "chat")  # her model line (model_line.py)
                 message_data = data.get("message", {})
                 full_text = message_data.get("content", "")
                 tool_calls = message_data.get("tool_calls", [])

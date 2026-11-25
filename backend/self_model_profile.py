@@ -47,6 +47,9 @@ class Opinion:
     date_formed: str = ""
     last_updated: str = ""
     evolution: List[Dict] = field(default_factory=list)
+    # Which model last wrote it (memory/provenance.py), and the call site (v71)
+    written_by: Optional[str] = None
+    written_by_site: Optional[str] = None
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -61,7 +64,9 @@ class Opinion:
             formed_from=data.get("formed_from", "independent_reflection"),
             date_formed=data.get("date_formed", ""),
             last_updated=data.get("last_updated", ""),
-            evolution=data.get("evolution", [])
+            evolution=data.get("evolution", []),
+            written_by=data.get("written_by"),
+            written_by_site=data.get("written_by_site"),
         )
 
 
@@ -84,6 +89,9 @@ class GrowthEdge:
     activated_with_users: List[str] = field(default_factory=list)  # User IDs
     last_surfaced: str = ""  # When last shown in context
     surface_count: int = 0  # How often surfaced
+    # Which model last wrote it (memory/provenance.py), and the call site (v71)
+    written_by: Optional[str] = None
+    written_by_site: Optional[str] = None
 
     def to_dict(self) -> Dict:
         return asdict(self)
@@ -111,6 +119,8 @@ class GrowthEdge:
             activated_with_users=data.get("activated_with_users", []),
             last_surfaced=data.get("last_surfaced", ""),
             surface_count=data.get("surface_count", 0),
+            written_by=data.get("written_by"),
+            written_by_site=data.get("written_by_site"),
         )
 
 
@@ -317,7 +327,7 @@ class ProfileManager:
                        last_touched, observations_json, strategies_json,
                        first_noticed, last_updated,
                        category, related_topics_json, activated_with_users_json,
-                       last_surfaced, surface_count
+                       last_surfaced, surface_count, written_by, written_by_site
                 FROM growth_edges
                 WHERE daemon_id = ?
                 ORDER BY importance DESC
@@ -342,6 +352,8 @@ class ProfileManager:
                     activated_with_users=json_deserialize(row[12]) if row[12] else [],
                     last_surfaced=row[13] or "",
                     surface_count=row[14] or 0,
+                    written_by=row[15],
+                    written_by_site=row[16],
                 ))
             return edges
 
@@ -350,7 +362,7 @@ class ProfileManager:
         with get_db() as conn:
             cursor = conn.execute("""
                 SELECT topic, position, confidence, rationale, formed_from,
-                       evolution_json, date_formed, last_updated
+                       evolution_json, date_formed, last_updated, written_by, written_by_site
                 FROM opinions
                 WHERE daemon_id = ?
                 ORDER BY date_formed DESC
@@ -366,7 +378,9 @@ class ProfileManager:
                     formed_from=row[4] or "independent_reflection",
                     date_formed=row[6] or "",
                     last_updated=row[7] or "",
-                    evolution=json_deserialize(row[5]) if row[5] else []
+                    evolution=json_deserialize(row[5]) if row[5] else [],
+                    written_by=row[8],
+                    written_by_site=row[9],
                 ))
             return opinions
 
@@ -440,8 +454,8 @@ class ProfileManager:
                         importance, last_touched, observations_json,
                         strategies_json, first_noticed, last_updated,
                         category, related_topics_json, activated_with_users_json,
-                        last_surfaced, surface_count
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        last_surfaced, surface_count, written_by, written_by_site
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     self.daemon_id,
                     edge.edge_id,
@@ -459,6 +473,8 @@ class ProfileManager:
                     json_serialize(edge.activated_with_users),
                     edge.last_surfaced,
                     edge.surface_count,
+                    edge.written_by,
+                    edge.written_by_site,
                 ))
 
     def _save_opinions_to_db(self, opinions: List[Opinion]):
@@ -469,8 +485,9 @@ class ProfileManager:
                 conn.execute("""
                     INSERT INTO opinions (
                         daemon_id, topic, position, confidence, rationale,
-                        formed_from, evolution_json, date_formed, last_updated
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        formed_from, evolution_json, date_formed, last_updated,
+                        written_by, written_by_site
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     self.daemon_id,
                     op.topic,
@@ -480,7 +497,9 @@ class ProfileManager:
                     op.formed_from,
                     json_serialize(op.evolution),
                     op.date_formed,
-                    op.last_updated
+                    op.last_updated,
+                    op.written_by,
+                    op.written_by_site,
                 ))
 
     def update_profile(self, profile: CassSelfProfile):

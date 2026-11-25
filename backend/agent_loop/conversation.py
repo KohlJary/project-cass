@@ -317,6 +317,9 @@ async def run_conversation(
     if (person.get("scope") or "private") != "public":   # her focus flag, from her private chat
         from world_events import focus_tools
         projects.update(focus_tools())
+    # Her self-model write hold, in every chat turn (self_model_hold.py; Eris, 2026-11-25).
+    from self_model_hold import hold_tools as self_model_hold_tools
+    projects.update(self_model_hold_tools())
     # Last: in a public turn `project` comes and goes with the words of the message,
     # and tools are the front of the cached prefix, so the ones before it stay put.
     projects.update(workshop_tools(person, model_message))
@@ -329,10 +332,22 @@ async def run_conversation(
     where = CHANNEL_WORDS.get(channel or "", channel or "a conversation")
     trigger = Trigger(source="message", why=f"{who} wrote to me through {where}")
     findable = tools_mod.findable(catalog, tool_names)
-    # Everything after system_prompt changes per turn: this turn's context, then
-    # the seam (its "Now:" line has the minute), her plans, the arrival block and
-    # her sessions, in the order they always had.
+    if client is None:
+        # LLM_LOCAL_MODEL: chat runs on the one local model too (llm_config.local_model).
+        from llm_config import local_model
+        if local_model():
+            from .models import OllamaModelClient
+            client, model = OllamaModelClient("chat"), local_model()
+        else:
+            client = _client_for(provider, model, agent_client)
+    # Everything after system_prompt changes per turn: this turn's context, the
+    # model she's on and her write hold (model_line.py), then the seam (its "Now:"
+    # line has the minute), her plans, the arrival block and her sessions.
     turn = [turn_context] if turn_context else []
+    from model_line import turn_lines
+    status = turn_lines(getattr(client, "provider", provider), model, sites=("chat",))
+    if status:
+        turn.append(status)
     turn.append(render_seam(spec, trigger, tool_names, findable))
     if working_toward is None:
         working_toward = await working_toward_block()
@@ -348,14 +363,6 @@ async def run_conversation(
             logger.warning(f"[agent_loop] sessions block: {e}")
     system = SplitSystem(system_prompt or "", "\n\n".join(turn))
 
-    if client is None:
-        # LLM_LOCAL_MODEL: chat runs on the one local model too (llm_config.local_model).
-        from llm_config import local_model
-        if local_model():
-            from .models import OllamaModelClient
-            client, model = OllamaModelClient("chat"), local_model()
-        else:
-            client = _client_for(provider, model, agent_client)
     # Each model call is filed under chat, with this conversation and person
     # (finalize_chat_turn then doesn't record the turn's total a second time).
     client.ledger = {"category": "chat", "operation": "conversation_step",

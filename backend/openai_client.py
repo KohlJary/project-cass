@@ -324,6 +324,8 @@ Provide thoughtful, complete responses. Don't be unnecessarily terse - take the 
 
         # Call OpenAI API
         response = await self.client.chat.completions.create(**api_kwargs)
+        from memory.provenance import note_answer
+        note_answer("openai", response, api_kwargs.get("model"), "chat")  # her model line (model_line.py)
 
         # Extract the message
         choice = response.choices[0]

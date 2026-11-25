@@ -1202,3 +1202,24 @@ Only include questions where you have something genuine to add. If nothing, resp
         except Exception as e:
             print(f"Failed to reflect on open questions: {e}")
             return []
+
+
+# Her self-model write hold (self_model_hold.py): what goes into the search index
+# of her self-model waits with the rest. An embed of a write that was itself held
+# (its id came back None) is dropped: applying that write stores it, and the
+# startup sync (sync_self_observations_from_file, which only mirrors what's
+# stored, so it runs while held) embeds it.
+def _drop_if_its_write_was_held(args, kwargs):
+    first = args[0] if args else next(
+        (kwargs[k] for k in ("observation_id", "reflection_id", "evaluation_id") if k in kwargs), None)
+    if not first:
+        return None
+    return args, kwargs, None
+
+
+from self_model_hold import hold_class as _hold_class  # noqa: E402
+
+_EMBEDS = ("embed_self_observation", "embed_question_reflection", "embed_growth_evaluation")
+_hold_class(SelfModelMemory, "memory", _EMBEDS + ("embed_self_profile",),
+            exempt=("sync_self_observations_from_file",),
+            prepare={name: _drop_if_its_write_was_held for name in _EMBEDS})

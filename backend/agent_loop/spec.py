@@ -158,6 +158,9 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
              ("studio",)),
     ToolPack("session", "end the session when I'm done (with what I'd pick up next), or extend it once",
              ("session_complete", "extend_session")),
+    # Her self-model write hold, in every session (self_model_hold.py; Eris, 2026-11-25).
+    ToolPack("self_model_hold", "hold writes to my self-model for me to review, and apply or drop what waited",
+             ("self_model_hold", "held_self_model_writes")),
 ]}
 
 # Packs whose tools run through tool_router (her chat handlers), and packs
@@ -165,7 +168,7 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
 ROUTER_PACKS = frozenset({"chat_core", "work", "chapter_house", "social", "plans", "self", "commitments",
                           "listening", "studio_chat"})
 LOOP_PACKS = frozenset({"find", "workspace", "say", "wake", "day_plan", "homepage", "wonderland",
-                        "daedalus", "kohl_blog", "workshop", "happenings"})
+                        "daedalus", "kohl_blog", "workshop", "happenings", "self_model_hold"})
 
 # Capabilities she has elsewhere but not in any pack the loop offers yet.
 # Named so a missing capability is visible rather than silently absent [C3].
@@ -389,7 +392,7 @@ def session_spec(activity: str, max_iterations: int = 10, *, chapter_house: bool
     own = tuple(p for p in ACTIVITY_PACKS.get(activity, ())
                 if (chapter_house or p != "plans") and (can_ask_daedalus or p != "daedalus"))
     packs = (("core", "memory") + own + ("chat_core", "work", "commitments")
-             + (("chapter_house",) if chapter_house else ()) + ("workspace",)
+             + (("chapter_house",) if chapter_house else ()) + ("workspace", "self_model_hold")
              + (("say",) if can_say else ()) + (("wake",) if can_wake else ())
              + ("find", "session"))
     return TurnSpec(
