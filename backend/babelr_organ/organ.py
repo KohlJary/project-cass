@@ -232,6 +232,7 @@ class BabelrOrgan:
         self._watch: Dict[str, Dict[str, BabelrEvent]] = {}
         # Kohl's posts that offer her a turn (house attention), by message id.
         self._offered: set = set()
+        self._everyone: set = set()   # Kohl's @everyone / @here posts waking her
         self._scanned_for_retries = False
 
     # -- lifecycle ----------------------------------------------------------
@@ -544,6 +545,9 @@ class BabelrOrgan:
             self._buffer(event.place).append(event)
             if result.action == TriggerAction.WAKE_CASS:
                 to_wake.setdefault(event.place, []).append(event)
+            elif self._calls_everyone(event):
+                self._everyone.add(event.message_id)
+                to_wake.setdefault(event.place, []).append(event)
             elif self._attend_command(event):
                 pass
             elif self._offers_her_a_turn(event):
@@ -622,6 +626,7 @@ class BabelrOrgan:
             # House attention: Kohl posted without naming anyone and she's offered
             # a turn; PASS (or nothing) posts nothing.
             "offered": all(e.message_id in self._offered for e in events),
+            "everyone": any(e.message_id in self._everyone for e in events),
         }
 
     def _image(self, events: List[BabelrEvent]) -> Optional[Dict[str, str]]:
@@ -660,6 +665,9 @@ class BabelrOrgan:
             header = f"[Babelr DM from @{last.author_name}]"
         else:
             header = f"[Babelr {last.place_label} in {self.config.server_name} - @{last.author_name} mentioned you]"
+            if context.get("everyone"):
+                header = (f"[Babelr {last.place_label} in {self.config.server_name} - @{last.author_name} "
+                          "called @everyone, which includes you]")
             if context.get("offered"):
                 header = (f"[Babelr {last.place_label} in {self.config.server_name} - @{last.author_name} "
                           "posted without naming anyone. Attention is on here, so you're offered a turn, "
@@ -714,6 +722,7 @@ class BabelrOrgan:
             reply = reply.get("text")
         for e in events:
             self._offered.discard(e.message_id)
+            self._everyone.discard(e.message_id)
         if context.get("offered"):
             if reply and reply.strip().strip(".").upper() == "PASS":
                 logger.info(f"[Babelr] {last.place_label}: offered a turn, she passed")
@@ -879,6 +888,16 @@ class BabelrOrgan:
 
     ATTEND_RE = re.compile(r"/attend\s+(on|off)", re.I)
     ANY_MENTION_RE = re.compile(r"(?<![\w@])@\w")
+    EVERYONE_RE = re.compile(r"(?<![\w@])@(everyone|here)(?![\w-])", re.I)
+
+    def _calls_everyone(self, event: BabelrEvent) -> bool:
+        """Kohl's @everyone or @here in a channel she's in: a mention of her too
+        (Kohl, 2026-11-25: Cass and Eris weren't answering @everyone). Babelr has
+        no @everyone ping, and the attend rule read it as naming someone else, so
+        it reached nobody. Only Kohl's: another agent's @everyone would wake every
+        daemon in the house at once, and their answers could set each other off."""
+        return (event.kind == "channel" and self._from_kohl(event)
+                and bool(self.EVERYONE_RE.search(event.text or "")))
 
     def _from_kohl(self, event: BabelrEvent) -> bool:
         return (event.author_name or "").lstrip("@").lower() == self.config.attend_from

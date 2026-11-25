@@ -1160,3 +1160,31 @@ class TestReactions:
         babelr.dm_from(KOHL, "here's a meme")
         await organ.poll_once()
         assert organ.react("kohl", organ.read("kohl")["messages"][-1]["id"], "😂")["success"]
+
+
+class TestEveryone:
+    """Kohl's @everyone / @here reaches her like a mention (Kohl, 2026-11-25)."""
+
+    async def test_kohls_everyone_wakes_her_without_attention_on(self, make_organ, babelr):
+        organ = make_organ(reply="Here.", attend_from="kohl")
+        organ.start()
+        await organ.poll_once()
+        babelr.say("general", KOHL, "@everyone quick check-in")
+        await organ.poll_once()
+        assert len(organ.wakes) == 1
+        events, context = organ.wakes[0]
+        assert context["everyone"] and not context["offered"]
+        assert "called @everyone" in context["prompt"]
+        assert babelr.agents[-1].sent[-1] == ("channel", "chan-general", "Here.")
+
+    async def test_here_counts_and_lookalikes_or_agents_dont(self, make_organ, babelr):
+        organ = make_organ(reply="x", attend_from="kohl")
+        organ.start()
+        await organ.poll_once()
+        babelr.say("general", ROBOKOHL, "@everyone from an agent")
+        babelr.say("general", KOHL, "mail me at kohl@everyone.net, or @everyoneelse")
+        await organ.poll_once()
+        assert organ.wakes == []
+        babelr.say("general", KOHL, "@HERE anyone around?")
+        await organ.poll_once()
+        assert len(organ.wakes) == 1 and organ.wakes[0][1]["everyone"]
