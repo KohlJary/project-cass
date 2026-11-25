@@ -77,6 +77,16 @@ def local_tools(self_manager, data_dir=None) -> Dict[str, Any]:
     }
 
 
+def _self_manager(runner):
+    """Her SelfManager, from the managers the scheduler hands the runner (set_managers).
+    The runner has no self_manager attribute of its own: looking only there made every
+    blog_keep in her blog sessions fail with "isn't reachable" (2026-11-25)."""
+    sm = getattr(runner, "self_manager", None)
+    if sm is None:
+        sm = (getattr(runner, "_managers", None) or {}).get("self_manager")
+    return sm
+
+
 async def run_kohl_blog_turn(runner, *, duration_minutes: int = 30, max_turns: int = 16,
                              focus: Optional[str] = None, why: Optional[str] = None, **turn_kwargs):
     from agent_loop.session import run_session_turn
@@ -85,7 +95,7 @@ async def run_kohl_blog_turn(runner, *, duration_minutes: int = 30, max_turns: i
         logger.info(f"[kohl_blog] {new} new post(s) from their feed")
     return await run_session_turn(
         runner, session_type=TEMPLATE_ID, additions=INSTRUCTIONS,
-        local_tools=local_tools(getattr(runner, "self_manager", None)),
+        local_tools=local_tools(_self_manager(runner)),
         duration_minutes=duration_minutes, focus=focus, max_turns=max_turns,
         why=why or "I chose time with Kohl's blog",
         initial_message="Time with Kohl's blog.", **turn_kwargs)
