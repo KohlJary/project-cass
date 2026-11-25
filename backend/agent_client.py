@@ -9,7 +9,7 @@ This replaces the raw API client with the official SDK, giving us:
 - Session management
 - Their "initializer agent" pattern with OUR cognitive architecture
 """
-from model_compat import fit_kwargs
+from model_compat import fit_kwargs, note_thinking, with_thinking
 import anyio
 from typing import Any, AsyncIterator, List, Dict, Optional, Callable
 from dataclasses import dataclass, field
@@ -2296,6 +2296,9 @@ class CassAgentClient:
                     "input": block.input
                 })
 
+        note_thinking(response, self.model, "chat")
+        full_text = with_thinking(full_text, response)
+
         # Track assistant response for potential tool continuation
         chain.messages.append({
             "role": "assistant",
@@ -2383,6 +2386,9 @@ class CassAgentClient:
                     "tool": block.name,
                     "input": block.input
                 })
+
+        note_thinking(response, self.model, "chat")
+        full_text = with_thinking(full_text, response)
 
         # Track assistant response for potential further tool calls
         chain.messages.append({
@@ -2480,6 +2486,9 @@ class CassAgentClient:
                     "tool": block.name,
                     "input": block.input
                 })
+
+        note_thinking(response, self.model, "chat")
+        full_text = with_thinking(full_text, response)
 
         # Track assistant response for potential further tool calls
         chain.messages.append({
@@ -2944,6 +2953,7 @@ When in doubt, respond with text first. You can always use a tool in a follow-up
                         "tool": func.get("name"),
                         "input": func.get("arguments", {})
                     })
+
 
                 # Track assistant response for potential tool continuation
                 assistant_message = {"role": "assistant", "content": full_text}

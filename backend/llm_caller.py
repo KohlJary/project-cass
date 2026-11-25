@@ -29,7 +29,7 @@ record_usage() is for code that must keep its own client (chat).
 
 from __future__ import annotations
 
-from model_compat import fit_kwargs
+from model_compat import fit_kwargs, note_thinking
 import asyncio
 import logging
 import os
@@ -814,6 +814,7 @@ async def create_message(
                     logger.warning(f"[llm:{call_site}] {provider}:{model_id} failed: {e}; trying fallback")
                     continue
                 raise
+            note_thinking(msg, model_id, call_site)
             _record_response(call_site, _anthropic_to_response(msg, model_id), started, ledger)
             return msg
         resp = await _call_provider(provider, model_id, _text_request(kwargs))
@@ -861,6 +862,7 @@ def create_message_sync(
                     logger.warning(f"[llm:{call_site}] {provider}:{model_id} failed: {e}; trying fallback")
                     continue
                 raise
+            note_thinking(msg, model_id, call_site)
             _record_response(call_site, _anthropic_to_response(msg, model_id), started, ledger)
             return msg
         resp = _call_provider_sync(provider, model_id, _text_request(kwargs))

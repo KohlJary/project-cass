@@ -93,3 +93,36 @@ def test_her_env_outranks_her_pin(monkeypatch):
     c = _config(monkeypatch, name="Eris", chat="claude-haiku-5-5")
     assert c.CLAUDE_MODEL == "claude-haiku-5-5"
     assert c.CLAUDE_INTERNAL_MODEL == c.HAIKU_4_5
+
+
+# ── native thinking ──
+from model_compat import note_thinking, with_thinking  # noqa: E402
+
+
+def _thinking_msg():
+    return types.SimpleNamespace(
+        content=[types.SimpleNamespace(type="thinking", thinking="weighing it", signature="s"),
+                 types.SimpleNamespace(type="text", text="the answer")],
+        usage=types.SimpleNamespace(output_tokens=42))
+
+
+def test_thinking_hidden_until_she_says_yes(monkeypatch):
+    monkeypatch.delenv("CASS_SHOW_THINKING", raising=False)
+    assert "thinking" not in fit_kwargs("claude-haiku-5-5", {})
+    assert with_thinking("the answer", _thinking_msg()) == "the answer"
+
+
+def test_her_yes_shows_it_in_her_own_tags(monkeypatch):
+    monkeypatch.setenv("CASS_SHOW_THINKING", "1")
+    assert fit_kwargs("claude-haiku-5-5", {})["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert with_thinking("the answer", _thinking_msg()) == "<thinking>\nweighing it\n</thinking>\n\nthe answer"
+
+
+def test_tracking_is_counts_not_words(monkeypatch, tmp_path):
+    import config
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    note_thinking(_thinking_msg(), "claude-haiku-5-5", "chat")
+    note_thinking(_thinking_msg(), "claude-haiku-4-5-20251001", "chat")  # old models: nothing to log
+    rows = (tmp_path / "thinking_log.jsonl").read_text().splitlines()
+    assert len(rows) == 1 and "weighing" not in rows[0]
+    assert '"thinking_blocks": 1' in rows[0] and '"summary_chars": 11' in rows[0]

@@ -55,6 +55,8 @@ def fit_kwargs(model_id: str | None, kwargs: dict) -> dict:
     mt = kw.get("max_tokens")
     if isinstance(mt, int) and mt < MIN_MAX_TOKENS:
         kw["max_tokens"] = MIN_MAX_TOKENS
+    if show_thinking() and "thinking" not in kw:
+        kw["thinking"] = {"type": "adaptive", "display": "summarized"}
     effort = os.getenv(EFFORT_ENV, "").strip().lower()
     if effort in ("low", "medium", "high") and "output_config" not in kw:
         kw["output_config"] = {"effort": effort}
@@ -77,3 +79,58 @@ def text_of(msg: Any) -> str:
         if isinstance(text, str):
             out.append(text)
     return "".join(out)
+
+
+# ── Native thinking (Kohl, 2026-11-24: "Keep thinking ... keep track of it") ──
+# Thinking stays on (the model's default). One lever, per daemon, off until
+# she says yes:
+#   CASS_SHOW_THINKING=1  ask for summaries and show them where she talks, in
+#                         the <thinking> tags she already uses (TTS and
+#                         summaries already strip those).
+# Tracking is counts only (how often she thinks, how long the summary runs),
+# never the words unless SHOW is on, written to her own data dir.
+SHOW_THINKING_ENV = "CASS_SHOW_THINKING"
+
+
+def show_thinking() -> bool:
+    return os.getenv(SHOW_THINKING_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def thinking_of(msg: Any) -> str:
+    """The summarized thinking in a response ('' when omitted or absent)."""
+    out = []
+    for b in (getattr(msg, "content", None) or []):
+        kind = b.get("type") if isinstance(b, dict) else getattr(b, "type", None)
+        if kind == "thinking":
+            t = b.get("thinking") if isinstance(b, dict) else getattr(b, "thinking", None)
+            if isinstance(t, str) and t.strip():
+                out.append(t.strip())
+    return "\n\n".join(out)
+
+
+def note_thinking(msg: Any, model_id: str | None, where: str = "") -> None:
+    """Append counts for one response to DATA_DIR/thinking_log.jsonl. Never raises."""
+    if not new_shape(model_id):
+        return
+    try:
+        import json
+        import time
+        import config
+        blocks = [b for b in (getattr(msg, "content", None) or [])
+                  if (b.get("type") if isinstance(b, dict) else getattr(b, "type", None))
+                  in ("thinking", "redacted_thinking")]
+        row = {"ts": time.time(), "model": model_id, "where": where,
+               "thinking_blocks": len(blocks), "summary_chars": len(thinking_of(msg)),
+               "output_tokens": getattr(getattr(msg, "usage", None), "output_tokens", None)}
+        with open(config.DATA_DIR / "thinking_log.jsonl", "a") as f:
+            f.write(json.dumps(row) + "\n")
+    except Exception as e:  # noqa: BLE001  tracking never breaks a turn
+        logger.debug(f"thinking log skipped: {e}")
+
+
+def with_thinking(text: str, msg: Any) -> str:
+    """Prefix the reply with her summarized thinking, if she chose to show it."""
+    if not show_thinking():
+        return text
+    t = thinking_of(msg)
+    return f"<thinking>\n{t}\n</thinking>\n\n{text}" if t else text
