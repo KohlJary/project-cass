@@ -490,6 +490,8 @@ from context_helpers import init_wiki_context, init_context_helpers
 init_wiki_context(wiki_retrieval)
 init_context_helpers(self_manager, user_manager, roadmap_manager, memory, thread_manager, question_manager)
 
+from handlers.person_lookup import execute_person_lookup_tool
+
 # Tool executors dict for unified routing
 TOOL_EXECUTORS = {
     "journal": execute_journal_tool,
@@ -520,6 +522,7 @@ TOOL_EXECUTORS = {
     "babelr": execute_babelr_tool,
     "world_observation": execute_world_observation_tool,
     "peopledex": execute_peopledex_tool,
+    "person_lookup": execute_person_lookup_tool,
     "stakeholder": execute_stakeholder_tool,
     "email": execute_email_tool,
     "lineage": execute_lineage_tool,

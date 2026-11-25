@@ -413,6 +413,10 @@ def _note_about_person(manager: PeopleDexManager, tool_input: Dict, conversation
     kind = tool_input.get("kind") or "observation"
     if not text:
         return {"success": False, "error": "text is needed: what you noticed, or what happened"}
+    # From look_up_person: the entry says where it came from.
+    from_lookup = (tool_input.get("from_lookup") or "").strip()
+    if from_lookup:
+        text = f"{text} (source: public lookup, {from_lookup})"
     entity, error = _resolve_one(manager, tool_input.get("name") or "")
     if entity is None and error and error.startswith("No one"):
         entity = manager.find_or_create_by_name(tool_input["name"].strip().lstrip("@"),
@@ -433,7 +437,8 @@ def _note_about_person(manager: PeopleDexManager, tool_input: Dict, conversation
     if kind not in NOTE_KINDS:
         return {"success": False, "error": "kind must be observation, moment, open_question, contradiction or to_raise"}
     o = manager.add_observation(entity.id, NOTE_KINDS[kind], text, confidence=confidence,
-                                source_type="cass_noted", source_conversation_id=conversation_id)
+                                source_type="public_lookup" if from_lookup else "cass_noted",
+                                source_conversation_id=conversation_id)
     if not o:
         return {"success": False, "error": "Couldn't save it."}
     return {"success": True, "result": f"Noted about {entity.primary_name} ({kind}) [o:{_short(o.id)}]."}
@@ -515,6 +520,7 @@ PEOPLE_KEEPING_TOOLS = [
             "text": {"type": "string", "description": "What you noticed, or what happened"},
             "significance": {"type": "string", "description": "For a moment: why it matters"},
             "confidence": {"type": "number", "description": "0-1: how sure you are (for observations)"},
+            "from_lookup": {"type": "string", "description": "When it came from look_up_person: the finding's source. The entry then says 'source: public lookup, <source>'"},
         }, "required": ["name", "kind", "text"]},
     },
     {

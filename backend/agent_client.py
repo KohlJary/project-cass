@@ -1692,6 +1692,7 @@ from handlers.markers import MARKER_TOOLS
 from handlers.interviews import INTERVIEW_TOOLS
 from handlers.dreams import DREAM_TOOLS
 from handlers.peopledex import PEOPLEDEX_TOOLS
+from handlers.person_lookup import PERSON_LOOKUP_TOOLS
 from handlers.room import ROOM_TOOLS
 from social.tools import SOCIAL_TOOLS
 from handlers.recall import RECALL_TOOLS
@@ -1927,6 +1928,10 @@ class CassAgentClient:
             if should_include_people_keeping_tools(message):
                 from handlers.peopledex import PEOPLE_KEEPING_TOOLS
                 tools.extend(PEOPLE_KEEPING_TOOLS)
+            # Looking someone up on the public web (her choice, never automatic)
+            from person_lookup import wants_lookup_tools
+            if wants_lookup_tools(message):
+                tools.extend(PERSON_LOOKUP_TOOLS)
 
             # === KEYWORD-TRIGGERED (Conditional loading) ===
 
