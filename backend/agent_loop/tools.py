@@ -128,6 +128,9 @@ def router_catalog() -> Dict[str, Dict[str, Any]]:
         if attr == "STUDIO_TOOLS" and not is_enabled("studio"):
             continue  # her studio: only once switched on
         value = getattr(agent_client, attr)
+        if attr == "PERSON_LOOKUP_TOOLS":
+            from handlers.person_lookup import lookup_tools_offered
+            value = lookup_tools_offered()  # public lookup: only while its lever is on
         if isinstance(value, list):
             groups.append(value)
     try:

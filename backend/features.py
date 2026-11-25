@@ -297,6 +297,12 @@ LEVERS: Dict[str, Lever] = {lv.name: lv for lv in [
            "read-only Claude Code instance (Daedalus) about her code: a snapshot of the tracked files, "
            "no data, no writes, a daily cap; each talk kept in her workspace (daedalus_bridge.py)",
            default=False, where="daedalus_bridge.Conversation.ask"),
+    _lever("person_lookup", "She can look someone up on the public web (public_lookup_person): a few "
+           "searches from the name and hints or seeds she was given, guarded in code (no workplace, "
+           "address, family, health, money or age; no data brokers), logged in DATA_DIR/person_lookup. "
+           "Kohl's kill switch. lookup_log_for_person (the log, and 'please don't') stays on",
+           INTEGRATION, where="person_lookup.look_up, handlers/person_lookup.lookup_tools_offered "
+           "(agent_client tools, agent_loop/tools.router_catalog)"),
     _lever("letters_to_future_me", "She can write a letter sealed until a date she picks; when it's due, "
            "it's put in front of her in a session and kept in her memory (letters.py)",
            default=False, where="agent_client tools, agent_loop.assemble (section 'letters')"),

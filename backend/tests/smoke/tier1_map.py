@@ -453,6 +453,12 @@ LEVER_COVERAGE = {
         "note": "A change-proposals session through the registry with the lever on; Claude Code "
                 "itself is faked. Fast-suite: tests/test_daedalus_bridge.py (fence, snapshot, cap).",
     },
+    "person_lookup": {
+        "depth": "none",
+        "tests": [],
+        "note": "Kill switch for a tool she calls (public_lookup_person); nothing starts on its own. "
+                "Fast-suite: tests/test_person_lookup.py (web mocked; lever on and off).",
+    },
     "letters_to_future_me": {
         "depth": "none",
         "tests": [],

@@ -344,6 +344,10 @@ TOOL_REGISTRY = {
     "forget_about_person": "peopledex",
     "remember_relationship": "peopledex",
 
+    # A light public lookup of a person (handlers/person_lookup.py)
+    "public_lookup_person": "person_lookup",
+    "lookup_log_for_person": "person_lookup",
+
     # Stakeholder tools (link people to goals)
     "link_stakeholder": "stakeholder",
     "get_goal_stakeholders": "stakeholder",
@@ -881,6 +885,15 @@ async def route_tool(
             tool_input=tool_input,
             daemon_id=ctx.daemon_id,
             conversation_id=ctx.conversation_id
+        )
+
+    elif executor_type == "person_lookup":
+        return await executor(
+            tool_name=tool_name,
+            tool_input=tool_input,
+            research_manager=ctx.research_manager,
+            session_manager=ctx.research_session_manager,
+            daemon_id=ctx.daemon_id,
         )
 
     elif executor_type == "stakeholder":
