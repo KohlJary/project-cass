@@ -27,7 +27,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Janet's model configuration
-JANET_MODEL = os.getenv("JANET_MODEL", "claude-haiku-4-5-20251001")
+from config import CLAUDE_INTERNAL_MODEL as _HOUSE_MODEL
+JANET_MODEL = os.getenv("JANET_MODEL", _HOUSE_MODEL)
 JANET_MAX_TOKENS = 2048
 
 # Keywords that trigger specific source queries

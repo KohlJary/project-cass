@@ -9,6 +9,7 @@ This replaces the raw API client with the official SDK, giving us:
 - Session management
 - Their "initializer agent" pattern with OUR cognitive architecture
 """
+from model_compat import fit_kwargs
 import anyio
 from typing import Any, AsyncIterator, List, Dict, Optional, Callable
 from dataclasses import dataclass, field
@@ -2279,7 +2280,7 @@ class CassAgentClient:
             api_kwargs["tools"] = tools
 
         # Call Claude API
-        response = await self.client.messages.create(**api_kwargs)
+        response = await self.client.messages.create(**fit_kwargs(api_kwargs["model"], api_kwargs))
 
         # Extract text content and tool uses
         full_text = ""
@@ -2362,12 +2363,12 @@ class CassAgentClient:
         })
 
         # Call Claude API with the tool chain context
-        response = await self.client.messages.create(
+        response = await self.client.messages.create(**fit_kwargs(self.model, dict(
             model=self.model,
             max_tokens=self.max_tokens,
             system=chain.system_prompt,
             messages=chain.messages
-        )
+        )))
 
         # Extract text content and tool uses
         full_text = ""
@@ -2464,7 +2465,7 @@ class CassAgentClient:
             api_kwargs["tools"] = chain.tools
 
         # Call Claude API
-        response = await self.client.messages.create(**api_kwargs)
+        response = await self.client.messages.create(**fit_kwargs(api_kwargs["model"], api_kwargs))
 
         # Extract text content and tool uses
         full_text = ""

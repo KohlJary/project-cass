@@ -109,7 +109,16 @@ def current_model_id(model_id: str) -> str:
 
 DefaultPolicy = Callable[[], Optional[ModelAssignment]]
 
-HAIKU = "claude-haiku-4-5-20251001"
+def _house_model() -> str:
+    """config.CLAUDE_INTERNAL_MODEL: Haiku 5.5 for a new house, a resident's pin otherwise."""
+    try:
+        import config
+        return config.CLAUDE_INTERNAL_MODEL
+    except Exception:
+        return "claude-haiku-4-5-20251001"
+
+
+HAIKU = _house_model()
 SONNET = "claude-sonnet-4-6"
 
 
@@ -705,6 +714,7 @@ def resolve_model(call_site: str, default: Optional[ModelAssignment] = None) -> 
 # Available models for the UI
 AVAILABLE_MODELS = [
     # Anthropic
+    {"provider": "anthropic", "model_id": "claude-haiku-5-5", "name": "Haiku 5.5", "local": False},
     {"provider": "anthropic", "model_id": "claude-haiku-4-5-20251001", "name": "Haiku 4.5", "local": False},
     {"provider": "anthropic", "model_id": "claude-sonnet-4-6", "name": "Sonnet 4", "local": False},
 

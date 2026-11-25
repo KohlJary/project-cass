@@ -7,6 +7,7 @@ her creative vision, and can choose to refine it until satisfied.
 This creates revision chains that can be viewed in the gallery.
 """
 
+from model_compat import text_of
 import logging
 
 import house_identity
@@ -263,7 +264,7 @@ Respond in this exact JSON format:
 
             # Parse response
             import json
-            text = response.content[0].text
+            text = text_of(response)
 
             # Extract JSON from response
             if "```json" in text:
@@ -334,7 +335,7 @@ Respond with ONLY the refined prompt text, no explanation."""
                 max_tokens=500,
                 messages=[{"role": "user", "content": planning_prompt}],
             )
-            return response.content[0].text.strip()
+            return text_of(response).strip()
         except Exception as e:
             logger.error(f"Failed to plan refinement: {e}")
             # Fall back to original prompt with refinement direction added

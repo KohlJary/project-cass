@@ -16,6 +16,7 @@ The planner doesn't know about specific domains (Wonderland, Library, etc.)
 until they register their capabilities. This makes it extensible.
 """
 
+from model_compat import text_of
 import json
 import logging
 from datetime import datetime
@@ -243,7 +244,7 @@ class GoalPlanner:
             messages=[{"role": "user", "content": "Generate sub-goals for this goal."}]
         )
 
-        text = response.content[0].text
+        text = text_of(response)
         return self._parse_subgoals_response(text)
 
     def _parse_subgoals_response(self, text: str) -> List[Dict]:

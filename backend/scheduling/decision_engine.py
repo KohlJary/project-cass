@@ -10,6 +10,7 @@ informing those choices. The scoring is just pre-filtering to surface
 relevant options - the actual decision comes from Cass.
 """
 
+from model_compat import text_of
 import json
 import logging
 from dataclasses import dataclass, field
@@ -392,7 +393,7 @@ class SchedulingDecisionEngine:
                 }]
             )
 
-            return self._parse_day_plan(response.content[0].text, candidates, phases)
+            return self._parse_day_plan(text_of(response), candidates, phases)
 
         except Exception as e:
             logger.error(f"Error in day planning: {e}")
@@ -824,7 +825,7 @@ class SchedulingDecisionEngine:
                 }]
             )
 
-            return self._parse_decision(response.content[0].text, candidates)
+            return self._parse_decision(text_of(response), candidates)
 
         except Exception as e:
             logger.error(f"Error in Cass's decision: {e}")

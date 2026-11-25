@@ -109,7 +109,8 @@ class GenericSessionRunner:
     # Model pricing per 1K tokens (updated for Haiku 4.5 / Sonnet defaults)
     # These are approximations - actual cost depends on model used
     MODEL_PRICING = {
-        "claude-haiku-4-5-20251001": {"input": 0.0008, "output": 0.004},
+        "claude-haiku-5-5": {"input": 0.0001, "output": 0.0005},  # prompts <=100K tokens; 5x above
+        "claude-haiku-4-5-20251001": {"input": 0.001, "output": 0.005},
         "claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
     }
     DEFAULT_INPUT_COST_PER_1K = 0.001  # Fallback if model not in pricing table

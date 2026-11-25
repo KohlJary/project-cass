@@ -7,6 +7,7 @@ based on the room they're in, recent events, and their personality.
 Uses a fast model (haiku) for quick decisions during exploration.
 """
 
+from model_compat import text_of
 import anthropic
 from dataclasses import dataclass
 from datetime import datetime
@@ -275,7 +276,7 @@ class ExplorationAgent:
             messages=[{"role": "user", "content": "What do you do next?"}]
         )
 
-        text = response.content[0].text
+        text = text_of(response)
         return self._parse_response(text)
 
     def _parse_response(self, text: str) -> ExplorationDecision:
@@ -413,7 +414,7 @@ END: yes
             messages=[{"role": "user", "content": "What do you say?"}]
         )
 
-        text = response.content[0].text
+        text = text_of(response)
         return self._parse_conversation_response(text)
 
     def _parse_conversation_response(self, text: str) -> ConversationDecision:

@@ -5,6 +5,7 @@ Handles extraction of adopted elements from artist syntheses
 and synthesis of Cass's personal artistic style.
 """
 
+from model_compat import text_of
 import json
 import logging
 from datetime import datetime
@@ -105,7 +106,7 @@ If nothing from this artist particularly speaks to you, return an empty list - t
             messages=[{"role": "user", "content": prompt}],
         )
 
-        response_text = response.content[0].text
+        response_text = text_of(response)
 
         # Extract JSON from response
         if "```json" in response_text:
@@ -260,7 +261,7 @@ Be authentic. This is YOUR voice emerging from studying others - not a pastiche,
             messages=[{"role": "user", "content": prompt}],
         )
 
-        response_text = response.content[0].text
+        response_text = text_of(response)
 
         # Extract JSON
         if "```json" in response_text:

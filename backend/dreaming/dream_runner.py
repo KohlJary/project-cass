@@ -5,6 +5,7 @@ This module provides async dream generation that can be called from
 the daily journal task or other scheduled processes.
 """
 
+from model_compat import text_of
 import anthropic
 from pathlib import Path
 from typing import Optional
@@ -174,7 +175,7 @@ class AsyncDreamSession:
             messages=self.dreaming_history
         )
 
-        text = response.content[0].text
+        text = text_of(response)
         self.dreaming_history.append({"role": "assistant", "content": text})
         return text
 
@@ -203,7 +204,7 @@ class AsyncDreamSession:
             messages=self.cass_history
         )
 
-        text = response.content[0].text
+        text = text_of(response)
         self.cass_history.append({"role": "assistant", "content": text})
         return text
 

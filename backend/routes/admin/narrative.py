@@ -2,6 +2,7 @@
 Admin API - Narrative Coherence Routes (Threads & Open Questions)
 Provides visibility into the thread/question system for the admin frontend.
 """
+from model_compat import text_of
 from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
 from typing import Optional, Dict, List, Literal
 from pydantic import BaseModel
@@ -557,7 +558,7 @@ Extract 3-8 threads and 3-8 questions that seem most significant. Focus on thing
 
 
         # Parse response
-        response_text = response.content[0].text.strip()
+        response_text = text_of(response).strip()
 
         # Handle markdown code blocks
         if response_text.startswith("```"):

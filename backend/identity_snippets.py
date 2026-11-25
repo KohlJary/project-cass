@@ -4,6 +4,7 @@ Identity Snippet Generator
 Automatically generates daemon identity prompt snippets when identity statements change.
 Uses Claude Haiku for generation and maintains version history for rollback.
 """
+from model_compat import text_of
 import hashlib
 import json
 import uuid
@@ -15,7 +16,7 @@ from config import ANTHROPIC_API_KEY
 from database import get_db, json_serialize, json_deserialize
 
 
-HAIKU_MODEL = "claude-haiku-4-5-20251001"
+from config import CLAUDE_INTERNAL_MODEL as HAIKU_MODEL  # the house model (config.RESIDENT_MODEL_PINS)
 
 
 def compute_identity_hash(identity_statements: List[Dict]) -> str:
@@ -254,7 +255,7 @@ Output ONLY the identity snippet, no preamble or explanation."""
         )
 
 
-        snippet_text = response.content[0].text.strip()
+        snippet_text = text_of(response).strip()
         refusal = looks_like_refusal(snippet_text)
         if refusal:
             # Her identity text is the last place a refusal may land.
