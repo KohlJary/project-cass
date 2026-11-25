@@ -417,6 +417,7 @@ async def run_loop(
             try:
                 reply = await client.create(model=model, system=system, tools=tools,
                                             messages=history, max_tokens=max_tokens)
+                _note_stop(reply, model, len(out.steps) if hasattr(out, "steps") else -1)
             except Exception as e:
                 if not _blocked(e) or blocked_left <= 0:
                     raise
@@ -566,6 +567,18 @@ async def run_loop(
         logger.error(f"[agent_loop] {spec.kind} turn failed: {e}", exc_info=True)
         out.status, out.error = "error", str(e)
     return out
+
+
+def _note_stop(reply, model, step) -> None:
+    """Shape only, never her words: why a step ended and how long its text ran."""
+    try:
+        stop = getattr(reply, "stop_reason", None)
+        n = len(getattr(reply, "text", "") or "")
+        calls = len(getattr(reply, "tool_calls", None) or [])
+        log = logger.warning if stop == "max_tokens" else logger.info
+        log(f"[agent_loop] step {step} on {model}: stop={stop} text_chars={n} tool_calls={calls}")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def _summary_at_cap(out: LoopOutcome, client, model, system, tools, history, max_tokens,
