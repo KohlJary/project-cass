@@ -136,8 +136,8 @@ PACKS: Dict[str, ToolPack] = {p.name: p for p in [
              ("ask_daedalus",)),
     # Kohl's blog, in its own session (kohl_blog_turn.py; Kohl's ask, 2026-11-18).
     ToolPack("kohl_blog", "read Kohl's blog posts and keep what I take from them (or disagree with) in "
-                          "my self-model, marked as coming from his writing",
-             ("blog_list", "blog_read", "blog_keep")),
+                          "my self-model, marked as coming from their writing",
+             ("blog_list", "blog_read", "blog_search", "blog_keep")),
     # What may wake her when it happens (happenings.py; Kohl, 2026-11-18).
     ToolPack("happenings", "set my rules for what may wake me when it happens", ("set_wake_rules",)),
     # Her commitments (commitments.py; Kohl, 2026-11-18): what she said she'd do, by when.
