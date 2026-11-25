@@ -8,7 +8,7 @@ Contains the SCHEMA_VERSION and complete SCHEMA_SQL for all tables.
 # SCHEMA DEFINITION
 # =============================================================================
 
-SCHEMA_VERSION = 70  # v70 work_summaries (+ trigger: schedule / goal:<plan> / event:<source>:<id>); v69 places (where her conversations happen, places.py); v68 rss_items.topics_json / relevance (her topics, news.py); v67 consumed_articles.interests_json / symbols_json; v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62); v66 llm_call_failures
+SCHEMA_VERSION = 71  # v71 opinions / growth_edges .written_by / written_by_site (memory/provenance.py); v70 work_summaries (+ trigger: schedule / goal:<plan> / event:<source>:<id>); v69 places (where her conversations happen, places.py); v68 rss_items.topics_json / relevance (her topics, news.py); v67 consumed_articles.interests_json / symbols_json; v60 journals (#56); v61 token_usage_records.call_site (#64); v62 users.legacy_email / legacy_password_hash (#61); v63 heartbeat_runs (#62); v64 research_tasks.params_json (#60); v65 token_usage_records.heartbeat_run_id (#62); v66 llm_call_failures
 
 SCHEMA_SQL = """
 -- Schema version tracking
@@ -211,7 +211,10 @@ CREATE TABLE IF NOT EXISTS growth_edges (
     related_topics_json TEXT,           -- Semantic tags for topic matching
     activated_with_users_json TEXT,     -- User IDs where this edge is particularly relevant
     last_surfaced TEXT,                 -- When last shown in context (for rotation)
-    surface_count INTEGER DEFAULT 0     -- How often surfaced (prevent over-rotation)
+    surface_count INTEGER DEFAULT 0,    -- How often surfaced (prevent over-rotation)
+    -- Which model last wrote it, and the call site (v71, memory/provenance.py)
+    written_by TEXT,
+    written_by_site TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_growth_edges_daemon ON growth_edges(daemon_id);
@@ -228,7 +231,10 @@ CREATE TABLE IF NOT EXISTS opinions (
     formed_from TEXT,
     evolution_json TEXT,
     date_formed TEXT,
-    last_updated TEXT
+    last_updated TEXT,
+    -- Which model last wrote it, and the call site (v71, memory/provenance.py)
+    written_by TEXT,
+    written_by_site TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_opinions_daemon ON opinions(daemon_id);

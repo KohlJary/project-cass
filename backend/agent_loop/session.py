@@ -341,6 +341,8 @@ async def run_session_turn(
     local_tools = {**wiki_tools(), **(local_tools or {})}
     from world_events import focus_tools   # her do-not-disturb, in every session (lever world_events)
     local_tools = {**focus_tools(), **local_tools}
+    from self_model_hold import hold_tools as self_model_hold_tools   # her write hold, every session
+    local_tools = {**self_model_hold_tools(), **local_tools}
     from .spec import LOOP_MIN_STEPS, MAKING_SESSIONS
     steps = max(max_turns, LOOP_MIN_STEPS)
     if session_type in MAKING_SESSIONS:
@@ -390,14 +392,21 @@ async def run_session_turn(
         additions = (additions or "") + (
             f"\n\n## DONE WHEN\n\n{done_when}\n\nI have {duration_minutes} minutes for this. I end with "
             "session_complete when that's met, or when I truly can't go on (and then I say why).")
-    prompt = assemble(spec, trigger, tool_names, additions, workspace=workspace,
-                      findable=list(tools_mod.findable(catalog, tool_names)))
     model = resolve_model(spec, runner.model)
     if client is None:
         # The call site's assignment picks the provider: Claude by default,
         # or a GPT / local model if Settings > LLM assigns one.
         # A session type can have its own assignment (session.social, ...), else session.generic.
         client, model = model_client_for(session_call_site(session_type), model, runner.client)
+    # The model she's on and her write hold (model_line.py): a session's prompt is
+    # built once, at its start, so this is as of then.
+    from model_line import turn_lines
+    status = turn_lines(getattr(client, "provider", None), model,
+                        sites=("session", session_call_site(session_type)))
+    if status:
+        additions = f"{additions}\n\n{status}" if additions else status
+    prompt = assemble(spec, trigger, tool_names, additions, workspace=workspace,
+                      findable=list(tools_mod.findable(catalog, tool_names)))
 
     client.ledger = {**(getattr(client, "ledger", None) or {}),
                      "category": ledger_category(), "operation": f"session.{session_type}"}

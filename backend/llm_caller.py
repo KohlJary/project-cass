@@ -156,8 +156,10 @@ def _record_response(call_site: str, resp: "LLMResponse", started: float, ledger
     if resp.error is not None:
         return
     try:  # who wrote what goes into her memory next (memory/provenance.py)
-        from memory.provenance import noted
+        from memory.provenance import answered, answered_model, noted
         noted(resp.provider, resp.model_id, call_site)
+        # and which model the API says answered, for the model line in her prompt
+        answered(resp.provider, answered_model(resp.raw, resp.model_id), call_site)
     except Exception:
         pass
     record_usage(

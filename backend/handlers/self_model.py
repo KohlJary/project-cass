@@ -2469,10 +2469,17 @@ async def execute_self_model_tool(
 
         handler = TOOL_HANDLERS.get(tool_name)
         if handler:
+            import self_model_hold
+            held_before = len(self_model_hold.held()) if self_model_hold.is_held() else None
             # TOOL_HANDLERS mixes sync and async functions; only await coroutines.
             result = handler(tool_input, ctx)
             if inspect.isawaitable(result):
                 result = await result
+            if held_before is not None and isinstance(result, dict):
+                n = len(self_model_hold.held()) - held_before
+                if n > 0:   # her write hold kept it back: say so, not "recorded"
+                    result["held"] = (f"My self-model write hold is on: {n} write(s) from this were held, "
+                                      "not applied. They wait in held_self_model_writes.")
             return result
         else:
             return {"success": False, "error": f"Unknown self-model tool: {tool_name}"}

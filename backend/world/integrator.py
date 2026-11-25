@@ -32,6 +32,15 @@ from .memory_integration import ArticleMemoryManager
 logger = logging.getLogger(__name__)
 
 
+def _written_by() -> dict:
+    """The model label for a self-model write happening now (memory/provenance.py)."""
+    try:
+        from memory.provenance import current
+        return current() or {}
+    except Exception:
+        return {}
+
+
 @dataclass
 class IntegrationResult:
     """Result of integrating article insights into self-model."""
@@ -252,6 +261,7 @@ class InsightIntegrator:
         created_at: str,
     ) -> bool:
         """Add opinion to opinions table."""
+        label = _written_by()
         try:
             with get_db() as conn:
                 # Check if we already have an opinion on this topic
@@ -278,7 +288,9 @@ class InsightIntegrator:
                                     'source_article', ?
                                 )
                             ),
-                            last_updated = ?
+                            last_updated = ?,
+                            written_by = COALESCE(?, written_by),
+                            written_by_site = COALESCE(?, written_by_site)
                         WHERE id = ?
                         """,
                         (
@@ -288,6 +300,8 @@ class InsightIntegrator:
                             created_at,
                             source_article_id,
                             created_at,
+                            label.get("written_by"),
+                            label.get("written_by_site"),
                             existing[0],
                         )
                     )
@@ -297,8 +311,9 @@ class InsightIntegrator:
                         """
                         INSERT INTO opinions (
                             daemon_id, topic, position, confidence, rationale,
-                            formed_from, date_formed, last_updated
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            formed_from, date_formed, last_updated,
+                            written_by, written_by_site
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             self.daemon_id,
@@ -309,6 +324,8 @@ class InsightIntegrator:
                             f"article:{source_article_id}",
                             created_at,
                             created_at,
+                            label.get("written_by"),
+                            label.get("written_by_site"),
                         )
                     )
                 conn.commit()
@@ -354,8 +371,8 @@ class InsightIntegrator:
                     INSERT INTO growth_edges (
                         daemon_id, edge_id, area, current_state, desired_state,
                         importance, first_noticed, last_updated, observations_json,
-                        category
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        category, written_by, written_by_site
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         self.daemon_id,
@@ -368,6 +385,8 @@ class InsightIntegrator:
                         now,
                         json_serialize([f"Sparked by article {source_article_id}"]),
                         "world_engagement",
+                        _written_by().get("written_by"),
+                        _written_by().get("written_by_site"),
                     )
                 )
                 conn.commit()
@@ -534,3 +553,10 @@ def integrate_article_insights(
     """
     integrator = InsightIntegrator(daemon_id, min_confidence, memory_core, min_relevance)
     return integrator.integrate(article, insights, self_manager)
+
+
+# These two write her opinions and growth edges with their own SQL, not through
+# SelfManager, so her self-model write hold (self_model_hold.py) wraps them too.
+from self_model_hold import hold_class as _hold_class  # noqa: E402
+
+_hold_class(InsightIntegrator, "world_integrator", ("_add_opinion", "_add_growth_edge"))

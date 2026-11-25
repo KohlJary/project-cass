@@ -310,6 +310,15 @@ async def run_chat_turn(
         tool_names_used, generated_images = looped.tool_names_used, looped.generated_images
         hit_tool_cap, tool_uses = looped.hit_tool_cap, looped.tool_uses
     else:
+        # The model she's on and her write hold, at the end (the per-turn part;
+        # model_line.py). On the loop, run_conversation adds them once it knows
+        # which client the turn really runs on.
+        from model_line import turn_lines
+        status = turn_lines(response_provider, response_model, sites=("chat",))
+        if status:
+            send_kwargs["continuous_system_prompt"] = (
+                f"{send_kwargs['continuous_system_prompt']}\n\n{status}"
+                if send_kwargs.get("continuous_system_prompt") else status)
         (raw_response, clean_text, animations, tool_uses, total_input, total_output, total_cache_read,
          tool_iterations, tool_names_used, generated_images, hit_tool_cap) = await _client_tool_loop(
             turn_client, send_kwargs, response_provider, provider_label, is_anthropic, tool_cap,

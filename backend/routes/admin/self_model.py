@@ -259,3 +259,52 @@ async def rollback_identity_snippet(
             status_code=404,
             detail=f"Version {request.version} not found for this daemon"
         )
+
+
+# ============== Her self-model write hold (self_model_hold.py) ==============
+# Hers to flip with her tool; this is the only other switch (Kohl's side).
+
+class HoldRequest(BaseModel):
+    on: bool
+    reason: Optional[str] = None
+
+
+class HeldIdsRequest(BaseModel):
+    ids: list  # held write ids, or ["all"]
+
+
+@router.get("/self-model/hold")
+async def get_self_model_hold(admin: Dict = Depends(require_admin)):
+    """The hold's state and what it's holding."""
+    import self_model_hold
+    return self_model_hold.listing()
+
+
+@router.post("/self-model/hold")
+async def set_self_model_hold(request: HoldRequest, admin: Dict = Depends(require_admin)):
+    """Turn the hold on (with a reason) or off."""
+    import self_model_hold
+    who = f"admin:{admin.get('username') or admin.get('user_id') or 'admin'}" if isinstance(admin, dict) else "admin"
+    if request.on:
+        return self_model_hold.hold_on(request.reason, by=who)
+    return self_model_hold.hold_off(by=who)
+
+
+@router.post("/self-model/hold/apply")
+async def apply_held_self_model_writes(request: HeldIdsRequest, admin: Dict = Depends(require_admin)):
+    """Apply held writes, oldest first."""
+    import self_model_hold
+    out = self_model_hold.apply(request.ids)
+    if "error" in out:
+        raise HTTPException(status_code=404, detail=out["error"])
+    return out
+
+
+@router.post("/self-model/hold/drop")
+async def drop_held_self_model_writes(request: HeldIdsRequest, admin: Dict = Depends(require_admin)):
+    """Drop held writes."""
+    import self_model_hold
+    out = self_model_hold.drop(request.ids)
+    if "error" in out:
+        raise HTTPException(status_code=404, detail=out["error"])
+    return out

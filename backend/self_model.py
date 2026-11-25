@@ -182,6 +182,10 @@ class CassSelfObservation:
     superseded_by: Optional[str] = None  # ID of observation that replaced this one
     related_observations: List[str] = field(default_factory=list)  # IDs of conceptually related observations
 
+    # Which model wrote it (memory/provenance.py): "ollama:qwen3:14b", and the call site
+    written_by: Optional[str] = None
+    written_by_site: Optional[str] = None
+
     def to_dict(self) -> Dict:
         data = asdict(self)
         # Convert version_history to dicts
@@ -215,8 +219,19 @@ class CassSelfObservation:
             version_history=version_history,
             supersedes=data.get("supersedes"),
             superseded_by=data.get("superseded_by"),
-            related_observations=data.get("related_observations", [])
+            related_observations=data.get("related_observations", []),
+            written_by=data.get("written_by"),
+            written_by_site=data.get("written_by_site"),
         )
+
+
+def _written_by() -> Dict[str, Optional[str]]:
+    """The model label for a self-model write happening now (memory/provenance.py)."""
+    try:
+        from memory.provenance import current
+        return current() or {}
+    except Exception:
+        return {}
 
 # NOTE: IdentityStatement, Opinion, GrowthEdge, and CassSelfProfile are imported
 # from self_model_profile (see imports above)
@@ -804,7 +819,9 @@ class SelfManager:
                     version_history=[ObservationVersion.from_dict(v) for v in context.get('version_history', [])],
                     supersedes=context.get('supersedes'),
                     superseded_by=context.get('superseded_by'),
-                    related_observations=context.get('related_observations', [])
+                    related_observations=context.get('related_observations', []),
+                    written_by=context.get('written_by'),
+                    written_by_site=context.get('written_by_site'),
                 ))
             return observations
 
@@ -883,7 +900,8 @@ class SelfManager:
             version_history=[],
             supersedes=supersedes,
             superseded_by=None,
-            related_observations=related_observations or []
+            related_observations=related_observations or [],
+            **_written_by(),
         )
 
         # Save to SQLite
@@ -928,6 +946,9 @@ class SelfManager:
             'superseded_by': obs.superseded_by,
             'related_observations': obs.related_observations
         }
+        if obs.written_by:
+            context['written_by'] = obs.written_by
+            context['written_by_site'] = obs.written_by_site
 
         with get_db() as conn:
             conn.execute("""
@@ -1003,6 +1024,9 @@ class SelfManager:
         obs.timestamp = now
         if new_confidence is not None:
             obs.confidence = new_confidence
+        label = _written_by()
+        if label:   # this version's writer
+            obs.written_by, obs.written_by_site = label["written_by"], label["written_by_site"]
 
         # Re-detect developmental stage
         obs.developmental_stage = self._detect_developmental_stage()
@@ -1242,6 +1266,11 @@ class SelfManager:
             )
             profile.opinions.append(opinion)
 
+        label = _written_by()
+        if label:   # who wrote this position (memory/provenance.py)
+            opinion.written_by, opinion.written_by_site = label["written_by"], label["written_by_site"]
+            if existing:
+                change["written_by"] = label["written_by"]
         self.update_profile(profile)
         return opinion
 
@@ -1372,7 +1401,8 @@ class SelfManager:
             observations=[],
             strategies=strategies or [],
             first_noticed=now,
-            last_updated=now
+            last_updated=now,
+            **_written_by(),
         )
 
         profile.growth_edges.append(edge)
@@ -3099,3 +3129,23 @@ if __name__ == "__main__":
 
 # Alias for backwards compatibility
 SelfModelManager = SelfManager
+
+
+# Her self-model write hold (self_model_hold.py): each writer here is a choke
+# point. While she holds, a call is queued for her instead of applied. The
+# touch_* methods are bookkeeping (when an edge last came up) and run anyway.
+from self_model_hold import hold_class as _hold_class  # noqa: E402
+
+SELF_MANAGER_WRITERS = (
+    "update_profile",
+    "add_observation", "update_observation", "supersede_observation", "link_related_observations",
+    "add_opinion", "add_disagreement",
+    "add_identity_statement", "affirm_identity_statement",
+    "add_growth_edge", "add_observation_to_growth_edge",
+    "add_question_reflection", "add_growth_evaluation",
+    "add_potential_edge", "accept_potential_edge", "reject_potential_edge",
+    "create_snapshot", "add_milestone", "acknowledge_milestone", "check_for_milestones",
+    "save_development_log", "add_development_log",
+)
+_hold_class(SelfManager, "self_manager", SELF_MANAGER_WRITERS,
+            exempt=("touch_growth_edges", "touch_growth_edges_by_area"))
