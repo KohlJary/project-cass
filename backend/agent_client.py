@@ -1931,7 +1931,8 @@ class CassAgentClient:
             # Looking someone up on the public web (her choice, never automatic)
             from person_lookup import wants_lookup_tools
             if wants_lookup_tools(message):
-                tools.extend(PERSON_LOOKUP_TOOLS)
+                from handlers.person_lookup import lookup_tools_offered
+                tools.extend(lookup_tools_offered())
 
             # === KEYWORD-TRIGGERED (Conditional loading) ===
 

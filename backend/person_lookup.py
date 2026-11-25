@@ -70,10 +70,20 @@ DATA_DIR_OVERRIDE: Optional[Path] = None
 # ---------------------------------------------------------------------------
 
 LOOKUP_KEYWORDS = frozenset({
-    "look up", "look them up", "look him up", "look her up", "looked up", "lookup",
+    "public lookup", "look them up online", "search the web for", "look up", "look them up", "look him up", "look her up", "looked up", "lookup",
     "who is", "who's coming", "onboard", "joining", "joined", "new to the house", "coming over",
     "meet", "meeting", "invite", "invited", "consent", "qr", "welcome", "homework", "newcomer",
 })
+
+
+def lever_on() -> bool:
+    """Kohl's kill switch: the person_lookup lever (CASS_FEATURE_PERSON_LOOKUP=0)."""
+    try:
+        from features import is_enabled
+        return is_enabled("person_lookup")
+    except Exception as e:
+        logger.warning(f"[person_lookup] lever unreadable ({e}); lookups are off")
+        return False
 
 
 def wants_lookup_tools(message: str) -> bool:
@@ -766,6 +776,8 @@ async def look_up(name: str, *, research_manager, session_manager=None, daemon_i
                   consented: bool = False, seeds: Iterable[Any] = (),
                   household_interests: Iterable[str] = ()) -> Dict[str, Any]:
     """Look someone up. Returns what may reach her; writes only the log."""
+    if not lever_on():
+        return {"success": False, "error": "Public lookups are switched off (the person_lookup lever)."}
     seeds = sort_seeds(seeds)
     inviter = (introduced_by or "").strip() or "the person who invited them"
     ignored_inviter_seeds = 0

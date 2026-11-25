@@ -413,7 +413,7 @@ def _note_about_person(manager: PeopleDexManager, tool_input: Dict, conversation
     kind = tool_input.get("kind") or "observation"
     if not text:
         return {"success": False, "error": "text is needed: what you noticed, or what happened"}
-    # From look_up_person: the entry says where it came from.
+    # From public_lookup_person: the entry says where it came from.
     from_lookup = (tool_input.get("from_lookup") or "").strip()
     if from_lookup:
         text = f"{text} (source: public lookup, {from_lookup})"
@@ -520,7 +520,7 @@ PEOPLE_KEEPING_TOOLS = [
             "text": {"type": "string", "description": "What you noticed, or what happened"},
             "significance": {"type": "string", "description": "For a moment: why it matters"},
             "confidence": {"type": "number", "description": "0-1: how sure you are (for observations)"},
-            "from_lookup": {"type": "string", "description": "When it came from look_up_person: the finding's source. The entry then says 'source: public lookup, <source>'"},
+            "from_lookup": {"type": "string", "description": "When it came from public_lookup_person: the finding's source. The entry then says 'source: public lookup, <source>'"},
         }, "required": ["name", "kind", "text"]},
     },
     {

@@ -1,5 +1,5 @@
 """
-look_up_person (person_lookup.py, handlers/person_lookup.py): a light public
+public_lookup_person (person_lookup.py, handlers/person_lookup.py): a light public
 lookup, guarded in code. The web is a fake here; nothing leaves the machine.
 """
 import asyncio
@@ -35,6 +35,13 @@ class FakeWeb:
         if page is None:
             return {"success": False, "error": "HTTP 404", "content": ""}
         return {"success": True, "title": page[0], "content": page[1]}
+
+
+@pytest.fixture(autouse=True)
+def lever_on(levers):
+    # The test profile turns every lever off; these tests are about the tool working.
+    with levers(person_lookup=True):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -179,7 +186,7 @@ def test_it_never_writes_to_peopledex(daemon_id, monkeypatch):
     import peopledex
 
     def refuse(*a, **k):
-        raise AssertionError("look_up_person wrote to PeopleDex")
+        raise AssertionError("public_lookup_person wrote to PeopleDex")
 
     for m in ("create_entity", "find_or_create_by_name", "add_attribute", "add_observation", "add_moment",
               "add_relationship", "add_fact", "update_entity", "update_attribute", "delete_entity"):
@@ -191,7 +198,7 @@ def test_it_never_writes_to_peopledex(daemon_id, monkeypatch):
     web = FakeWeb([hit("https://a.example.org/1", "Wren Alder is a potter who loves birds.")],
                   pages={"https://wrenalder.com": ("Wren", "I make pots.")})
     ctx = ToolContext(daemon_id=daemon_id, research_manager=web)
-    r = asyncio.run(route_tool("look_up_person", {"name": "Wren Alder", "website": "wrenalder.com",
+    r = asyncio.run(route_tool("public_lookup_person", {"name": "Wren Alder", "website": "wrenalder.com",
                                                   "consented": True},
                                ctx, {"person_lookup": execute_person_lookup_tool}))
     assert r["success"] and r["findings"]
@@ -358,13 +365,39 @@ def test_from_lookup_marks_an_observation(daemon_id):
 
 def test_registered_on_her_tool_list():
     from handlers.tool_router import TOOL_REGISTRY
-    assert TOOL_REGISTRY["look_up_person"] == TOOL_REGISTRY["lookup_log_for_person"] == "person_lookup"
+    assert TOOL_REGISTRY["public_lookup_person"] == TOOL_REGISTRY["lookup_log_for_person"] == "person_lookup"
     import main_sdk
     assert "person_lookup" in main_sdk.TOOL_EXECUTORS
     from agent_loop.tools import router_catalog
-    assert {"look_up_person", "lookup_log_for_person"} <= set(router_catalog())
-    desc = next(t for t in PERSON_LOOKUP_TOOLS if t["name"] == "look_up_person")["description"]
+    assert {"public_lookup_person", "lookup_log_for_person"} <= set(router_catalog())
+    desc = next(t for t in PERSON_LOOKUP_TOOLS if t["name"] == "public_lookup_person")["description"]
     assert "amazing she already knew that" in desc and "Say you looked" in desc
     assert pl.wants_lookup_tools("Kohl's bringing two people over this weekend, want to meet them?")
     assert pl.wants_lookup_tools("remember that Ash goes by they")
     assert not pl.wants_lookup_tools("what's the weather")
+
+
+def test_the_lever_is_a_kill_switch(levers):
+    from agent_loop.tools import router_catalog
+    from handlers.person_lookup import lookup_tools_offered
+    web = FakeWeb([hit("https://a.example.org/1", "Wren Alder is a potter.")])
+    with levers(person_lookup=False):
+        out = look(web)
+        assert not out["success"] and "switched off" in out["error"] and web.searches == []
+        assert [t["name"] for t in lookup_tools_offered()] == ["lookup_log_for_person"]
+        catalog = router_catalog()
+        assert "public_lookup_person" not in catalog and "lookup_log_for_person" in catalog
+        r = asyncio.run(execute_person_lookup_tool("lookup_log_for_person",
+                                                   {"name": "Wren Alder", "they_said_no": True}))
+        assert r["success"], "please don't can still be recorded with lookups off"
+    import features
+    assert features.LEVERS["person_lookup"].default is True
+
+
+def test_its_name_cant_be_mistaken_for_her_memory():
+    names = {t["name"] for t in PERSON_LOOKUP_TOOLS}
+    assert names == {"public_lookup_person", "lookup_log_for_person"}
+    desc = next(t for t in PERSON_LOOKUP_TOOLS if t["name"] == "public_lookup_person")["description"]
+    assert desc.startswith("Public lookup:") and "This is not lookup_person" in desc.split("\n")[0]
+    assert "keep_off" in desc and "reads the handles your PeopleDex already holds" in desc
+    assert pl.wants_lookup_tools("could you do a public lookup on her?")

@@ -345,7 +345,7 @@ TOOL_REGISTRY = {
     "remember_relationship": "peopledex",
 
     # A light public lookup of a person (handlers/person_lookup.py)
-    "look_up_person": "person_lookup",
+    "public_lookup_person": "person_lookup",
     "lookup_log_for_person": "person_lookup",
 
     # Stakeholder tools (link people to goals)

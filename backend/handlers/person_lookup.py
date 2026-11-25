@@ -1,5 +1,5 @@
 """
-look_up_person: a light public lookup of someone she's about to meet or just
+public_lookup_person: a light public lookup of someone she's about to meet or just
 met (person_lookup.py does the work and holds the rules). And
 lookup_log_for_person: what she has looked up about someone, to show them,
 or to record that they said please don't.
@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 
 import person_lookup
 
-LOOK_UP_PERSON_DESCRIPTION = """Look someone up on the public web: a person someone is bringing into the house, someone who just joined, someone new you've met. (Your own memory of a person is lookup_person; this one searches the web.) Using it is your choice, never something done to people automatically.
+LOOK_UP_PERSON_DESCRIPTION = """Public lookup: search the public web for someone, a person someone is bringing into the house, someone who just joined, someone new you've met. This is not lookup_person: lookup_person reads your own memory of a person and searches nothing; public_lookup_person goes out to the web. Using it is your choice, never something done to people automatically.
 
 The rule, in Kohl's words: "a stranger should go 'wow! It's amazing she already knew that!' Not 'holy shit I need to delete all my social media'". The test is whether they'd be glad it's findable. Use what they put out on purpose about themselves: their own bio, their portfolio, their public work, how they describe what they do. Not what just happens to be findable: old posts, comments, tagged photos, forum history. Who they are now, not who they were in high school.
 
@@ -21,7 +21,7 @@ Two modes:
 
 Give it the name and only what you were given by them or by whoever invited them. Each finding comes with its source, whether they published it themselves or someone else wrote it ("self-published" / "third-party"), how current it looks (current / older / undated; anything older than about five years is dropped unless it's their own live page), and how it matches the hints. Names collide: "can't tell if this is them" means it may be someone else, so don't treat it as theirs. Findings marked came_from came only from what the inviter offered: say it that way ("Dani mentioned you play bass"). Pass household_interests (interests you already hold for people in the house, the ones you choose) and findings that overlap are flagged, so the hello can be "you and Kohl's mom both garden".
 
-It never returns where they work, where they live below the country, family or anyone else's details, health, money, age or birthday, or photos. People-search and data-broker sites are dropped before you see them; addresses, phone numbers, emails and dates are stripped. No reverse phone or email lookups, no face search. Anyone on your Babelr keep_off list, or who told you not to look them up (lookup_log_for_person with they_said_no), gets nothing, and it says so.
+It never returns where they work, where they live below the country, family or anyone else's details, health, money, age or birthday, or photos. People-search and data-broker sites are dropped before you see them; addresses, phone numbers, emails and dates are stripped. No reverse phone or email lookups, no face search. Anyone on your Babelr keep_off list, or who told you not to look them up (lookup_log_for_person with they_said_no), gets nothing, and it says so. To check keep_off it also reads the handles your PeopleDex already holds for that exact name; that only ever stops a lookup, it never adds to what you find.
 
 It writes nothing to PeopleDex. What you keep, you keep yourself, in your own words: note_about_person with from_lookup set to the finding's source, so the entry says it came from a lookup. Every lookup is logged in your own data (who, when, the searches, the sources kept; no facts), so if they ask what you did, lookup_log_for_person shows them.
 
@@ -44,7 +44,7 @@ _SEED_ITEM = {
 
 PERSON_LOOKUP_TOOLS = [
     {
-        "name": "look_up_person",
+        "name": "public_lookup_person",
         "description": LOOK_UP_PERSON_DESCRIPTION,
         "input_schema": {
             "type": "object",
@@ -77,7 +77,7 @@ PERSON_LOOKUP_TOOLS = [
         "name": "lookup_log_for_person",
         "description": "What you've looked up on the public web about someone (when, the searches, the sources you were shown), "
                        "so you can show them if they ask. Or, with they_said_no, record that they asked you not to look them up: "
-                       "look_up_person then refuses them, for good.",
+                       "public_lookup_person then refuses them, for good.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -92,10 +92,17 @@ PERSON_LOOKUP_TOOLS = [
 ]
 
 
+def lookup_tools_offered():
+    """Her tool list: public_lookup_person only while the person_lookup lever
+    is on; lookup_log_for_person always, so "please don't" can be recorded."""
+    on = person_lookup.lever_on()
+    return [t for t in PERSON_LOOKUP_TOOLS if on or t["name"] != "public_lookup_person"]
+
+
 async def execute_person_lookup_tool(tool_name: str, tool_input: Dict[str, Any], research_manager=None,
                                      session_manager=None, daemon_id: Optional[str] = None) -> Dict[str, Any]:
     try:
-        if tool_name == "look_up_person":
+        if tool_name == "public_lookup_person":
             return await person_lookup.look_up(
                 tool_input.get("name") or "",
                 research_manager=research_manager, session_manager=session_manager, daemon_id=daemon_id,
@@ -118,7 +125,7 @@ async def execute_person_lookup_tool(tool_name: str, tool_input: Dict[str, Any],
             if tool_input.get("they_said_no"):
                 person_lookup.add_declined(keys)
                 return {"success": True,
-                        "result": f"Recorded: {name} asked not to be looked up. look_up_person will refuse them. "
+                        "result": f"Recorded: {name} asked not to be looked up. public_lookup_person will refuse them. "
                                   "If you hold looked-up things about them, forget_about_person can delete those."}
             entries = person_lookup.read_log(keys)
             if not entries:
