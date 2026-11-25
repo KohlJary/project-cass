@@ -590,8 +590,8 @@ PEOPLEDEX_TOOLS = [
                         "properties": {
                             "type": {
                                 "type": "string",
-                                "description": "Type of attribute",
-                                "enum": ["name", "birthday", "pronoun", "email", "phone", "handle", "role", "bio", "note", "location"]
+                                "enum": ["name", "birthday", "pronoun", "email", "phone", "handle", "role", "bio", "note", "location", "expected_as"],
+                                "description": "Type of attribute. expected_as: the label on the Babelr invite Kohl made for them (e.g. 'Mom'); when someone joins through that invite, their new Babelr handle is added to this entry"
                             },
                             "value": {
                                 "type": "string",
@@ -599,7 +599,7 @@ PEOPLEDEX_TOOLS = [
                             },
                             "key": {
                                 "type": "string",
-                                "description": "For handles/emails: which platform/type (e.g., 'twitter', 'work')"
+                                "description": "For handles/emails: which platform/type (e.g., 'twitter', 'work'). 'babelr' for someone's Babelr username: then you know them when they write to you there, even the first time"
                             }
                         },
                         "required": ["type", "value"]

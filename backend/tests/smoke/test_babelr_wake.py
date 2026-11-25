@@ -184,3 +184,43 @@ def test_babelr_final():
     assert f("<gesture:think>open") is None
     assert f("PASS") is None and f("") is None
     assert f("<emote:happy>Plain reply.") == "Plain reply."
+
+
+def test_a_guest_she_knows_is_in_front_of_her_and_not_stored_as_their_words(
+        booted_app, fake_llm, levers, tmp_path):
+    """An unlinked person she has an entry for (filed by Babelr handle): her
+    turn sees "who this is to me"; the channel's stored history has only what
+    they wrote; the turn stays public (no user, no private tools)."""
+    import main_sdk
+    from database import get_daemon_id
+    from peopledex import AttributeType, EntityType, PeopleDexManager
+    dex = PeopleDexManager(daemon_id=get_daemon_id())
+    eid = dex.create_entity(EntityType.PERSON, "Linda")
+    dex.add_attribute(eid, AttributeType.HANDLE, "linda_k", attribute_key="babelr", is_primary=True)
+    dex.add_observation(eid, "general", "Kohl's mom; grows tomatoes.")
+    linda = {"id": "actor-linda", "preferredUsername": "linda_k", "displayName": "Linda"}
+    babelr = FakeBabelr()
+    with levers(babelr=True):
+        organ = _organ(tmp_path, babelr)
+        asyncio.run(organ.poll_once())
+        babelr.dm_from(linda, "hello dear")
+        fake_llm.queue(ScriptedResponse(text="Hi Linda."))
+        asyncio.run(organ.poll_once())
+        babelr.say("general", linda, "@cass hi from here too")
+        fake_llm.queue(ScriptedResponse(text="Hi again."))
+        asyncio.run(organ.poll_once())
+        stranger = {"id": "actor-stranger", "preferredUsername": "stranger_z", "displayName": "Z"}
+        babelr.dm_from(stranger, "hey")
+        fake_llm.queue(ScriptedResponse(text="Hey."))
+        asyncio.run(organ.poll_once())
+
+    chat = [c for c in fake_llm.calls if c.tools]
+    for call in chat[:2]:
+        seen = str(call.messages[-1]["content"])
+        assert "## Who @linda_k is to me" in seen and "grows tomatoes" in seen
+    assert "Who @" not in str(chat[2].messages[-1]["content"])  # someone she has no entry for
+    assert set(chat[0].tool_names) == set(chat[2].tool_names)  # still the unlinked path's tools
+    conv_id = organ.state.conversation_for("channel:chan-general")
+    stored = [m.content for m in main_sdk.conversation_manager.load_conversation(conv_id).messages]
+    assert stored[0] == "[Babelr #general] @linda_k: @cass hi from here too"
+    assert not any("Who @linda_k" in s for s in stored)

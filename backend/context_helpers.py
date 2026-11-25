@@ -969,12 +969,20 @@ async def process_inline_tags(
                             'twitter': AttributeType.HANDLE,
                             'github': AttributeType.HANDLE,
                             'discord': AttributeType.HANDLE,
+                            # Her username on Babelr: the key her Babelr filing and
+                            # read-back match on (babelr_organ/people.py), so someone
+                            # she files ahead of time is known when they first write.
+                            'babelr': AttributeType.HANDLE,
+                            # The label on the Babelr invite made for them ("Mom"):
+                            # when they join through it, their handle joins this entry.
+                            'expected_as': AttributeType.EXPECTED_AS,
                         }
 
                         if attr_key in attr_type_map:
                             attr_type = attr_type_map[attr_key]
                             # For handles, use the key as the attribute_key
-                            handle_key = attr_key if attr_key in ('twitter', 'github', 'discord') else None
+                            handle_key = (attr_key if attr_key in ('twitter', 'github', 'discord', 'babelr')
+                                          else 'babelr' if attr_key == 'expected_as' else None)
                             pdex.add_attribute(
                                 entity_id=entity.id,
                                 attribute_type=attr_type,

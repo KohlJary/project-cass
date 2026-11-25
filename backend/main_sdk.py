@@ -654,6 +654,10 @@ app.include_router(panel_router)
 from routes.daybook import router as daybook_router
 app.include_router(daybook_router)
 
+# What she keeps about you, for Babelr, only with her yes (routes/people_about.py)
+from routes.people_about import router as people_about_router
+app.include_router(people_about_router)
+
 # Register memory routes (initialized in background after memory is ready)
 from routes.memory import router as memory_router, init_memory_routes
 app.include_router(memory_router)
@@ -1602,7 +1606,13 @@ def make_babelr_wake_callback():
     and the organ doesn't record it again. Mentions and unlinked DMs run the
     shared turn with public context, like Discord; the organ records those in
     her "Babelr: ..." conversations. Her `remember: false` term keeps every
-    path out of history and memory (the old, unstored turn)."""
+    path out of history and memory (the old, unstored turn).
+
+    For someone who isn't linked, the organ's context["person"] is her own
+    PeopleDex entry for them ("who this is to me", babelr_organ/people.py
+    recall()), under the same terms as filing them. It goes into what she sees
+    this turn, never into what's stored as their words, and it changes
+    nothing else: the scope, tools and user stay those of the unlinked path."""
 
     def _house_dm_scope() -> str:
         """How much of her a housemate's DM gets: "house" (default) or "private"."""
@@ -1675,7 +1685,11 @@ def make_babelr_wake_callback():
                 image=(context.get("image") or {}).get("data"),
                 image_media_type=(context.get("image") or {}).get("media_type"),
             )
-        result = await channel_turn(stored, prompt)
+        # Who the person she's answering is to her (her PeopleDex entry, when
+        # the organ found one she may recall): in front of her this turn, not
+        # stored as their words.
+        seen = prompt + (f"\n\n{context['person']}" if context.get("person") else "")
+        result = await channel_turn(stored, seen)
         text = await _babelr_reply_or_retry(result, channel_turn, place)
         return {"text": text, "recorded": True} if conversation_id else text
 

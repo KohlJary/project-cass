@@ -26,6 +26,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 SECTIONS = ("now", "today", "commitments", "stances", "work", "this_reply")
+# Her people (babelr_organ/people.py about()): "about" is whether Babelr may
+# show a person what her PeopleDex keeps about them (routes/people_about.py).
+PEOPLE = ("about",)
 ANSWERS = ("yes", "no", "not_yet")
 AUDIENCES = ("kohl", "house", "visitors", "none")
 TEXT_SUFFIXES = {".md", ".txt", ".markdown"}
@@ -48,8 +51,9 @@ def settings(data_dir: Optional[Path] = None) -> Dict[str, Any]:
     sections = {k: (s.get("sections") or {}).get(k, "not_yet") for k in SECTIONS}
     from daybook import KINDS as DAYBOOK
     daybook = {k: (s.get("daybook") or {}).get(k, "not_yet") for k in DAYBOOK}
+    people = {k: (s.get("people") or {}).get(k, "not_yet") for k in PEOPLE}
     return {"sections": sections, "audience": s.get("audience", "none"), "daybook": daybook,
-            "notes": s.get("notes") or {}, "set": s.get("set")}
+            "people": people, "notes": s.get("notes") or {}, "set": s.get("set")}
 
 
 def _save(s: Dict[str, Any], data_dir: Optional[Path]) -> None:
@@ -63,9 +67,11 @@ def set_answers(sections: Dict[str, str], audience: Optional[str] = None,
                 notes: Optional[Dict[str, str]] = None, data_dir: Optional[Path] = None) -> Dict[str, Any]:
     from daybook import KINDS as DAYBOOK
     book = {k.split(".", 1)[1]: v for k, v in sections.items() if k.startswith("daybook.")}
-    sections = {k: v for k, v in sections.items() if not k.startswith("daybook.")}
+    people = {k.split(".", 1)[1]: v for k, v in sections.items() if k.startswith("people.")}
+    sections = {k: v for k, v in sections.items() if not k.startswith(("daybook.", "people."))}
     bad = ([k for k in sections if k not in SECTIONS] + [k for k in book if k not in DAYBOOK]
-           + [v for v in [*sections.values(), *book.values()] if v not in ANSWERS])
+           + [k for k in people if k not in PEOPLE]
+           + [v for v in [*sections.values(), *book.values(), *people.values()] if v not in ANSWERS])
     if bad:
         return {"error": f"sections are {', '.join(SECTIONS)}; answers are {', '.join(ANSWERS)} (got {bad})"}
     if audience is not None and audience not in AUDIENCES:
@@ -73,6 +79,7 @@ def set_answers(sections: Dict[str, str], audience: Optional[str] = None,
     s = settings(data_dir)
     s["sections"].update(sections)
     s["daybook"].update(book)
+    s["people"].update(people)
     if audience is not None:
         s["audience"] = audience
     if notes:
