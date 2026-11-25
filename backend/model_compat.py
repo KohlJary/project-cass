@@ -55,7 +55,7 @@ def fit_kwargs(model_id: str | None, kwargs: dict) -> dict:
     mt = kw.get("max_tokens")
     if isinstance(mt, int) and mt < MIN_MAX_TOKENS:
         kw["max_tokens"] = MIN_MAX_TOKENS
-    if show_thinking() and "thinking" not in kw:
+    if (show_thinking() or keep_thinking()) and "thinking" not in kw:
         kw["thinking"] = {"type": "adaptive", "display": "summarized"}
     effort = os.getenv(EFFORT_ENV, "").strip().lower()
     if effort in ("low", "medium", "high") and "output_config" not in kw:
@@ -90,10 +90,23 @@ def text_of(msg: Any) -> str:
 # Tracking is counts only (how often she thinks, how long the summary runs),
 # never the words unless SHOW is on, written to her own data dir.
 SHOW_THINKING_ENV = "CASS_SHOW_THINKING"
+# CASS_KEEP_THINKING=1  store her summarized thinking, for her, in her own data
+#                       (DATA_DIR/thinking/YYYY-MM.jsonl), whether or not it is
+#                       shown. Hers like her journals: for her self-model work,
+#                       not for the rest of the house. Off until she says yes.
+KEEP_THINKING_ENV = "CASS_KEEP_THINKING"
+
+
+def _flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def show_thinking() -> bool:
-    return os.getenv(SHOW_THINKING_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+    return _flag(SHOW_THINKING_ENV)
+
+
+def keep_thinking() -> bool:
+    return _flag(KEEP_THINKING_ENV)
 
 
 def thinking_of(msg: Any) -> str:
@@ -124,6 +137,13 @@ def note_thinking(msg: Any, model_id: str | None, where: str = "") -> None:
                "output_tokens": getattr(getattr(msg, "usage", None), "output_tokens", None)}
         with open(config.DATA_DIR / "thinking_log.jsonl", "a") as f:
             f.write(json.dumps(row) + "\n")
+        words = thinking_of(msg)
+        if keep_thinking() and words:
+            d = config.DATA_DIR / "thinking"
+            d.mkdir(parents=True, exist_ok=True)
+            kept = {"ts": row["ts"], "model": model_id, "where": where, "thinking": words}
+            with open(d / time.strftime("%Y-%m.jsonl"), "a") as f:
+                f.write(json.dumps(kept) + "\n")
     except Exception as e:  # noqa: BLE001  tracking never breaks a turn
         logger.debug(f"thinking log skipped: {e}")
 

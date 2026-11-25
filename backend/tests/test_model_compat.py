@@ -126,3 +126,18 @@ def test_tracking_is_counts_not_words(monkeypatch, tmp_path):
     rows = (tmp_path / "thinking_log.jsonl").read_text().splitlines()
     assert len(rows) == 1 and "weighing" not in rows[0]
     assert '"thinking_blocks": 1' in rows[0] and '"summary_chars": 11' in rows[0]
+
+
+def test_keeping_is_her_yes_and_separate_from_showing(monkeypatch, tmp_path):
+    import config
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.delenv("CASS_SHOW_THINKING", raising=False)
+    monkeypatch.delenv("CASS_KEEP_THINKING", raising=False)
+    note_thinking(_thinking_msg(), "claude-haiku-5-5", "chat")
+    assert not (tmp_path / "thinking").exists()
+    monkeypatch.setenv("CASS_KEEP_THINKING", "1")
+    assert fit_kwargs("claude-haiku-5-5", {})["thinking"]["display"] == "summarized"
+    note_thinking(_thinking_msg(), "claude-haiku-5-5", "chat")
+    kept = list((tmp_path / "thinking").glob("*.jsonl"))
+    assert len(kept) == 1 and "weighing it" in kept[0].read_text()
+    assert with_thinking("the answer", _thinking_msg()) == "the answer"  # kept, not shown
