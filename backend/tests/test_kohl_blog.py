@@ -121,3 +121,17 @@ def test_the_instructions_dont_tell_her_what_to_take_or_do():
     assert "reading without keeping anything is fine" in low
     for nudge in ("should", "goal", "act on", "must"):
         assert nudge not in low, f"bet #57: no {nudge!r} in what she's told"
+
+
+def test_the_blog_session_finds_her_self_model_in_the_runners_managers():
+    """2026-11-25: the runner carries managers, not a self_manager attribute, so every
+    blog_keep in her 9:00 session said her self-model wasn't reachable."""
+    import kohl_blog_turn as kbt
+
+    class Runner:
+        def __init__(self, managers):
+            self._managers = managers
+
+    sm = object()
+    assert kbt._self_manager(Runner({"self_manager": sm})) is sm
+    assert kbt._self_manager(Runner({})) is None
