@@ -8,6 +8,7 @@ Supports two reading modes:
 Use config toggle to A/B test which produces better insights.
 """
 
+from model_compat import text_of
 import json
 import logging
 import re
@@ -253,11 +254,14 @@ class ContentAnalyzer:
         self,
         daemon_id: str,
         reading_mode: ReadingMode = ReadingMode.SINGLE_PASS,
-        model: str = "claude-haiku-4-5-20251001",
+        model: Optional[str] = None,
         max_paragraphs_per_turn: int = 2,
     ):
         self.daemon_id = daemon_id
         self.reading_mode = reading_mode
+        if model is None:
+            from config import CLAUDE_INTERNAL_MODEL
+            model = CLAUDE_INTERNAL_MODEL
         self.model = model
         self.max_paragraphs_per_turn = max_paragraphs_per_turn
         self.client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -334,7 +338,7 @@ class ContentAnalyzer:
         self.total_input_tokens += response.usage.input_tokens
         self.total_output_tokens += response.usage.output_tokens
 
-        return response.content[0].text
+        return text_of(response)
 
     def _parse_json_response(self, text: str) -> Dict[str, Any]:
         """Parse JSON from LLM response, handling markdown code blocks."""

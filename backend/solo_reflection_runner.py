@@ -332,7 +332,7 @@ class SoloReflectionRunner(BaseSessionRunner):
         reflection_manager: SoloReflectionManager,
         anthropic_api_key: Optional[str] = None,
         use_haiku: bool = True,
-        haiku_model: str = "claude-haiku-4-5-20251001",
+        haiku_model: Optional[str] = None,
         ollama_base_url: str = "http://localhost:11434",
         ollama_model: str = "llama3.1:8b-instruct-q8_0",
         self_manager=None,

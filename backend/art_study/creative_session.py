@@ -6,6 +6,7 @@ demonstrable lineage and artistic reasoning. Subject matter
 comes from Cass's inner world; style from studied masters.
 """
 
+from model_compat import text_of
 import logging
 
 import house_identity
@@ -412,7 +413,7 @@ Create pieces that are clearly influenced by but not imitative of {artist_name}.
             messages=[{"role": "user", "content": prompt}]
         )
 
-        text = response.content[0].text
+        text = text_of(response)
         return _parse_compositions(text)
 
     except Exception as e:
@@ -761,7 +762,7 @@ Create pieces that feel authentically YOURS - not imitation of your influences, 
             messages=[{"role": "user", "content": prompt}]
         )
 
-        text = response.content[0].text
+        text = text_of(response)
         return _parse_house_style_compositions(text)
 
     except Exception as e:

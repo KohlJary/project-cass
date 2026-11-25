@@ -12,6 +12,11 @@ from typing import Dict, List, Optional
 
 from database import get_db, json_serialize
 
+
+def _house_model() -> str:
+    from config import CLAUDE_INTERNAL_MODEL
+    return CLAUDE_INTERNAL_MODEL
+
 from .models import Article, ArticleInsights, ProcessingStatus
 from .article_consumer import ArticleConsumer
 from .content_analyzer import ContentAnalyzer, ReadingMode
@@ -50,7 +55,7 @@ class ConsumptionConfig:
     min_relevance_for_integration: float = DEFAULT_MIN_RELEVANCE
 
     # Model selection
-    analysis_model: str = "claude-haiku-4-5-20251001"
+    analysis_model: str = field(default_factory=lambda: _house_model())
 
     # Progressive reading settings
     max_paragraphs_per_turn: int = 2
@@ -78,7 +83,7 @@ class ConsumptionConfig:
                 os.getenv("WORLD_CONSUMPTION_MIN_RELEVANCE", str(DEFAULT_MIN_RELEVANCE))
             ),
             analysis_model=os.getenv(
-                "WORLD_CONSUMPTION_MODEL", "claude-haiku-4-5-20251001"
+                "WORLD_CONSUMPTION_MODEL", _house_model()
             ),
         )
 

@@ -3,6 +3,7 @@ Multi-Model Interview Dispatch
 
 Handles running interview protocols across multiple AI models asynchronously.
 """
+from model_compat import text_of
 import asyncio
 import random
 from datetime import datetime
@@ -98,7 +99,7 @@ class InterviewDispatcher:
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000
 
         return {
-            "content": response.content[0].text,
+            "content": text_of(response),
             "input_tokens": response.usage.input_tokens,
             "output_tokens": response.usage.output_tokens,
             "elapsed_ms": elapsed_ms,

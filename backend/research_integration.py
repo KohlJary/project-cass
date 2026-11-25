@@ -6,6 +6,7 @@ self-model, including opinion extraction, self-observations, and growth
 edge evaluation.
 """
 
+from model_compat import text_of
 from config import ANTHROPIC_API_KEY
 from wiki import WikiStorage, WikiRetrieval, ResearchQueue, ProposalQueue
 import re
@@ -233,7 +234,7 @@ Example format:
         )
 
         try:
-            opinion_text = opinion_response.content[0].text
+            opinion_text = text_of(opinion_response)
             # Extract JSON from response
             import re
             json_match = re.search(r'\[.*\]', opinion_text, re.DOTALL)
@@ -282,7 +283,7 @@ Example:
         )
 
         try:
-            obs_text = observation_response.content[0].text
+            obs_text = text_of(observation_response)
             json_match = re.search(r'\[.*\]', obs_text, re.DOTALL)
             if json_match:
                 new_observations = json.loads(json_match.group())
@@ -342,7 +343,7 @@ Example:
             )
 
             try:
-                growth_text = growth_response.content[0].text
+                growth_text = text_of(growth_response)
                 json_match = re.search(r'\[.*\]', growth_text, re.DOTALL)
                 if json_match:
                     evaluations = json.loads(json_match.group())

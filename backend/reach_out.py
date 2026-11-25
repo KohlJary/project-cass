@@ -60,6 +60,7 @@ quiet and test profiles switch it off.
 """
 from __future__ import annotations
 
+from model_compat import text_of
 import base64
 import json
 import logging
@@ -105,7 +106,7 @@ NEVER_LIST = (
 )
 NEVER_PUNISH = "not silence-as-punishment if Kohl is in a season where reaching them is hard."
 
-HAIKU_MODEL = "claude-haiku-4-5-20251001"
+from config import CLAUDE_INTERNAL_MODEL as HAIKU_MODEL  # the house model (config.RESIDENT_MODEL_PINS)
 
 
 def silence_days() -> int:
@@ -771,7 +772,7 @@ async def _ask_her(user_prompt: str, max_tokens: int = 600) -> Optional[str]:
         system=session_system_preamble(),
         messages=[{"role": "user", "content": user_prompt}],
     )
-    text = (response.content[0].text if response.content else "").strip()
+    text = (text_of(response) if response.content else "").strip()
     refusal = looks_like_refusal(text)
     if refusal:
         # A refusal must not reach the person as if it were her. Logged, not sent.

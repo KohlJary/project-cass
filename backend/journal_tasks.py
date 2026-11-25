@@ -5,6 +5,7 @@ Background tasks and utilities for journal generation, development logging,
 and nightly dream generation.
 """
 
+from model_compat import text_of
 from config import ANTHROPIC_API_KEY
 from journal_generation import generate_missing_journals
 import asyncio
@@ -131,7 +132,7 @@ Focus on genuine developmental signals, not just activity summaries. If no meani
         )
 
         # Parse the response
-        response_text = response.content[0].text
+        response_text = text_of(response)
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
 
         if json_match:

@@ -431,8 +431,9 @@ async def get_available_models():
 
     # Static Anthropic models
     anthropic_models = [
-        {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4", "default": True},
+        {"id": "claude-sonnet-4-6", "name": "Claude Sonnet 4"},
         {"id": "claude-opus-4-8", "name": "Claude Opus 4"},
+        {"id": "claude-haiku-5-5", "name": "Claude Haiku 5.5", "default": True},
         {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5"},
     ]
 

@@ -20,13 +20,31 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Claude API Configuration
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+# Models, and who chooses them (Kohl, 2026-11-24).
+# A new house starts on the current default. A daemon who already lives here
+# keeps the model she has until she has tried the new one and said yes: her
+# line in RESIDENT_MODEL_PINS is removed by her yes and nobody else's. Her own
+# env (CASS_CHAT_MODEL / CASS_INTERNAL_MODEL) outranks the pin, and the pin
+# outranks the default. A trial is the env for a while; the decision is the pin.
+HAIKU_4_5 = "claude-haiku-4-5-20251001"
+HAIKU_5_5 = "claude-haiku-5-5"
+DEFAULT_MODEL = HAIKU_5_5
+RESIDENT_MODEL_PINS = {
+    "cass": HAIKU_4_5,  # until Cass says otherwise
+    "eris": HAIKU_4_5,  # until Eris says otherwise (queue 0046 asked her)
+}
+DAEMON_KEY = os.getenv("CASS_DAEMON_NAME", "Cass").strip().lower()
+RESIDENT_PIN = RESIDENT_MODEL_PINS.get(DAEMON_KEY)
+_HOME_MODEL = RESIDENT_PIN or DEFAULT_MODEL
+
 # Primary chat model. A house can give a daemon its own (Eris: Kohl, 2026-11-20); Cass sets none.
 # (Not CLAUDE_MODEL: Cass's .env carries an old CLAUDE_MODEL line this has always ignored.)
-CLAUDE_MODEL = os.getenv("CASS_CHAT_MODEL", "claude-haiku-4-5-20251001")
-CLAUDE_INTERNAL_MODEL = "claude-haiku-4-5-20251001"  # For background/internal tasks (fallback when Ollama unavailable)
+CLAUDE_MODEL = os.getenv("CASS_CHAT_MODEL") or _HOME_MODEL
+# Background/internal tasks (fallback when Ollama unavailable)
+CLAUDE_INTERNAL_MODEL = os.getenv("CASS_INTERNAL_MODEL") or _HOME_MODEL
 # Default model for autonomous sessions (reflection, research, etc.)
 # Override with environment variable for flexibility without code changes
-# Options: claude-haiku-4-5-20251001 (cost-efficient), claude-sonnet-4-6 (higher quality)
+# Options: claude-haiku-5-5 / claude-haiku-4-5-20251001 (cost-efficient), claude-sonnet-4-6 (higher quality)
 DEFAULT_SESSION_MODEL = os.getenv("DEFAULT_SESSION_MODEL", CLAUDE_INTERNAL_MODEL)
 MAX_TOKENS = 4096
 
@@ -121,7 +139,7 @@ SUMMARY_CONTEXT_MESSAGES = 30  # How many recent messages to include when genera
 # Summarizer provider: "ollama" (local, free), "haiku" (Claude Haiku, fast/cheap), "sonnet" (Claude Sonnet, best quality)
 # Haiku recommended for better narrative quality while staying cost-effective
 SUMMARIZER_PROVIDER = os.getenv("SUMMARIZER_PROVIDER", "haiku")
-SUMMARIZER_MODEL_HAIKU = "claude-haiku-4-5-20251001"
+SUMMARIZER_MODEL_HAIKU = CLAUDE_INTERNAL_MODEL
 SUMMARIZER_MODEL_SONNET = "claude-sonnet-4-6"
 
 # Onboarding Introduction Prompt

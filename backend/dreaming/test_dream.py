@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from model_compat import text_of
 """
 Dream System - End-to-End Test Harness
 
@@ -226,7 +227,7 @@ class DreamSession:
             messages=self.dreaming_history
         )
 
-        text = response.content[0].text
+        text = text_of(response)
         self.dreaming_history.append({"role": "assistant", "content": text})
         return text
 
@@ -245,7 +246,7 @@ class DreamSession:
             messages=self.cass_history
         )
 
-        text = response.content[0].text
+        text = text_of(response)
         self.cass_history.append({"role": "assistant", "content": text})
         return text
 

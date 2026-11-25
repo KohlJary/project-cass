@@ -2,6 +2,7 @@
 Cass Memory - Self-Model
 Self-observations, per-user journals, growth edge evaluation, and opinion extraction.
 """
+from model_compat import text_of
 from typing import List, Dict, Optional
 
 import house_identity
@@ -829,7 +830,7 @@ RELATIONSHIP_INSIGHTS:
                 user_id=user_id,
             )
 
-            result = response.content[0].text.strip()
+            result = text_of(response).strip()
 
             # Parse the structured parts
             content = result
@@ -1065,7 +1066,7 @@ If nothing to report for either part, write: NONE for that section."""
                 messages=[{"role": "user", "content": prompt}]
             )
 
-            result = response.content[0].text.strip()
+            result = text_of(response).strip()
 
             evaluations = []
             potential_new_edges = []
@@ -1168,7 +1169,7 @@ Only include questions where you have something genuine to add. If nothing, resp
                 messages=[{"role": "user", "content": prompt}]
             )
 
-            result = response.content[0].text.strip()
+            result = text_of(response).strip()
 
             if result.upper() == "NONE":
                 return []

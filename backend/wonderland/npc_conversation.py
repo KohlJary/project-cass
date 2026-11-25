@@ -8,6 +8,7 @@ Now with memory: NPCs remember past conversations and their feelings
 toward daemons affect how they engage.
 """
 
+from model_compat import text_of
 import anthropic
 import logging
 from dataclasses import dataclass, field
@@ -250,7 +251,7 @@ class NPCConversationHandler:
                 messages=messages,
             )
 
-            npc_response = response.content[0].text
+            npc_response = text_of(response)
 
             # Record both messages
             import uuid
@@ -345,7 +346,7 @@ Keep it brief (1-2 short paragraphs at most)."""
                 messages=[{"role": "user", "content": greeting_prompt}],
             )
 
-            greeting = response.content[0].text
+            greeting = text_of(response)
 
             # Record the greeting
             import uuid
@@ -422,7 +423,7 @@ MEMORABLE_QUOTE: [quote or "none"]"""
                 messages=[{"role": "user", "content": summary_prompt}],
             )
 
-            result = response.content[0].text
+            result = text_of(response)
 
             # Parse response
             topics = []

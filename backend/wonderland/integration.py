@@ -7,6 +7,7 @@ Bridges Wonderland MUD with Cass's cognitive systems:
 - Wonderland as a cognitive node
 """
 
+from model_compat import text_of
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -593,7 +594,7 @@ Only generate observations if there's genuine insight from the experience.""",
             )
 
             # Parse observations
-            observations = self._parse_observations(response.content[0].text, daemon_id)
+            observations = self._parse_observations(text_of(response), daemon_id)
             return observations
 
         except Exception as e:

@@ -5,6 +5,7 @@ Handles daily journal generation including per-user journals, opinion extraction
 growth edge evaluation, and research integration.
 """
 
+from model_compat import text_of
 from datetime import datetime, timedelta
 import house_identity
 from config import ANTHROPIC_API_KEY
@@ -701,7 +702,7 @@ Write in first person as {house_identity.daemon_name()}. Be genuine and thoughtf
             }]
         )
 
-        research_journal = response.content[0].text
+        research_journal = text_of(response)
 
         # Store in memory as a special research journal entry
         research_journal_full = f"""## Research Reflection - {date_str}
@@ -817,7 +818,7 @@ Only include intentions where an opportunity occurred. Be honest - if {house_ide
 
         # Parse response
         import json
-        response_text = response.content[0].text
+        response_text = text_of(response)
 
         # Extract JSON from response (handle markdown code blocks)
         if "```json" in response_text:
@@ -957,7 +958,7 @@ Write in first person as {house_identity.daemon_name()}. Be genuine and reflecti
             }]
         )
 
-        world_journal = response.content[0].text
+        world_journal = text_of(response)
 
         # Store as a special journal type
         world_journal_full = f"""## World Awareness - {date_str}

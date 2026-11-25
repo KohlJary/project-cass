@@ -7,6 +7,7 @@ journal entries capturing insights, findings, and reflections from the session.
 This connects research to Cass's reflective journaling practice, ensuring
 research insights become part of her ongoing self-understanding.
 """
+from model_compat import text_of
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -197,7 +198,7 @@ Be authentic and reflective, not just summarizing. This is your journal."""
             messages=[{"role": "user", "content": prompt}]
         )
 
-        reflection = response.content[0].text
+        reflection = text_of(response)
         return reflection
 
     except Exception as e:

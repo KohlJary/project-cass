@@ -5,6 +5,7 @@ Multi-modal artwork analysis - Cass views and studies artworks,
 developing her own artistic vocabulary and understanding.
 """
 
+from model_compat import text_of
 import base64
 
 import house_identity
@@ -160,7 +161,7 @@ Provide a focused summary (2-3 paragraphs) that will help inform visual analysis
                 max_tokens=1000,
                 messages=[{"role": "user", "content": summary_prompt}]
             )
-            biography = response.content[0].text
+            biography = text_of(response)
 
             # Now, create observations about the artist for PeopleDex
             if entity_id and daemon_id:
@@ -237,7 +238,7 @@ Be specific and personal - these are YOUR notes about what matters to you about 
             messages=[{"role": "user", "content": observation_prompt}]
         )
 
-        observations_text = response.content[0].text
+        observations_text = text_of(response)
 
         # Parse and save observations
         current_type = None
@@ -382,7 +383,7 @@ Be specific and grounded in what you actually observe. Develop your own voice as
             }]
         )
 
-        analysis_text = response.content[0].text
+        analysis_text = text_of(response)
         logger.debug(f"Raw analysis response (first 500 chars): {analysis_text[:500]}")
 
         # Parse the structured response
@@ -613,7 +614,7 @@ Speak in your own voice as an artist who has genuinely learned from studying thi
             messages=[{"role": "user", "content": synthesis_prompt}]
         )
 
-        synthesis_text = response.content[0].text
+        synthesis_text = text_of(response)
         synthesis = _parse_synthesis(synthesis_text, artist_id, daemon_id, len(studies))
 
         # Save the synthesis

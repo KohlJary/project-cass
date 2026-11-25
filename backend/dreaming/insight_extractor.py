@@ -8,6 +8,7 @@ Uses LLM to identify:
 - Recurring symbols
 - Questions that emerged
 """
+from model_compat import text_of
 import json
 from typing import Optional
 from dataclasses import dataclass, asdict
@@ -145,7 +146,7 @@ class DreamInsightExtractor:
             )
 
             # Parse the JSON response
-            text = response.content[0].text
+            text = text_of(response)
 
             # Find JSON in response (may have explanation text around it)
             json_start = text.find("{")

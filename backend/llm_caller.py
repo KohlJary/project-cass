@@ -29,6 +29,7 @@ record_usage() is for code that must keep its own client (chat).
 
 from __future__ import annotations
 
+from model_compat import fit_kwargs, note_thinking
 import asyncio
 import logging
 import os
@@ -360,7 +361,7 @@ class _Request:
         if self.temperature is not None:
             kw["temperature"] = self.temperature
         kw.update(self.anthropic_kwargs)
-        return kw
+        return fit_kwargs(model_id, kw)
 
     def _chat_messages(self) -> list:
         messages = []
@@ -804,7 +805,7 @@ async def create_message(
         if provider == "anthropic":
             c = client or _anthropic_client(True, api_key)
             try:
-                msg = await c.messages.create(model=model_id, **kwargs)
+                msg = await c.messages.create(**fit_kwargs(model_id, {"model": model_id, **kwargs}))
             except Exception as e:
                 last_error = e
                 record_failure(call_site, provider, model_id, _error_kind(e), f"{type(e).__name__}: {e}",
@@ -813,6 +814,7 @@ async def create_message(
                     logger.warning(f"[llm:{call_site}] {provider}:{model_id} failed: {e}; trying fallback")
                     continue
                 raise
+            note_thinking(msg, model_id, call_site)
             _record_response(call_site, _anthropic_to_response(msg, model_id), started, ledger)
             return msg
         resp = await _call_provider(provider, model_id, _text_request(kwargs))
@@ -851,7 +853,7 @@ def create_message_sync(
         if provider == "anthropic":
             c = client or _anthropic_client(False, api_key)
             try:
-                msg = c.messages.create(model=model_id, **kwargs)
+                msg = c.messages.create(**fit_kwargs(model_id, {"model": model_id, **kwargs}))
             except Exception as e:
                 last_error = e
                 record_failure(call_site, provider, model_id, _error_kind(e), f"{type(e).__name__}: {e}",
@@ -860,6 +862,7 @@ def create_message_sync(
                     logger.warning(f"[llm:{call_site}] {provider}:{model_id} failed: {e}; trying fallback")
                     continue
                 raise
+            note_thinking(msg, model_id, call_site)
             _record_response(call_site, _anthropic_to_response(msg, model_id), started, ledger)
             return msg
         resp = _call_provider_sync(provider, model_id, _text_request(kwargs))
