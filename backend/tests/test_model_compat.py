@@ -17,7 +17,7 @@ def test_new_shape_drops_sampling_and_lifts_small_caps():
           "messages": [{"role": "user", "content": "hi"}]}
     out = fit_kwargs("claude-haiku-5-5", kw)
     assert "temperature" not in out and "top_p" not in out
-    assert out["max_tokens"] == MIN_MAX_TOKENS
+    assert out["max_tokens"] == MIN_MAX_TOKENS  # 50 doubled is still under the floor
     assert kw["temperature"] == 0.2  # caller's dict not modified
 
 

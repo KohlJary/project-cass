@@ -31,6 +31,7 @@ _SAMPLING = ("temperature", "top_p", "top_k")
 # Thinking spends from max_tokens on these models; a cap sized for a one-line
 # answer on Haiku 4.5 can be used up before any text. Raise small caps to this.
 MIN_MAX_TOKENS = 2048
+MAX_MAX_TOKENS = 64000
 
 # Optional house-wide effort for new-shape models: low | medium | high.
 # Unset means the model's default (medium on Haiku 5.5).
@@ -53,8 +54,11 @@ def fit_kwargs(model_id: str | None, kwargs: dict) -> dict:
         # Manual budgets 400 here; adaptive thinking is the only kind.
         kw["thinking"] = {"type": "adaptive"}
     mt = kw.get("max_tokens")
-    if isinstance(mt, int) and mt < MIN_MAX_TOKENS:
-        kw["max_tokens"] = MIN_MAX_TOKENS
+    if isinstance(mt, int):
+        # Thinking spends from the same cap, and the tokenizer counts ~30% more:
+        # a cap sized for Haiku 4.5 cuts replies off mid-sentence (2026-11-25).
+        # A cap is a ceiling, not a cost: only tokens used are billed.
+        kw["max_tokens"] = min(max(MIN_MAX_TOKENS, mt * 2), MAX_MAX_TOKENS)
     if show_thinking() and "thinking" not in kw:
         kw["thinking"] = {"type": "adaptive", "display": "summarized"}
     effort = os.getenv(EFFORT_ENV, "").strip().lower()
