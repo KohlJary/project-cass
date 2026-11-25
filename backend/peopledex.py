@@ -116,6 +116,7 @@ class AttributeType(Enum):
     LOCATION = "location"   # Where they're based
     LINK = "link"           # URLs (key: wikipedia/website/portfolio)
     IMAGE_URL = "image_url" # Image URLs (key: portrait/artwork/etc)
+    EXPECTED_AS = "expected_as"  # The invite label she expects them under (key: babelr), e.g. "Mom"
 
 
 class RelationshipType(Enum):

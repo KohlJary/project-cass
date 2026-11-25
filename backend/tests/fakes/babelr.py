@@ -95,6 +95,28 @@ class FakeBabelr:
         self.agents.append(agent)
         return agent
 
+    # -- welcomes (Babelr feat/house-welcome) -------------------------------------
+    # Only agents made with make_welcoming_agent have welcomes(), like a
+    # babelr-agent new enough to; the plain FakeAgent stays the older client.
+
+    def make_welcoming_agent(self, base_url: str, token: str, key_path) -> "WelcomingAgent":
+        agent = WelcomingAgent(self, base_url, token, key_path)
+        self.agents.append(agent)
+        return agent
+
+    def welcome(self, newcomer: dict, invited_as: Optional[str] = None, card: Optional[dict] = None,
+                consented: Optional[bool] = None) -> dict:
+        """A newcomer joins; a pending welcome for her, as GET /welcomes shows it."""
+        if not hasattr(self, "welcomes"):
+            self.welcomes: List[dict] = []
+        w = {"id": self._id("welcome"), "server": {"id": self.server["id"], "name": self.server["name"]},
+             "newcomer": dict(newcomer), "invitedBy": {"id": KOHL["id"], "preferredUsername": "kohl"},
+             "dmId": self._id("dm"), "state": "pending", "reason": None, "newcomerKeyReady": True,
+             "invitedAs": invited_as, "card": card, "consented": consented,
+             "seedsPending": consented is None}
+        self.welcomes.append(w)
+        return w
+
 
 class FakeAgent:
     def __init__(self, server: FakeBabelr, base_url: str, token: str, key_path):
@@ -245,3 +267,20 @@ class FakeAgent:
             s.plan_acts.append((pid, act, (body or {}).get("reason")))
             return {"ok": True}
         raise RuntimeError(f"fake Plans: no route {method} {path}")
+
+
+class WelcomingAgent(FakeAgent):
+    def welcomes(self, state: str = "pending") -> List[dict]:
+        self.server.calls.append(("GET", f"/welcomes?state={state}", None))
+        out = [dict(w) for w in getattr(self.server, "welcomes", []) if state == "all" or w["state"] == state]
+        for w in out:
+            w.setdefault("invited_as", w.get("invitedAs"))
+        return out
+
+    def welcome_done(self, welcome_id: str) -> dict:
+        self.server.calls.append(("POST", f"/welcomes/{welcome_id}/done", None))
+        raise AssertionError("the organ never marks a welcome done")
+
+    def set_welcoming(self, server_id: str, on: bool = True) -> dict:
+        self.server.calls.append(("PUT", f"/servers/{server_id}/welcome", {"welcoming": on}))
+        raise AssertionError("only she opts herself in")

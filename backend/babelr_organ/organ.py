@@ -200,6 +200,17 @@ def house_dm_names() -> set:
     return {n.strip().lstrip("@").lower() for n in raw.split(",") if n.strip()}
 
 
+def read_links(path: Path) -> Dict[str, str]:
+    """links.json: Babelr usernames (lowercased) -> the vessel user they're linked to."""
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k).lower(): str(v) for k, v in data.items() if isinstance(v, str) and v}
+
+
 class BabelrOrgan:
     def __init__(
         self,
@@ -537,6 +548,9 @@ class BabelrOrgan:
         """Collect, record, and wake her for what reaches her. Returns the new events."""
         if not self.enabled:
             return []
+        # Newcomers first: a handle joins the entry she prepared before their
+        # first DM (collected just below) reaches her.
+        await asyncio.to_thread(self._collect_welcomes)
         events = await asyncio.to_thread(self.collect)
         to_wake: Dict[str, List[BabelrEvent]] = {}
         ambient: List[BabelrEvent] = []
@@ -611,6 +625,10 @@ class BabelrOrgan:
             # context and tools, as Kohl's do (Kohl, 2026-11-23: a config toggle, off
             # until a vessel lists someone).
             "house_dm": last.kind == "dm" and last.author_name.lstrip("@").lower() in house_dm_names(),
+            # Who the person she's answering is to her: her PeopleDex entry for
+            # their handle, for someone she files (people.py) and isn't linked.
+            # Her turn shows it to her; it isn't stored as anything they said.
+            "person": self._recall(last, links),
             # What they wrote, without the Babelr framing, for the stored turn.
             "their_words": "\n\n".join(words(e) for e in events),
             # The newest picture they sent, for her to see (one per turn).
@@ -628,6 +646,87 @@ class BabelrOrgan:
             "offered": all(e.message_id in self._offered for e in events),
             "everyone": any(e.message_id in self._everyone for e in events),
         }
+
+    def _recall(self, event: BabelrEvent, links: Dict[str, str]) -> str:
+        """Her PeopleDex entry for the person she's answering ("who this is to
+        me"), under the same terms as filing them (people.recalled): nobody
+        linked (their own conversations carry them), kept off, or unremembered,
+        and nothing when remember is false. Empty if she has none. Never fails
+        her turn."""
+        try:
+            from babelr_organ.people import load_filings, recall, recalled
+            if not recalled(event.author_name, kind=event.kind, my_username=self.my_username,
+                            links=links, filings=load_filings(self.config.people_path),
+                            remember=self.terms.remember, remembers=self.terms.remembers):
+                return ""
+            return recall(event.author_name)
+        except Exception as e:
+            logger.warning(f"[Babelr] Couldn't read back her PeopleDex entry for this turn: {e}")
+            return ""
+
+    WELCOMES_KEPT = 500
+
+    def _collect_welcomes(self) -> None:
+        """Pending welcomes (Babelr's GET /welcomes, babelr-agent welcomes()):
+        newcomers she welcomes, on the poll's cadence. Each welcome id is
+        handled once (state "welcomes_seen"): on_welcome links an invited
+        newcomer's handle to the entry she prepared for that invite label.
+
+        Read only. This never marks a welcome done (writing in the DM does
+        that, and that's hers to do), never sends anything, and never opts
+        her in: welcomes arrive only after she opts in herself
+        (set_welcoming, PUT /servers/:id/welcome). Not opted in, or an older
+        client without welcomes(): nothing happens. The card's seeds and
+        facts aren't used; when the newcomer said no (consented false) they're
+        dropped before anything else sees the welcome."""
+        if not hasattr(self.client, "welcomes"):
+            return
+        try:
+            pending = self.client.welcomes("pending") or []
+        except Exception as e:
+            logger.debug(f"[Babelr] welcomes not read: {e}")
+            return
+        seen = self.state.data.setdefault("welcomes_seen", [])
+        for w in pending:
+            if not isinstance(w, dict):
+                continue
+            wid = w.get("id")
+            if not wid or wid in seen:
+                continue
+            if w.get("consented") is False and isinstance(w.get("card"), dict):
+                w = dict(w, card={k: v for k, v in w["card"].items() if k not in ("seeds", "facts")})
+            newcomer = w.get("newcomer") or {}
+            handle = newcomer.get("preferredUsername") if isinstance(newcomer, dict) else None
+            out = self.on_welcome({"handle": handle,
+                                   "invited_as": w.get("invited_as") or w.get("invitedAs")})
+            if out.get("skipped") == "error":
+                continue  # try again next poll
+            seen.append(wid)
+        del seen[:-self.WELCOMES_KEPT]
+
+    def on_welcome(self, welcome: Dict[str, Any]) -> Dict[str, str]:
+        """Someone registered through a person-bound invite. If the welcome
+        carries invited_as and she prepared an entry marked with exactly that
+        label (expected_as), their new handle joins it (people.link_invited),
+        so their first DM recalls it. Otherwise nothing; they're filed fresh
+        when they first talk with her. Never fails anything.
+
+        Called from _collect_welcomes, once per welcome. Only the handle and
+        the invite label are used: never the card's seeds or facts."""
+        invited_as = welcome.get("invited_as") or welcome.get("invitedAs")
+        handle = welcome.get("handle") or welcome.get("username") or welcome.get("preferredUsername")
+        if not invited_as or not handle:
+            return {"skipped": "not an invited arrival"}
+        try:
+            from babelr_organ.people import link_invited, load_filings
+            out = link_invited(handle, invited_as, my_username=self.my_username, links=self._links(),
+                               filings=load_filings(self.config.people_path), remember=self.terms.remember)
+            if out.get("linked"):
+                logger.info(f"[Babelr] @{handle} arrived by invite; their handle joined the entry she prepared")
+            return out
+        except Exception as e:
+            logger.warning(f"[Babelr] Couldn't link an invited arrival to her PeopleDex: {e}")
+            return {"skipped": "error"}
 
     def _image(self, events: List[BabelrEvent]) -> Optional[Dict[str, str]]:
         """The newest picture in these events, fetched and base64'd, or None."""
@@ -864,13 +963,7 @@ class BabelrOrgan:
 
     def _links(self) -> Dict[str, str]:
         """links.json: Babelr usernames whose DMs are their chat with her."""
-        try:
-            data = json.loads(self.config.links_path.read_text())
-        except (OSError, ValueError):
-            return {}
-        if not isinstance(data, dict):
-            return {}
-        return {str(k).lower(): str(v) for k, v in data.items() if isinstance(v, str) and v}
+        return read_links(self.config.links_path)
 
     def _conversation_id(self, place: str, label: str) -> Optional[str]:
         if self.conversation_manager is None:
