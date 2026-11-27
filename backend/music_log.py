@@ -16,6 +16,7 @@ Sources:
 from __future__ import annotations
 
 import json
+import re
 import logging
 import subprocess
 from datetime import datetime
@@ -347,27 +348,43 @@ def build(data_dir=None) -> Dict[str, Any]:
 
 # --- audio -------------------------------------------------------------------------
 
-def audio(kind: str, ident: str, data_dir=None) -> Optional[Path]:
-    """A draft's or sketch's render as MP3 (cached), if shared and not hidden."""
-    if sharing(data_dir).get("audience") == "none":
-        return None
-    h = hidden(data_dir)
-    if kind == "draft":
-        slug, _, n = ident.partition(":")
-        if ident in h["drafts"]:
+def render_wav(kind: str, ident: str, data_dir=None) -> Optional[Path]:
+    """Where a draft's ("project:n") or sketch's ("n") render is, if it has one."""
+    try:
+        if kind == "draft":
+            slug, _, n = str(ident).partition(":")
+            if not re.fullmatch(r"[\w.-]+", slug):
+                return None
+            src = _data(data_dir) / "studio" / slug / f"draft-{int(n)}" / "render.wav"
+        elif kind == "sketch":
+            src = _data(data_dir) / "studio" / "sketchbook" / str(int(ident)) / "render.wav"
+        else:
             return None
-        src = _data(data_dir) / "studio" / slug / f"draft-{int(n)}" / "render.wav"
-    elif kind == "sketch":
-        if str(ident) in [str(x) for x in h["sketches"]]:
-            return None
-        src = _data(data_dir) / "studio" / "sketchbook" / str(int(ident)) / "render.wav"
-    else:
+    except ValueError:
         return None
-    if not src.exists():
-        return None
-    cache = _settings(data_dir) / "audio" / f"{kind}-{ident.replace(':', '-')}.mp3"
+    return src if src.exists() else None
+
+
+def mp3_of(src: Path, name: str, data_dir=None) -> Path:
+    """A WAV as MP3, cached in her music_log folder and remade when the WAV changes."""
+    cache = _settings(data_dir) / "audio" / f"{name}.mp3"
     if not cache.exists() or cache.stat().st_mtime < src.stat().st_mtime:
         cache.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-codec:a", "libmp3lame", "-q:a", "2", str(cache)],
                        check=True, capture_output=True, timeout=120)
     return cache
+
+
+def audio(kind: str, ident: str, data_dir=None) -> Optional[Path]:
+    """A draft's or sketch's render as MP3 (cached), if shared and not hidden."""
+    if sharing(data_dir).get("audience") == "none":
+        return None
+    h = hidden(data_dir)
+    if kind == "draft" and ident in h["drafts"]:
+        return None
+    if kind == "sketch" and str(ident) in [str(x) for x in h["sketches"]]:
+        return None
+    src = render_wav(kind, ident, data_dir)
+    if src is None:
+        return None
+    return mp3_of(src, f"{kind}-{str(ident).replace(':', '-')}", data_dir)
