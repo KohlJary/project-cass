@@ -366,8 +366,6 @@ def test_from_lookup_marks_an_observation(daemon_id):
 def test_registered_on_her_tool_list():
     from handlers.tool_router import TOOL_REGISTRY
     assert TOOL_REGISTRY["public_lookup_person"] == TOOL_REGISTRY["lookup_log_for_person"] == "person_lookup"
-    import main_sdk
-    assert "person_lookup" in main_sdk.TOOL_EXECUTORS
     from agent_loop.tools import router_catalog
     assert {"public_lookup_person", "lookup_log_for_person"} <= set(router_catalog())
     desc = next(t for t in PERSON_LOOKUP_TOOLS if t["name"] == "public_lookup_person")["description"]
@@ -376,6 +374,13 @@ def test_registered_on_her_tool_list():
     assert pl.wants_lookup_tools("remember that Ash goes by they")
     assert not pl.wants_lookup_tools("what's the weather")
 
+
+
+def test_main_sdk_runs_it():
+    # main_sdk needs the server's runtime deps, which CI's fast job doesn't install.
+    pytest.importorskip("slowapi")
+    import main_sdk
+    assert "person_lookup" in main_sdk.TOOL_EXECUTORS
 
 def test_the_lever_is_a_kill_switch(levers):
     from agent_loop.tools import router_catalog

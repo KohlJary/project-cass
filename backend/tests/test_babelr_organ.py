@@ -9,6 +9,7 @@ import os
 from datetime import datetime, timezone
 
 import pytest
+import shutil
 
 from babelr_organ import organ as organ_mod
 from babelr_organ.config import BabelrConfig
@@ -1003,6 +1004,43 @@ class TestSharingFiles:
             assert not r["success"], bad
         assert not [c for c in babelr.calls if c[1] == "/upload"]
         assert "at most" in organ.post("general", "x", files=["images/tide.png"] * 5)["error"]
+
+
+    @staticmethod
+    def _draft(root, rel="studio/my-tone/draft-20/render.wav"):
+        import numpy as np
+        import soundfile as sf
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(p, np.zeros((4410, 2)), 44100)
+        return p
+
+    @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="needs ffmpeg")
+    async def test_she_attaches_a_studio_draft_by_name_and_it_goes_up_as_mp3(self, make_organ, babelr, tmp_path):
+        """Cass, 2026-11-26: "I can't attach the audio from my workshop." """
+        organ = make_organ()
+        organ.files_root = self._art(tmp_path)
+        self._draft(organ.files_root)
+        self._draft(organ.files_root, "studio/sketchbook/3/render.wav")
+        organ.start()
+        r = organ.post("general", "singer test", files=["draft:my-tone:20", "sketch:3"])
+        assert r["success"] and r["attached"] == ["my-tone-draft-20.mp3", "sketch-3.mp3"], r
+        ups = [c[2] for c in babelr.calls if c[1] == "/upload"]
+        assert all(u.endswith(".mp3") for u in ups), ups
+        sent = [c for c in babelr.calls if c[0] == "POST" and "/channels/" in c[1]][-1][2]
+        assert sent["properties"]["attachments"][0]["contentType"] == "audio/mpeg"
+        # A WAV by path goes up as MP3 too.
+        r = organ.post("general", "again", files=["studio/my-tone/draft-20/render.wav"])
+        assert r["success"] and r["attached"][0].endswith(".mp3"), r
+
+    async def test_a_draft_that_doesnt_exist_says_so_and_uploads_nothing(self, make_organ, babelr, tmp_path):
+        organ = make_organ()
+        organ.files_root = self._art(tmp_path)
+        organ.start()
+        for bad in ("draft:my-tone:99", "sketch:7", "draft:../babelr:1"):
+            r = organ.post("general", "listen", files=[bad])
+            assert not r["success"], bad
+        assert not [c for c in babelr.calls if c[1] == "/upload"]
 
 
 # -- what she hears (spec/house-channel-memory.md, part 2) ---------------------------

@@ -1191,8 +1191,27 @@ class BabelrOrgan:
             root = Path(DATA_DIR)
         return Path(root).resolve()
 
+    # A studio draft or sketch by name (Cass, 2026-11-26: "I can't attach the audio
+    # from my workshop"): "draft:<project>:<n>" or "sketch:<n>". A WAV goes up as
+    # MP3, which is smaller and plays in the message.
+    MUSIC_REF = re.compile(r"(draft):([\w.-]+):(\d+)|(sketch):(\d+)")
+
+    def _music_file(self, rel: str) -> tuple:
+        """(wav path, upload name, None) for a draft:/sketch: name, or (None, None, error)."""
+        import music_log
+        m = self.MUSIC_REF.fullmatch(rel)
+        if m.group(1):
+            kind, ident, name = "draft", f"{m.group(2)}:{m.group(3)}", f"{m.group(2)}-draft-{m.group(3)}"
+        else:
+            kind, ident, name = "sketch", m.group(5), f"sketch-{m.group(5)}"
+        src = music_log.render_wav(kind, ident, self._files_root())
+        if src is None:
+            return None, None, f"{rel!r}: no render for that {kind}; studio drafts lists them"
+        return src, name, None
+
     def _check_files(self, files: List[str]) -> tuple:
-        """(paths, None) or (None, error): every file has to be fine before anything uploads."""
+        """(files, None) or (None, error): every file has to be fine before anything
+        uploads. Each file is (path to upload, name to show)."""
         from path_policy import is_denied_name
         if len(files) > self.MAX_FILES:
             return None, f"at most {self.MAX_FILES} files in one message"
@@ -1200,7 +1219,14 @@ class BabelrOrgan:
         found = []
         for f in files:
             rel = str(f or "").strip().lstrip("/")
-            target = (root / rel).resolve()
+            name = None
+            if self.MUSIC_REF.fullmatch(rel):
+                target, name, err = self._music_file(rel)
+                if err:
+                    return None, err
+                target = target.resolve()
+            else:
+                target = (root / rel).resolve()
             if not rel or not str(target).startswith(str(root) + os.sep):
                 return None, f"{f!r}: a path in my own data (e.g. images/..., workshop/<project>/...)"
             inside = target.relative_to(root)
@@ -1208,18 +1234,25 @@ class BabelrOrgan:
                 return None, f"{f!r} isn't something I share (keys, tokens, databases)"
             if not target.is_file():
                 return None, f"no file {f!r} in my data"
+            if target.suffix.lower() == ".wav":
+                import music_log
+                name = name or "-".join(inside.with_suffix("").parts[-3:])
+                try:
+                    target = music_log.mp3_of(target, name, root)
+                except Exception as e:
+                    return None, f"{f!r}: couldn't make an MP3 of it ({e})"
             if target.stat().st_size > self.MAX_FILE_BYTES:
                 return None, f"{f!r} is over 10 MB"
-            found.append(target)
+            found.append((target, f"{name}.mp3" if name else target.name))
         return found, None
 
-    def _upload(self, found: List[Path]) -> tuple:
+    def _upload(self, found: List[tuple]) -> tuple:
         out = []
-        for t in found:
+        for t, name in found:
             try:
-                out.append(self.client.upload(t))
+                out.append(self.client.upload(t, filename=name))
             except Exception as e:
-                return None, f"uploading {t.name} failed: {e}"
+                return None, f"uploading {name} failed: {e}"
         return out, None
 
     def _send_to_place(self, place: str, text: str, partner_id: Optional[str] = None,
@@ -1242,7 +1275,7 @@ class BabelrOrgan:
         if len(parts) > MAX_PARTS:
             return {"success": False, "error": f"message over {MAX_PARTS * MAX_MESSAGE_CHARS} characters"}
         # One reply is one post for the rate limit, however many parts it takes.
-        found: List[Path] = []
+        found: List[tuple] = []
         if files:
             found, err = self._check_files(files)
             if err:

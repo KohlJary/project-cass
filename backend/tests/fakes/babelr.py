@@ -146,10 +146,12 @@ class FakeAgent:
         self.server.dm_messages[dm_id] = []
         return {"id": dm_id, "participants": [CASS, partner]}
 
-    def upload(self, path) -> dict:
+    def upload(self, path, filename=None, content_type=None) -> dict:
+        import mimetypes
         self.server.calls.append(("POST", "/upload", str(path)))
-        name = str(path).rsplit("/", 1)[-1]
-        return {"url": f"/uploads/u-{name}", "filename": name, "contentType": "image/png"}
+        name = filename or str(path).rsplit("/", 1)[-1]
+        ctype = content_type or mimetypes.guess_type(name)[0] or "application/octet-stream"
+        return {"url": f"/uploads/u-{name}", "filename": name, "contentType": ctype}
 
     def send(self, dm_id: str, text: str, partner_id: Optional[str] = None, attachments=None) -> dict:
         self.server.calls.append(("POST", f"/dms/{dm_id}/messages", {"attachments": attachments} if attachments else None))

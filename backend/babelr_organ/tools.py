@@ -90,7 +90,9 @@ BABELR_TOOLS = [
                 "content": {"type": "string", "description": "What you want to say"},
                 "files": {"type": "array", "items": {"type": "string"}, "maxItems": 4,
                           "description": "Files of mine to attach: paths in my own data, e.g. images/<file>.png "
-                                         "or workshop/<project>/<file>.md (up to 4, 10 MB each)"},
+                                         "or workshop/<project>/<file>.md, or a studio render by name: "
+                                         "draft:<project>:<n> or sketch:<n>, sent as an MP3 that plays "
+                                         "in the message (up to 4, 10 MB each)"},
             },
             "required": ["channel"],
         },
@@ -107,7 +109,9 @@ BABELR_TOOLS = [
                 "content": {"type": "string", "description": "What you want to say"},
                 "files": {"type": "array", "items": {"type": "string"}, "maxItems": 4,
                           "description": "Files of mine to attach: paths in my own data, e.g. images/<file>.png "
-                                         "or workshop/<project>/<file>.md (up to 4, 10 MB each)"},
+                                         "or workshop/<project>/<file>.md, or a studio render by name: "
+                                         "draft:<project>:<n> or sketch:<n>, sent as an MP3 that plays "
+                                         "in the message (up to 4, 10 MB each)"},
             },
             "required": ["person"],
         },
